@@ -108,10 +108,10 @@ serve(async (req) => {
 
       if (product.marketplace === "mercadolivre" && isValidMLB(externalId)) {
         try {
+          // Para itens de outros vendedores, a API Ç© pÇ§blica; nÇœo envie Authorization
           const headers: Record<string, string> = {
             "User-Agent": "Mozilla/5.0 (compatible; ArsenalFitBot/1.0; +https://arsenalf.it)",
           };
-          if (meliToken) headers["Authorization"] = `Bearer ${meliToken}`;
 
           const res = await fetch(`https://api.mercadolibre.com/items/${externalId}`, { headers });
           if (!res.ok) {
