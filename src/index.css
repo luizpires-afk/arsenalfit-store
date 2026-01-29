@@ -1,0 +1,278 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+@layer base {
+  :root {
+    /* Core Colors - Energetic Orange/Red Theme */
+    --background: 0 0% 98%;
+    --foreground: 220 15% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 15%;
+
+    /* Primary - Vibrant Orange */
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Deep Gray */
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 15% 25%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 45%;
+
+    /* Accent - Electric Green for CTAs */
+    --accent: 142 70% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 24 95% 53%;
+
+    --radius: 0.75rem;
+
+    /* Custom ArsenalFit Colors */
+    --energy: 24 95% 53%;
+    --energy-dark: 15 90% 45%;
+    --power: 0 85% 55%;
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 45 93% 47%;
+    --dark: 220 15% 15%;
+    --light: 0 0% 98%;
+
+    /* Gradients */
+    --gradient-energy: linear-gradient(135deg, hsl(24, 95%, 53%) 0%, hsl(0, 85%, 55%) 100%);
+    --gradient-dark: linear-gradient(180deg, hsl(220, 15%, 15%) 0%, hsl(220, 20%, 10%) 100%);
+    --gradient-success: linear-gradient(135deg, hsl(142, 70%, 45%) 0%, hsl(160, 70%, 40%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(220, 15%, 10%) 0%, hsl(220, 20%, 18%) 50%, hsl(24, 30%, 20%) 100%);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-energy: 0 10px 40px -10px hsl(24, 95%, 53%, 0.4);
+    --shadow-card: 0 4px 20px -4px rgb(0 0 0 / 0.08);
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 220 15% 25%;
+    --sidebar-primary: 24 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 220 15% 25%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 24 95% 53%;
+  }
+
+  .dark {
+    --background: 220 20% 8%;
+    --foreground: 0 0% 95%;
+
+    --card: 220 20% 12%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 24 95% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 0 0% 90%;
+
+    --muted: 220 15% 18%;
+    --muted-foreground: 220 10% 60%;
+
+    --accent: 142 70% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 24 95% 55%;
+
+    --sidebar-background: 220 20% 10%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 24 95% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 15% 15%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 15% 18%;
+    --sidebar-ring: 24 95% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .gradient-energy {
+    background: var(--gradient-energy);
+  }
+
+  .gradient-dark {
+    background: var(--gradient-dark);
+  }
+
+  .gradient-success {
+    background: var(--gradient-success);
+  }
+
+  .gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .shadow-energy {
+    box-shadow: var(--shadow-energy);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .text-gradient-energy {
+    background: var(--gradient-energy);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hover-lift {
+    @apply transition-all duration-300;
+  }
+
+  .hover-lift:hover {
+    @apply -translate-y-1;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .btn-energy {
+    @apply inline-flex items-center justify-center rounded-lg px-6 py-3 font-semibold text-white transition-all duration-300;
+    background: var(--gradient-energy);
+  }
+
+  .btn-energy:hover {
+    @apply scale-105;
+    box-shadow: var(--shadow-energy);
+  }
+
+  .btn-success {
+    @apply inline-flex items-center justify-center rounded-lg px-6 py-3 font-semibold text-white transition-all duration-300;
+    background: var(--gradient-success);
+  }
+
+  .btn-success:hover {
+    @apply scale-105;
+    box-shadow: 0 10px 40px -10px hsl(142, 70%, 45%, 0.4);
+  }
+
+  .card-product {
+    @apply bg-card rounded-xl overflow-hidden transition-all duration-300 border border-border;
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-product:hover {
+    @apply -translate-y-2 border-primary/20;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .badge-sale {
+    @apply inline-flex items-center px-2 py-1 rounded-md text-xs font-bold text-white;
+    background: var(--gradient-energy);
+  }
+
+  .badge-free-shipping {
+    @apply inline-flex items-center px-2 py-1 rounded-md text-xs font-bold text-white;
+    background: var(--gradient-success);
+  }
+
+  .input-modern {
+    @apply w-full rounded-lg border border-border bg-background px-4 py-3 text-foreground transition-all duration-200;
+  }
+
+  .input-modern:focus {
+    @apply outline-none ring-2 ring-primary/50 border-primary;
+  }
+
+  .container-tight {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-black focus:shadow-lg;
+  }
+}
+
+@layer utilities {
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
