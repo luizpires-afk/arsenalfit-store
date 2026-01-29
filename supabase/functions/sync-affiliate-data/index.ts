@@ -239,7 +239,7 @@ serve(async (req) => {
       let externalId = product.external_id;
 
       if (!externalId && product.marketplace === "mercadolivre") {
-        const mlb = extractMLB(product.source_url);
+      const mlb = extractMLB(product.source_url);
         if (isValidMLB(mlb)) {
           externalId = mlb!;
           updates.push({ id: product.id, external_id: mlb, updated_at: now });
@@ -252,6 +252,7 @@ serve(async (req) => {
       if (product.marketplace === "mercadolivre") {
         try {
           let pricePayload: any = null;
+          const scraperEndpoint = Deno.env.get("SCRAPER_ENDPOINT");
 
           // 1) Products API (catalog) se houver /p/MLB...
           const catalogId = extractCatalog(product.source_url);
@@ -259,12 +260,34 @@ serve(async (req) => {
             pricePayload = await fetchCatalogPrice(catalogId);
           }
 
-          // 2) Search API pública se externalId válido
+          // 2) Tenta scraper externo (Netlify) se houver endpoint
+          if (!pricePayload && scraperEndpoint && product.source_url) {
+            try {
+              const res = await fetch(`${scraperEndpoint}?url=${encodeURIComponent(product.source_url)}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data?.price !== undefined) {
+                  pricePayload = {
+                    price: data.price,
+                    original_price: data.original_price ?? data.price,
+                    free_shipping: data.free_shipping ?? false,
+                  };
+                }
+              } else {
+                const t = await res.text();
+                console.error(`Scraper endpoint fail ${product.id}: ${res.status} - ${t.slice(0, 300)}`);
+              }
+            } catch (err) {
+              console.error(`Scraper endpoint error ${product.id}:`, err);
+            }
+          }
+
+          // 3) Search API pública se externalId válido
           if (!pricePayload && isValidMLB(externalId)) {
             pricePayload = await fetchSearchPrice(externalId);
           }
 
-          // 3) Items API pública se externalId válido
+          // 4) Items API pública se externalId válido
           if (!pricePayload && isValidMLB(externalId)) {
             const clientId = Deno.env.get("ML_CLIENT_ID");
             const baseUrl = `https://api.mercadolibre.com/items/${externalId}`;
@@ -293,7 +316,7 @@ serve(async (req) => {
             }
           }
 
-          // 4) Fallback scrape HTML
+          // 5) Fallback scrape HTML
           if (!pricePayload) {
             const scraped = await scrapeFromHtml(externalId, product.source_url);
             if (scraped) pricePayload = scraped;
@@ -315,8 +338,12 @@ serve(async (req) => {
       }
     }
 
-    if (updates.length > 0) {
-      const { error: updateError } = await supabase.from("products").upsert(updates, { onConflict: "id" });
+    // Evita inserir registros novos: só atualiza ids que já existiam na seleção
+    const existingIds = new Set((products || []).map((p) => p.id));
+    const safeUpdates = updates.filter((u) => existingIds.has(u.id));
+
+    if (safeUpdates.length > 0) {
+      const { error: updateError } = await supabase.from("products").upsert(safeUpdates, { onConflict: "id" });
       if (updateError) throw updateError;
     }
 
