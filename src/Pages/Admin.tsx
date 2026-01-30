@@ -38,7 +38,7 @@ import {
   DialogTitle,
 } from "@/Components/ui/dialog";
 
-// Hooks e UtilitÃƒÂ¡rios
+// Hooks e Utilitários
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import type { Product, Category } from "@/types/database";
@@ -57,7 +57,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 
-// Tipagem do FormulÃƒÂ¡rio
+// Tipagem do Formulário
 interface ProductFormData {
   name: string;
   description: string;
@@ -126,11 +126,11 @@ export default function Admin() {
     !isAutoFetching
   );
 
-  // Redirecionamento de seguranÃƒÂ§a
+  // Redirecionamento de segurança
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
       toast.error('Acesso negado', {
-        description: 'VocÃƒÂª nÃƒÂ£o tem permissÃƒÂ£o para acessar esta pÃƒÂ¡gina.',
+        description: 'Você não tem permissão para acessar esta página.',
       });
       navigate('/');
     }
@@ -175,7 +175,7 @@ export default function Admin() {
       const slug = generateSlug(data.name);
       const marketplace = detectMarketplace(data.source_url || data.affiliate_link);
       
-      // SanitizaÃƒÂ§ÃƒÂ£o dos dados numÃƒÂ©ricos
+      // Sanitização dos dados numéricos
       const numericPrice = parseFloat(data.price) || 0;
       const numericOriginalPrice = data.original_price ? parseFloat(data.original_price) : null;
       const numericDiscount = parseInt(data.discount_percentage) || 0;
@@ -245,7 +245,7 @@ export default function Admin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] });
-      toast.success('Produto excluÃƒÂ­do!');
+      toast.success('Produto excluído!');
     },
     onError: (error: Error) => {
       toast.error('Erro ao excluir produto', {
@@ -298,13 +298,13 @@ export default function Admin() {
     // 0) item_id=MLB123... (pdp_filters etc.)
     const itemId = url.match(/item_id%3AMLB(\d+)/i) || url.match(/[?&#]item_id=MLB(\d+)/i);
     if (itemId) return `MLB${itemId[1]}`;
-    // 1) ID canÃƒÂ´nico no caminho: .../p/MLB123...
+    // 1) ID canônico no caminho: .../p/MLB123...
     const canonical = url.match(/\/p\/MLB(\d+)/i);
     if (canonical) return `MLB${canonical[1]}`;
-    // 2) ParÃƒÂ¢metro wid=MLB123...
+    // 2) Parâmetro wid=MLB123...
     const wid = url.match(/[?&#]wid=MLB(\d+)/i);
     if (wid) return `MLB${wid[1]}`;
-    // 3) ParÃƒÂ¢metro id=MLB123...
+    // 3) Parâmetro id=MLB123...
     const pid = url.match(/[?&#]id=MLB(\d+)/i);
     if (pid) return `MLB${pid[1]}`;
     // 4) Qualquer MLB-123/MLB123 na URL
@@ -331,8 +331,8 @@ export default function Admin() {
       const itemRes = await fetch(`https://api.mercadolibre.com/items/${externalId}`);
       if (!itemRes.ok) {
         const msg = itemRes.status === 404 
-          ? 'ID nÃƒÂ£o encontrado no Mercado Livre. Copie o cÃƒÂ³digo MLB direto da URL do produto.'
-          : 'NÃƒÂ£o foi possÃƒÂ­vel consultar o Mercado Livre.';
+          ? 'ID não encontrado no Mercado Livre. Copie o código MLB direto da URL do produto.'
+          : 'Não foi possível consultar o Mercado Livre.';
         throw new Error(msg);
       }
       const itemData = await itemRes.json();
@@ -345,7 +345,7 @@ export default function Admin() {
           description = descData?.plain_text || '';
         }
       } catch {
-        // silencioso: descriÃƒÂ§ÃƒÂ£o ÃƒÂ© opcional
+        // silencioso: descrição é opcional
       }
 
       const price = itemData?.price ?? '';
@@ -387,7 +387,7 @@ export default function Admin() {
     if (value.trim()) {
       const validation = isValidAffiliateLink(value);
       if (!validation.valid) {
-        setAffiliateLinkError(validation.error || 'Link invÃƒÂ¡lido');
+        setAffiliateLinkError(validation.error || 'Link inválido');
         return;
       }
       setAffiliateLinkError(null);
@@ -409,11 +409,11 @@ export default function Admin() {
       const mlbId = extractMercadoLivreId(value);
       if (mlbId) {
         setFormData(prev => ({ ...prev, external_id: mlbId }));
-        // Para evitar bloqueio/403 no front, deixamos a importaÃƒÂ§ÃƒÂ£o para o robÃƒÂ´ (edge function).
+        // Para evitar bloqueio/403 no front, deixamos a importação para o robô (edge function).
         // autoFillFromMercadoLivre(mlbId);
       } else if (value !== lastNoIdLink && value.length > 20) {
         setLastNoIdLink(value);
-        setExternalIdError('Link sem MLB. Abra o produto completo e copie o cÃƒÂ³digo MLB da URL.');
+        setExternalIdError('Link sem MLB. Abra o produto completo e copie o código MLB da URL.');
       }
     }
   };
@@ -428,7 +428,7 @@ export default function Admin() {
       setExternalIdError('Use o ID completo do Mercado Livre (ex: MLB12345678...).');
       return;
     }
-    // Para evitar bloqueios no front, deixamos a importaÃƒÂ§ÃƒÂ£o para o robÃƒÂ´ server-side.
+    // Para evitar bloqueios no front, deixamos a importação para o robô server-side.
     // if (normalized !== lastFetchedExternalId) {
     //   autoFillFromMercadoLivre(normalized);
     // }
@@ -440,7 +440,7 @@ export default function Admin() {
     if (formData.affiliate_link.trim()) {
       const validation = isValidAffiliateLink(formData.affiliate_link);
       if (!validation.valid) {
-        setAffiliateLinkError(validation.error || 'Link invÃƒÂ¡lido');
+        setAffiliateLinkError(validation.error || 'Link inválido');
         return;
       }
     }
@@ -460,14 +460,14 @@ export default function Admin() {
   const handleSyncNow = async () => {
     setIsSyncing(true);
     try {
-      // Tentativa padrÃƒÂ£o via SDK
+      // Tentativa padrão via SDK
       const { data, error } = await supabase.functions.invoke('sync-affiliate-data');
       if (error) throw error;
-      toast.success('RobÃƒÂ´ sincronizado!', {
+      toast.success('Robô sincronizado!', {
         description: `Atualizados: ${data?.updated_count ?? 0}`,
       });
     } catch (error: any) {
-      // Fallback: chamada direta com ANON (ÃƒÂºtil se invoke falhar por CORS/SDK)
+      // Fallback: chamada direta com ANON (útil se invoke falhar por CORS/SDK)
       try {
         const resp = await fetch(`${SUPABASE_URL}/functions/v1/sync-affiliate-data`, {
           method: 'GET',
@@ -481,7 +481,7 @@ export default function Admin() {
           throw new Error(txt || `HTTP ${resp.status}`);
         }
         const json = await resp.json();
-        toast.success('RobÃƒÂ´ sincronizado!', {
+        toast.success('Robô sincronizado!', {
           description: `Atualizados: ${json?.updated_count ?? 0}`,
         });
       } catch (fallbackErr: any) {
@@ -492,10 +492,7 @@ export default function Admin() {
     }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.description?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products.filter(product => {\n    const q = searchQuery.toLowerCase();\n    return (\n      product.name.toLowerCase().includes(q) ||\n      product.description?.toLowerCase().includes(q) ||\n      product.brand?.toLowerCase().includes(q) ||\n      product.subcategory?.toLowerCase().includes(q) ||\n      product.marketplace?.toLowerCase().includes(q)\n    );\n  });
 
   if (authLoading) {
     return (
@@ -520,12 +517,12 @@ export default function Admin() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-foreground">Painel Admin</h1>
+                <h1 className="text-3xl font-bold text-foreground">ARSENAL ADMIN</h1>
                 <Badge
                   variant="secondary"
                   className={`text-sm ${priceDiffCount > 0 ? '' : 'opacity-60'}`}
                 >
-                  DiferenÃ§as: {priceDiffCount}
+                  Diferenças: {priceDiffCount}
                 </Badge>
               </div>
               <p className="text-muted-foreground">Gerencie seus produtos</p>
@@ -537,10 +534,10 @@ export default function Admin() {
                 onClick={handleSyncNow}
                 disabled={isSyncing}
               >
-                {isSyncing ? 'Sincronizando...' : 'Atualizar preÃƒÂ§os'}
+                {isSyncing ? 'Sincronizando...' : 'Atualizar preços'}
               </Button>
               <Button variant="secondary" onClick={() => navigate('/admin/price-adjustments')}>
-                Ajustes de preÃƒÂ§o
+                Ajustes de preço
               </Button>
               <Button onClick={() => handleOpenDialog()} className="btn-energy">
                 <Plus className="h-4 w-4 mr-2" />
@@ -608,16 +605,25 @@ export default function Admin() {
                   <thead className="bg-secondary/50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Produto</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">PreÃƒÂ§o</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Preço</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Marca</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Subcategoria</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Categoria</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Marketplace</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">AÃƒÂ§ÃƒÂµes</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {filteredProducts.map((product) => (
-                      <tr key={product.id} className={`transition-colors ${product.detected_price != null && product.detected_price !== product.price ? "bg-amber-50" : "hover:bg-secondary/30"}`}>
+                      <tr
+                        key={product.id}
+                        className={`transition-colors ${
+                          product.detected_price != null && product.detected_price !== product.price
+                            ? "bg-amber-50"
+                            : "hover:bg-secondary/30"
+                        }`}
+                      >
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
                             <div className="h-12 w-12 rounded-lg bg-secondary overflow-hidden flex-shrink-0">
@@ -631,23 +637,34 @@ export default function Admin() {
                             </div>
                             <div>
                               <p className="font-medium text-foreground line-clamp-1">{product.name}</p>
-                              <p className="text-sm text-muted-foreground line-clamp-1">{product.short_description || 'Sem descriÃƒÂ§ÃƒÂ£o'}</p>
+                              <p className="text-sm text-muted-foreground line-clamp-1">{product.short_description || "Sem descrição"}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4">
-                          <div>
+                        <td className="px-4 py-4 align-top">
+                          <div className="space-y-1">
                             <p className="font-medium text-foreground">{formatPrice(product.price)}</p>
                             {product.original_price && product.original_price > product.price && (
                               <p className="text-sm text-muted-foreground line-through">{formatPrice(product.original_price)}</p>
                             )}
                             {product.detected_price != null && product.detected_price !== product.price && (
-                              <p className="text-xs text-amber-700 mt-1">PreÃ§o coletado: {formatPrice(product.detected_price)}</p>
+                              <>
+                                <Badge variant="outline" className="border-amber-200 text-amber-700 bg-amber-50">
+                                  Diferença
+                                </Badge>
+                                <p className="text-xs text-amber-700">Preço coletado: {formatPrice(product.detected_price)}</p>
+                              </>
                             )}
                           </div>
                         </td>
                         <td className="px-4 py-4">
-                          <span className="text-sm text-muted-foreground">{product.category?.name || '-'}</span>
+                          <span className="text-sm text-muted-foreground">{product.brand || "-"}</span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-sm text-muted-foreground">{product.subcategory || "-"}</span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-sm text-muted-foreground">{product.category?.name || "-"}</span>
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-2">
@@ -666,19 +683,32 @@ export default function Admin() {
                           </div>
                         </td>
                         <td className="px-4 py-4">
-                          <span className="text-sm text-muted-foreground capitalize">{product.marketplace || 'manual'}</span>
+                          <span className="text-sm text-muted-foreground capitalize">{product.marketplace || "manual"}</span>
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex items-center justify-end gap-2">
                             {product.affiliate_link && (
-                              <a href={product.affiliate_link} target="_blank" rel="noopener noreferrer" className="p-2 text-muted-foreground hover:text-primary transition-colors">
+                              <a
+                                href={product.affiliate_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 text-muted-foreground hover:text-primary transition-colors"
+                              >
                                 <ExternalLink className="h-4 w-4" />
                               </a>
                             )}
-                            <button onClick={() => handleOpenDialog(product)} className="p-2 text-muted-foreground hover:text-primary transition-colors" aria-label="Editar produto">
+                            <button
+                              onClick={() => handleOpenDialog(product)}
+                              className="p-2 text-muted-foreground hover:text-primary transition-colors"
+                              aria-label="Editar produto"
+                            >
                               <Edit className="h-4 w-4" />
                             </button>
-                            <button onClick={() => handleDelete(product)} className="p-2 text-muted-foreground hover:text-destructive transition-colors" aria-label="Excluir produto">
+                            <button
+                              onClick={() => handleDelete(product)}
+                              className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                              aria-label="Excluir produto"
+                            >
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
@@ -737,11 +767,11 @@ export default function Admin() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="rounded-xl border border-border bg-secondary/30 p-4 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">Dica rÃƒÂ¡pida</p>
+              <p className="font-medium text-foreground">Dica rápida</p>
               <ul className="mt-2 list-disc pl-4 space-y-1 text-xs">
-                <li>Para importaÃƒÂ§ÃƒÂ£o automÃƒÂ¡tica, use o link do produto que mostre o cÃƒÂ³digo <strong>MLB123...</strong> na URL.</li>
-                <li>Links encurtados <strong>/sec/</strong> nÃƒÂ£o trazem o ID: copie o ID completo e cole no campo ao lado.</li>
-                <li>O ID deve comeÃƒÂ§ar com <strong>MLB</strong> e ter pelo menos 10 dÃƒÂ­gitos numÃƒÂ©ricos.</li>
+                <li>Para importação automática, use o link do produto que mostre o código <strong>MLB123...</strong> na URL.</li>
+                <li>Links encurtados <strong>/sec/</strong> não trazem o ID: copie o ID completo e cole no campo ao lado.</li>
+                <li>O ID deve começar com <strong>MLB</strong> e ter pelo menos 10 dígitos numéricos.</li>
               </ul>
             </div>
 
@@ -759,7 +789,7 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="short_description">DescriÃƒÂ§ÃƒÂ£o Curta</Label>
+                <Label htmlFor="short_description">Descrição Curta</Label>
                 <Input
                   id="short_description"
                   value={formData.short_description}
@@ -769,12 +799,12 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="description">DescriÃƒÂ§ÃƒÂ£o Completa</Label>
+                <Label htmlFor="description">Descrição Completa</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="DescriÃƒÂ§ÃƒÂ£o detalhada do produto..."
+                  placeholder="Descrição detalhada do produto..."
                   rows={4}
                 />
               </div>
@@ -783,7 +813,7 @@ export default function Admin() {
             {/* Pricing */}
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <Label htmlFor="price">PreÃƒÂ§o *</Label>
+                <Label htmlFor="price">Preço *</Label>
                 <Input
                   id="price"
                   type="number"
@@ -796,7 +826,7 @@ export default function Admin() {
                 />
               </div>
               <div>
-                <Label htmlFor="original_price">PreÃƒÂ§o Original</Label>
+                <Label htmlFor="original_price">Preço Original</Label>
                 <Input
                   id="original_price"
                   type="number"
@@ -894,7 +924,7 @@ export default function Admin() {
               ) : formData.affiliate_link && !affiliateLinkError && (
                 <p className="text-xs text-success mt-1 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" />
-                  Link vÃƒÂ¡lido! Marketplace: {detectMarketplace(formData.affiliate_link)}
+                  Link válido! Marketplace: {detectMarketplace(formData.affiliate_link)}
                 </p>
               )}
             </div>
@@ -903,7 +933,7 @@ export default function Admin() {
             <div>
               <Label htmlFor="external_id">
                 ID do Marketplace (ex: MLB1234567890)
-                <span className="text-xs text-muted-foreground ml-2">(use se o link nÃƒÂ£o tiver o MLB)</span>
+                <span className="text-xs text-muted-foreground ml-2">(use se o link não tiver o MLB)</span>
               </Label>
               <Input
                 id="external_id"
@@ -933,7 +963,7 @@ export default function Admin() {
               )}
               {detectMarketplace(formData.source_url) === 'mercadolivre' && formData.external_id === '' && formData.source_url && (
                 <p className="text-[11px] text-warning mt-1">
-                  Link sem ID MLB. Sem ele o robÃƒÂ´ nÃƒÂ£o sincroniza preÃƒÂ§o/imagem.
+                  Link sem ID MLB. Sem ele o robô não sincroniza preço/imagem.
                 </p>
               )}
             </div>
@@ -945,7 +975,7 @@ export default function Admin() {
                 id="advantages"
                 value={formData.advantages}
                 onChange={(e) => setFormData(prev => ({ ...prev, advantages: e.target.value }))}
-                placeholder="Alta concentraÃƒÂ§ÃƒÂ£o de proteÃƒÂ­na&#10;Zero aÃƒÂ§ÃƒÂºcar"
+                placeholder="Alta concentração de proteína&#10;Zero açúcar"
                 rows={3}
               />
             </div>
@@ -969,7 +999,7 @@ export default function Admin() {
                 />
               </div>
               <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-                <Label htmlFor="is_on_sale" className="cursor-pointer">Em PromoÃƒÂ§ÃƒÂ£o</Label>
+                <Label htmlFor="is_on_sale" className="cursor-pointer">Em Promoção</Label>
                 <Switch
                   id="is_on_sale"
                   checked={formData.is_on_sale}
@@ -977,7 +1007,7 @@ export default function Admin() {
                 />
               </div>
               <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-                <Label htmlFor="free_shipping" className="cursor-pointer">Frete GrÃƒÂ¡tis</Label>
+                <Label htmlFor="free_shipping" className="cursor-pointer">Frete Grátis</Label>
                 <Switch
                   id="free_shipping"
                   checked={formData.free_shipping}
@@ -1006,6 +1036,8 @@ export default function Admin() {
     </Layout>
   );
 }
+
+
 
 
 
