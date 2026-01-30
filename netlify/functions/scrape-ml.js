@@ -1,6 +1,7 @@
 function extractIdFromUrl(url) {
-  const m = url.match(/MLB\d+/i);
-  return m ? m[0].toUpperCase() : null;
+  const matches = url.match(/MLB\d+/gi);
+  if (!matches || !matches.length) return null;
+  return matches[matches.length - 1].toUpperCase();
 }
 
 async function fetchFromApi(id, agent) {
@@ -34,7 +35,7 @@ export default async function handler(event) {
     const { HttpsProxyAgent } = await import("https-proxy-agent");
     const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
-    // tenta API oficial primeiro
+    // tenta API oficial primeiro (usa último MLB* da URL, incluindo wid)
     const id = extractIdFromUrl(url);
     let apiData = null;
     if (id) {
