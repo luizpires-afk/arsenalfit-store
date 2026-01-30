@@ -1,13 +1,17 @@
 export default async function handler(event) {
   try {
-    let body = event.body;
-    if (typeof body === "string") {
-      try { body = JSON.parse(body || "{}"); } catch { body = {}; }
-    } else if (!body) {
-      body = {};
+    let body = {};
+
+    // Quando o Netlify envia um Request (nova API)
+    if (typeof Request !== "undefined" && event instanceof Request) {
+      try { body = await event.json(); } catch { body = {}; }
+    } else if (event && typeof event.body === "string") {
+      try { body = JSON.parse(event.body || "{}"); } catch { body = {}; }
+    } else if (event && event.body) {
+      body = event.body;
     }
 
-    const { url, proxy } = body;
+    const { url, proxy } = body || {};
     if (!url) return new Response("missing url", { status: 400 });
 
     const { HttpsProxyAgent } = await import("https-proxy-agent");
@@ -26,7 +30,7 @@ export default async function handler(event) {
     const html = await resp.text();
 
     return new Response(html, {
-      status: 200,
+      status: resp.status,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } catch (err) {
