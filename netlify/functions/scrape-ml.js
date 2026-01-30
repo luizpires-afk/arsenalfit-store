@@ -67,15 +67,33 @@ export default async function handler(event) {
     // tenta APIs oficiais com todos os IDs encontrados
     const ids = extractAllIds(url);
     for (const id of ids) {
+      // 1) tenta API com proxy (se houver)
+      if (agent) {
+        try {
+          const data = await fetchItemApi(id, agent);
+          return new Response(JSON.stringify({ status: 200, ...data }), {
+            status: 200,
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+          });
+        } catch {}
+        try {
+          const data = await fetchProductApi(id, agent);
+          return new Response(JSON.stringify({ status: 200, ...data }), {
+            status: 200,
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+          });
+        } catch {}
+      }
+      // 2) tenta API sem proxy (às vezes o bloqueio é só no host ML)
       try {
-        const data = await fetchItemApi(id, agent);
+        const data = await fetchItemApi(id, undefined);
         return new Response(JSON.stringify({ status: 200, ...data }), {
           status: 200,
           headers: { "Content-Type": "application/json; charset=utf-8" },
         });
       } catch {}
       try {
-        const data = await fetchProductApi(id, agent);
+        const data = await fetchProductApi(id, undefined);
         return new Response(JSON.stringify({ status: 200, ...data }), {
           status: 200,
           headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -114,6 +132,8 @@ export default async function handler(event) {
     const price = (() => {
       const og = getMeta("product:price:amount") || getMeta("og:price:amount");
       if (og) return og;
+      const mJson = html.match(/"price"\s*:\s*\{[^}]*"amount"\s*:\s*([0-9.]+)/i);
+      if (mJson) return mJson[1];
       const m = html.match(/"price"\s*:\s*"?([0-9.,]+)"?/i);
       return m ? m[1] : null;
     })();
