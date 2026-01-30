@@ -663,10 +663,10 @@ export default function Admin() {
                                 <ExternalLink className="h-4 w-4" />
                               </a>
                             )}
-                            <button onClick={() => handleOpenDialog(product)} className="p-2 text-muted-foreground hover:text-primary transition-colors">
+                            <button onClick={() => handleOpenDialog(product)} className="p-2 text-muted-foreground hover:text-primary transition-colors" aria-label="Editar produto">
                               <Edit className="h-4 w-4" />
                             </button>
-                            <button onClick={() => handleDelete(product)} className="p-2 text-muted-foreground hover:text-destructive transition-colors">
+                            <button onClick={() => handleDelete(product)} className="p-2 text-muted-foreground hover:text-destructive transition-colors" aria-label="Excluir produto">
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
@@ -702,7 +702,7 @@ export default function Admin() {
                       <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenDialog(product)}>
                         <Edit className="h-4 w-4 mr-1" /> Editar
                       </Button>
-                      <Button variant="outline" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(product)}>
+                      <Button variant="outline" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(product)} aria-label="Excluir produto">
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -994,6 +994,7 @@ export default function Admin() {
     </Layout>
   );
 }
+
 
 
 
