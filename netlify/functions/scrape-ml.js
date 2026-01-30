@@ -1,8 +1,25 @@
+function extractIdFromUrl(url) {
+  const m = url.match(/MLB\d+/i);
+  return m ? m[0].toUpperCase() : null;
+}
+
+async function fetchFromApi(id) {
+  const apiUrl = `https://api.mercadolibre.com/items/${id}`;
+  const resp = await fetch(apiUrl);
+  if (!resp.ok) throw new Error(`API ${resp.status}`);
+  const json = await resp.json();
+  return {
+    title: json.title || null,
+    price: json.price != null ? json.price.toString() : null,
+    image: json.thumbnail || (json.pictures && json.pictures[0]?.url) || null,
+    source: "api",
+  };
+}
+
 export default async function handler(event) {
   try {
     let body = {};
 
-    // Netlify pode entregar um Request ou um objeto de evento
     if (typeof Request !== "undefined" && event instanceof Request) {
       try { body = await event.json(); } catch { body = {}; }
     } else if (event && typeof event.body === "string") {
@@ -14,7 +31,21 @@ export default async function handler(event) {
     const { url, proxy } = body || {};
     if (!url) return new Response("missing url", { status: 400 });
 
-    // Proxy opcional
+    const id = extractIdFromUrl(url);
+    let apiData = null;
+    if (id) {
+      try { apiData = await fetchFromApi(id); } catch (e) { /* fallback to scrape */ }
+    }
+
+    // se API deu certo, responde já
+    if (apiData) {
+      return new Response(JSON.stringify({ status: 200, ...apiData }), {
+        status: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      });
+    }
+
+    // Fallback: scrape HTML
     const { HttpsProxyAgent } = await import("https-proxy-agent");
     const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
@@ -30,7 +61,6 @@ export default async function handler(event) {
     const resp = await fetch(url, { agent, headers });
     const html = await resp.text();
 
-    // Helpers de extração
     const getMeta = (property) => {
       const re = new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']+)["']`, "i");
       const m = html.match(re);
@@ -47,15 +77,13 @@ export default async function handler(event) {
     const image = getMeta("og:image") || null;
 
     const price = (() => {
-      // tenta og price
       const og = getMeta("product:price:amount") || getMeta("og:price:amount");
       if (og) return og;
-      // tenta JSON inline "price":1234 ou "price":"1.234,56"
       const m = html.match(/"price"\s*:\s*"?([0-9.,]+)"?/i);
       return m ? m[1] : null;
     })();
 
-    const data = { status: resp.status, title, price, image };
+    const data = { status: resp.status, title, price, image, source: "scrape" };
 
     return new Response(JSON.stringify(data), {
       status: resp.status,
