@@ -3,9 +3,9 @@ function extractIdFromUrl(url) {
   return m ? m[0].toUpperCase() : null;
 }
 
-async function fetchFromApi(id) {
+async function fetchFromApi(id, agent) {
   const apiUrl = `https://api.mercadolibre.com/items/${id}`;
-  const resp = await fetch(apiUrl);
+  const resp = await fetch(apiUrl, { agent });
   if (!resp.ok) throw new Error(`API ${resp.status}`);
   const json = await resp.json();
   return {
@@ -31,13 +31,16 @@ export default async function handler(event) {
     const { url, proxy } = body || {};
     if (!url) return new Response("missing url", { status: 400 });
 
+    const { HttpsProxyAgent } = await import("https-proxy-agent");
+    const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
+
+    // tenta API oficial primeiro
     const id = extractIdFromUrl(url);
     let apiData = null;
     if (id) {
-      try { apiData = await fetchFromApi(id); } catch (e) { /* fallback to scrape */ }
+      try { apiData = await fetchFromApi(id, agent); } catch (e) { /* continua pro scrape */ }
     }
 
-    // se API deu certo, responde já
     if (apiData) {
       return new Response(JSON.stringify({ status: 200, ...apiData }), {
         status: 200,
@@ -46,9 +49,6 @@ export default async function handler(event) {
     }
 
     // Fallback: scrape HTML
-    const { HttpsProxyAgent } = await import("https-proxy-agent");
-    const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
-
     const headers = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
