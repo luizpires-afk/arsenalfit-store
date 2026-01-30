@@ -2,7 +2,7 @@ export default async function handler(event) {
   try {
     let body = {};
 
-    // Quando o Netlify envia um Request (nova API)
+    // Netlify pode entregar um Request ou um objeto de evento
     if (typeof Request !== "undefined" && event instanceof Request) {
       try { body = await event.json(); } catch { body = {}; }
     } else if (event && typeof event.body === "string") {
@@ -14,6 +14,7 @@ export default async function handler(event) {
     const { url, proxy } = body || {};
     if (!url) return new Response("missing url", { status: 400 });
 
+    // Proxy opcional
     const { HttpsProxyAgent } = await import("https-proxy-agent");
     const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
@@ -29,9 +30,36 @@ export default async function handler(event) {
     const resp = await fetch(url, { agent, headers });
     const html = await resp.text();
 
-    return new Response(html, {
+    // Helpers de extração
+    const getMeta = (property) => {
+      const re = new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']+)["']`, "i");
+      const m = html.match(re);
+      return m ? m[1].trim() : null;
+    };
+
+    const title =
+      getMeta("og:title") ||
+      (() => {
+        const m = html.match(/<title>([^<]+)<\/title>/i);
+        return m ? m[1].trim() : null;
+      })();
+
+    const image = getMeta("og:image") || null;
+
+    const price = (() => {
+      // tenta og price
+      const og = getMeta("product:price:amount") || getMeta("og:price:amount");
+      if (og) return og;
+      // tenta JSON inline "price":1234 ou "price":"1.234,56"
+      const m = html.match(/"price"\s*:\s*"?([0-9.,]+)"?/i);
+      return m ? m[1] : null;
+    })();
+
+    const data = { status: resp.status, title, price, image };
+
+    return new Response(JSON.stringify(data), {
       status: resp.status,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: { "Content-Type": "application/json; charset=utf-8" },
     });
   } catch (err) {
     console.error(err);
