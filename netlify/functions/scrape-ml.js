@@ -1,7 +1,15 @@
-function extractIdFromUrl(url) {
-  const matches = url.match(/MLB\d+/gi);
-  if (!matches || !matches.length) return null;
-  return matches[matches.length - 1].toUpperCase();
+function extractAllIds(url) {
+  const ids = new Set();
+  const pathMatches = url.match(/MLB\d+/gi);
+  if (pathMatches) pathMatches.forEach(id => ids.add(id.toUpperCase()));
+  try {
+    const u = new URL(url);
+    u.searchParams.forEach((v) => {
+      const m = v.match(/MLB\d+/i);
+      if (m) ids.add(m[0].toUpperCase());
+    });
+  } catch {}
+  return Array.from(ids);
 }
 
 async function fetchFromApi(id, agent) {
@@ -35,11 +43,16 @@ export default async function handler(event) {
     const { HttpsProxyAgent } = await import("https-proxy-agent");
     const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
-    // tenta API oficial primeiro (usa último MLB* da URL, incluindo wid)
-    const id = extractIdFromUrl(url);
+    // tenta API oficial com todos os IDs da URL (path e query params)
+    const ids = extractAllIds(url);
     let apiData = null;
-    if (id) {
-      try { apiData = await fetchFromApi(id, agent); } catch (e) { /* continua pro scrape */ }
+    for (const id of ids) {
+      try {
+        apiData = await fetchFromApi(id, agent);
+        if (apiData) break;
+      } catch (e) {
+        continue;
+      }
     }
 
     if (apiData) {
