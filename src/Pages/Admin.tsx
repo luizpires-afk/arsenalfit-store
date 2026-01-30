@@ -509,11 +509,12 @@ export default function Admin() {
             <div>
               <div className="flex items-center gap-3">
                 <h1 className="text-3xl font-bold text-foreground">Painel Admin</h1>
-                {priceDiffCount > 0 && (
-                  <Badge variant="secondary" className="text-sm">
-                    Diferenças: {priceDiffCount}
-                  </Badge>
-                )}
+                <Badge
+                  variant="secondary"
+                  className={`text-sm ${priceDiffCount > 0 ? '' : 'opacity-60'}`}
+                >
+                  Diferenças: {priceDiffCount}
+                </Badge>
               </div>
               <p className="text-muted-foreground">Gerencie seus produtos</p>
             </div>
