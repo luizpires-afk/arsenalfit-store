@@ -1,13 +1,29 @@
 export default async function handler(event) {
   try {
-    let body = event.body;
-    if (typeof body === "string") {
-      try { body = JSON.parse(body || "{}"); } catch { body = {}; }
-    } else if (!body) {
-      body = {};
+    let body = {};
+
+    // Caso o runtime entregue um Request (Fetch API)
+    if (typeof Request !== "undefined" && event instanceof Request) {
+      try {
+        body = await event.json();
+      } catch {
+        body = {};
+      }
+    } else {
+      // Caso antigo (event.body string ou objeto)
+      let raw = event && event.body;
+      if (typeof raw === "string") {
+        try {
+          body = JSON.parse(raw || "{}");
+        } catch {
+          body = {};
+        }
+      } else if (raw) {
+        body = raw;
+      }
     }
 
-    const { url, proxy } = body;
+    const { url, proxy } = body || {};
     if (!url) return new Response("missing url", { status: 400 });
 
     const { HttpsProxyAgent } = await import("https-proxy-agent");
