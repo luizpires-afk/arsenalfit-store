@@ -721,36 +721,77 @@ export default function Admin() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredProducts.map((product) => (
-                <div key={product.id} className="bg-card rounded-xl border border-border overflow-hidden">
-                  <div className="aspect-square bg-secondary relative">
-                    {product.image_url ? (
-                      <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                        <Package className="h-12 w-12" />
+              {filteredProducts.map((product) => {
+                const hasDiff = product.detected_price != null && product.detected_price !== product.price;
+                return (
+                  <div
+                    key={product.id}
+                    className={`bg-card rounded-xl border border-border overflow-hidden hover:border-primary/60 transition-colors ${
+                      hasDiff ? "ring-1 ring-amber-200 bg-amber-50/30" : ""
+                    }`}
+                  >
+                    <div className="aspect-square bg-secondary relative">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                          <Package className="h-12 w-12" />
+                        </div>
+                      )}
+                      {!product.is_active && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <span className="text-white font-medium">Inativo</span>
+                        </div>
+                      )}
+                      {hasDiff && (
+                        <span className="absolute top-3 left-3 px-2 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                          Diferença de preço
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <h3 className="font-semibold text-foreground line-clamp-2">{product.name}</h3>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-lg font-bold text-primary">{formatPrice(product.price)}</p>
+                        {product.original_price && product.original_price > product.price && (
+                          <span className="text-sm text-muted-foreground line-through">{formatPrice(product.original_price)}</span>
+                        )}
                       </div>
-                    )}
-                    {!product.is_active && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <span className="text-white font-medium">Inativo</span>
+                      {hasDiff && (
+                        <p className="text-xs text-amber-700">
+                          Preço coletado: {formatPrice(product.detected_price as number)}
+                        </p>
+                      )}
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        <p><strong>Marca:</strong> {product.brand || "-"}</p>
+                        <p><strong>Subcategoria:</strong> {product.subcategory || "-"}</p>
+                        <p><strong>Categoria:</strong> {product.category?.name || "-"}</p>
                       </div>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-medium text-foreground line-clamp-1">{product.name}</h3>
-                    <p className="text-lg font-bold text-primary mt-1">{formatPrice(product.price)}</p>
-                    <div className="flex items-center gap-2 mt-4">
-                      <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenDialog(product)}>
-                        <Edit className="h-4 w-4 mr-1" /> Editar
-                      </Button>
-                      <Button variant="outline" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(product)} aria-label="Excluir produto">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground uppercase tracking-wide">
+                        <span className="flex items-center gap-1">
+                          {product.is_active ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                          {product.is_active ? "Ativo" : "Inativo"}
+                        </span>
+                        <span className="capitalize">{product.marketplace || "manual"}</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-2">
+                        <Button variant="outline" size="sm" className="flex-1" onClick={() => handleOpenDialog(product)}>
+                          <Edit className="h-4 w-4 mr-1" /> Editar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(product)}
+                          aria-label="Excluir produto"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
