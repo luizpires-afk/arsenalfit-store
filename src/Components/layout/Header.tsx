@@ -9,6 +9,10 @@ export const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAdminArea = location.pathname.startsWith('/admin');
+  const brandText = isAdminArea ? 'ARSENAL ADMIN' : 'ARSENALFIT';
+  const brandLetter = 'A';
 
   useEffect(() => {
     // Verificar sessão inicial
