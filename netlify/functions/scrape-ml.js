@@ -1,7 +1,7 @@
 function extractAllIds(url) {
   const ids = new Set();
   const pathMatches = url.match(/MLB\d+/gi);
-  if (pathMatches) pathMatches.forEach(id => ids.add(id.toUpperCase()));
+  if (pathMatches) pathMatches.forEach((id) => ids.add(id.toUpperCase()));
   try {
     const u = new URL(url);
     u.searchParams.forEach((v) => {
@@ -12,7 +12,7 @@ function extractAllIds(url) {
   return Array.from(ids);
 }
 
-async function fetchFromApi(id, agent) {
+async function fetchItemApi(id, agent) {
   const apiUrl = `https://api.mercadolibre.com/items/${id}`;
   const resp = await fetch(apiUrl, { agent });
   if (!resp.ok) throw new Error(`API ${resp.status}`);
@@ -21,7 +21,28 @@ async function fetchFromApi(id, agent) {
     title: json.title || null,
     price: json.price != null ? json.price.toString() : null,
     image: json.thumbnail || (json.pictures && json.pictures[0]?.url) || null,
-    source: "api",
+    source: "api-item",
+  };
+}
+
+async function fetchProductApi(id, agent) {
+  const apiUrl = `https://api.mercadolibre.com/products/${id}`;
+  const resp = await fetch(apiUrl, { agent });
+  if (!resp.ok) throw new Error(`API ${resp.status}`);
+  const json = await resp.json();
+  const bb = json.buy_box_winner || {};
+  return {
+    title: json.name || json.title || bb.title || null,
+    price:
+      (bb.price && bb.price.amount != null && bb.price.amount.toString()) ||
+      (json.price && json.price.amount != null && json.price.amount.toString()) ||
+      null,
+    image:
+      (bb.images && bb.images[0]) ||
+      (json.pictures && json.pictures[0]?.url) ||
+      (json.main_picture && json.main_picture.url) ||
+      null,
+    source: "api-product",
   };
 }
 
@@ -43,23 +64,23 @@ export default async function handler(event) {
     const { HttpsProxyAgent } = await import("https-proxy-agent");
     const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 
-    // tenta API oficial com todos os IDs da URL (path e query params)
+    // tenta APIs oficiais com todos os IDs encontrados
     const ids = extractAllIds(url);
-    let apiData = null;
     for (const id of ids) {
       try {
-        apiData = await fetchFromApi(id, agent);
-        if (apiData) break;
-      } catch (e) {
-        continue;
-      }
-    }
-
-    if (apiData) {
-      return new Response(JSON.stringify({ status: 200, ...apiData }), {
-        status: 200,
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-      });
+        const data = await fetchItemApi(id, agent);
+        return new Response(JSON.stringify({ status: 200, ...data }), {
+          status: 200,
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+        });
+      } catch {}
+      try {
+        const data = await fetchProductApi(id, agent);
+        return new Response(JSON.stringify({ status: 200, ...data }), {
+          status: 200,
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+        });
+      } catch {}
     }
 
     // Fallback: scrape HTML
