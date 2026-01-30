@@ -239,10 +239,15 @@ serve(async (req) => {
       let externalId = product.external_id;
 
       if (!externalId && product.marketplace === "mercadolivre") {
-      const mlb = extractMLB(product.source_url);
+        const mlb = extractMLB(product.source_url);
         if (isValidMLB(mlb)) {
           externalId = mlb!;
-          updates.push({ id: product.id, external_id: mlb, updated_at: now });
+          updates.push({
+            id: product.id,
+            external_id: mlb,
+            name: (product as any).name,
+            updated_at: now,
+          });
         } else {
           console.error(`ID ML inválido para produto ${product.id}: ${mlb || "none"}`);
           continue;
@@ -252,16 +257,11 @@ serve(async (req) => {
       if (product.marketplace === "mercadolivre") {
         try {
           let pricePayload: any = null;
-          const scraperEndpoint = Deno.env.get("SCRAPER_ENDPOINT");
+          // aceita a secret em maiúsculas ou minúsculas (Supabase só permite minúsculas)
+          const scraperEndpoint = Deno.env.get("SCRAPER_ENDPOINT") ?? Deno.env.get("scraper_endpoint");
 
-          // 1) Products API (catalog) se houver /p/MLB...
-          const catalogId = extractCatalog(product.source_url);
-          if (catalogId) {
-            pricePayload = await fetchCatalogPrice(catalogId);
-          }
-
-          // 2) Tenta scraper externo (Netlify) se houver endpoint
-          if (!pricePayload && scraperEndpoint && product.source_url) {
+          // 1) Tenta scraper externo (Netlify) primeiro, se houver endpoint
+          if (scraperEndpoint && product.source_url) {
             try {
               const res = await fetch(`${scraperEndpoint}?url=${encodeURIComponent(product.source_url)}`);
               if (res.ok) {
@@ -280,6 +280,12 @@ serve(async (req) => {
             } catch (err) {
               console.error(`Scraper endpoint error ${product.id}:`, err);
             }
+          }
+
+          // 2) Products API (catalog) se houver /p/MLB...
+          const catalogId = extractCatalog(product.source_url);
+          if (!pricePayload && catalogId) {
+            pricePayload = await fetchCatalogPrice(catalogId);
           }
 
           // 3) Search API pública se externalId válido
@@ -325,6 +331,7 @@ serve(async (req) => {
           if (pricePayload) {
             updates.push({
               id: product.id,
+              name: (product as any).name,
               price: pricePayload.price,
               original_price: pricePayload.original_price ?? pricePayload.price,
               free_shipping: pricePayload.free_shipping ?? false,
@@ -338,9 +345,12 @@ serve(async (req) => {
       }
     }
 
-    // Evita inserir registros novos: só atualiza ids que já existiam na seleção
+    // Evita inserir registros novos: só atualiza ids já existentes e com nome/preço válidos
     const existingIds = new Set((products || []).map((p) => p.id));
-    const safeUpdates = updates.filter((u) => existingIds.has(u.id));
+    const safeUpdates = updates
+      .filter((u) => existingIds.has(u.id))
+      .filter((u) => u.name !== undefined && u.name !== null)
+      .filter((u) => u.price !== undefined && u.price !== null);
 
     if (safeUpdates.length > 0) {
       const { error: updateError } = await supabase.from("products").upsert(safeUpdates, { onConflict: "id" });
