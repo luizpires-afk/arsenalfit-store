@@ -1,4 +1,4 @@
-Ôªøimport { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ShoppingCart,
@@ -60,8 +60,8 @@ const ProductDetails = () => {
   const handleFavorite = async () => {
     if (!p) return;
     if (!user) {
-      toast.error("Monitore este pre√ßo!", {
-        description: "Fa√ßa login para avisarmos voc√™ se o valor baixar.",
+      toast.error("Monitore este preÁo!", {
+        description: "FaÁa login para avisarmos vocÍ se o valor baixar.",
       });
       return;
     }
@@ -78,8 +78,8 @@ const ProductDetails = () => {
         await supabase
           .from("favorites")
           .insert({ product_id: p.id, user_id: user.id });
-        toast.success("Pre√ßo Monitorado!", {
-          description: "Avisaremos voc√™ via e-mail se este valor cair.",
+        toast.success("PreÁo Monitorado!", {
+          description: "Avisaremos vocÍ via e-mail se este valor cair.",
         });
       }
       queryClient.invalidateQueries({ queryKey: ["favorites"] });
@@ -103,11 +103,11 @@ const ProductDetails = () => {
 
   const fullDescription =
     p?.description ||
-    "Produto selecionado pela curadoria Arsenal. Nossa sele√ß√£o prioriza performance, proced√™ncia e custo‚Äëbenef√≠cio.";
+    "Produto selecionado pela curadoria Arsenal. Nossa seleÁ„o prioriza performance, procedÍncia e custo-benefÌcio.";
 
   const truncatedDescription =
     fullDescription.length > 420
-      ? `${fullDescription.slice(0, 420)}‚Ä¶`
+      ? `${fullDescription.slice(0, 420)}Ö`
       : fullDescription;
 
   const { data: related = [] } = useQuery({
@@ -150,7 +150,7 @@ const ProductDetails = () => {
             Produto Extraviado
           </h1>
           <p className="text-zinc-500 mt-2 mb-8 uppercase text-xs font-bold tracking-widest">
-            N√£o encontramos este item no nosso arsenal.
+            N„o encontramos este item no nosso arsenal.
           </p>
           <Link to="/produtos">
             <Button className="bg-primary text-black font-black uppercase italic rounded-xl px-8 h-14">
@@ -163,7 +163,8 @@ const ProductDetails = () => {
 
   return (
     <Layout>
-      <div className="container-fit py-8 md:py-12">
+      <div className="min-h-screen bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-zinc-100">
+        <div className="container-fit py-8 md:py-12">
         <button
           onClick={() => navigate(-1)}
           className="group flex items-center gap-2 text-zinc-500 hover:text-primary mb-12 transition-all font-black uppercase italic text-[10px] tracking-widest"
@@ -196,7 +197,7 @@ const ProductDetails = () => {
               )}
               {p.free_shipping && (
                 <div className="absolute bottom-8 left-8 bg-primary text-black font-black text-[10px] px-3 py-1 rounded-full uppercase tracking-widest">
-                  Frete gr√°tis
+                  Frete gr·tis
                 </div>
               )}
             </div>
@@ -224,14 +225,14 @@ const ProductDetails = () => {
                 </span>
               </div>
 
-              <h1 className="text-4xl md:text-5xl font-black leading-[0.95] tracking-tighter text-white uppercase italic">
+              <h1 className="text-3xl md:text-4xl font-black leading-[1.05] tracking-tight text-white/90 uppercase italic drop-shadow-[0_10px_40px_rgba(0,0,0,0.45)]">
                 {p.name}
               </h1>
 
-              <div className="flex items-end gap-4 bg-zinc-900/30 w-fit p-6 rounded-[30px] border border-white/5">
+              <div className="flex items-end gap-4 bg-zinc-900/60 w-fit p-6 rounded-[30px] border border-white/10 shadow-2xl shadow-black/40">
                 <div className="flex flex-col">
                   <span className="text-[10px] font-black uppercase text-zinc-500 mb-1 tracking-widest">
-                    Pre√ßo ArsenalFit
+                    PreÁo ArsenalFit
                   </span>
                   <span className="text-5xl font-black text-white italic">
                     R$ {Number(p.price).toFixed(2).replace(".", ",")}
@@ -245,7 +246,7 @@ const ProductDetails = () => {
                 {competitorPrice && (
                   <div className="flex flex-col border-l border-white/10 pl-4 pb-1">
                     <span className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">
-                      Na concorr√™ncia
+                      Na concorrÍncia
                     </span>
                     <span className="text-xl font-bold text-zinc-500 line-through italic">
                       R$ {Number(competitorPrice).toFixed(2).replace(".", ",")}
@@ -256,8 +257,8 @@ const ProductDetails = () => {
               </div>
 
             <div className="space-y-2">
-              <p className="text-zinc-300 text-lg leading-relaxed font-semibold italic">
-                ‚Äú{p.short_description || truncatedDescription}‚Äù
+              <p className="text-zinc-200 text-lg leading-relaxed font-semibold italic">
+                ì{p.short_description || truncatedDescription}î
               </p>
               {fullDescription.length > 420 && (
                 <button
@@ -288,7 +289,7 @@ const ProductDetails = () => {
                       ? "bg-primary border-primary text-black"
                       : "border-white/10 bg-zinc-900/50 text-zinc-500 hover:border-primary hover:text-primary"
                   }`}
-                  aria-label="Monitorar pre√ßo"
+                  aria-label="Monitorar preÁo"
                 >
                   <Heart className={isFavorited ? "fill-current" : ""} size={20} />
                   <span className="text-[8px] font-black uppercase tracking-tighter">
@@ -300,7 +301,7 @@ const ProductDetails = () => {
               <Button
                 onClick={() => addToCart(p.id, 1)}
                 variant="ghost"
-                className="w-full h-12 bg-zinc-900/50 text-zinc-200 rounded-2xl font-bold hover:bg-zinc-800 hover:text-white transition-all uppercase text-[10px] tracking-[0.3em] border border-white/5"
+                className="w-full h-12 bg-zinc-900/70 text-zinc-100 rounded-2xl font-bold hover:bg-zinc-800 hover:text-white transition-all uppercase text-[10px] tracking-[0.3em] border border-white/10"
               >
                 <ShoppingCart size={14} className="mr-2" /> Salvar no Carrinho de Compras
               </Button>
@@ -309,7 +310,7 @@ const ProductDetails = () => {
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={14} className="text-primary" /> Link Seguro
                 </div>
-                {p.free_shipping && <div className="flex items-center gap-2"><Star size={14} className="text-primary fill-primary" /> Frete gr√°tis</div>}
+                {p.free_shipping && <div className="flex items-center gap-2"><Star size={14} className="text-primary fill-primary" /> Frete gr·tis</div>}
               </div>
             </div>
           </motion.div>
@@ -322,12 +323,13 @@ const ProductDetails = () => {
           className="mt-16"
         >
               <Tabs defaultValue="descricao" className="w-full">
-                <TabsList className="bg-zinc-900/40 border border-white/5 rounded-full px-2 py-1">
-                  <TabsTrigger value="descricao">Descri√ß√£o</TabsTrigger>
-                  <TabsTrigger value="ficha">Ficha t√©cnica</TabsTrigger>
+                <TabsList className="bg-zinc-900/60 border border-white/10 rounded-full px-2 py-1 shadow-lg shadow-black/30">
+                  <TabsTrigger value="descricao">DescriÁ„o</TabsTrigger>
+                  <TabsTrigger value="ficha">Ficha tÈcnica</TabsTrigger>
                 </TabsList>
-                <TabsContent value="descricao" className="mt-6 text-zinc-300 leading-relaxed space-y-4">
-                  <p className="whitespace-pre-line">
+                <TabsContent value="descricao" className="mt-6">
+                  <div className="bg-zinc-900/50 border border-white/10 rounded-3xl p-6 shadow-xl shadow-black/30 space-y-4 text-zinc-100">
+                    <p className="whitespace-pre-line text-lg leading-relaxed">
                     {showFullDesc ? fullDescription : truncatedDescription}
                   </p>
                   {fullDescription.length > 420 && (
@@ -340,6 +342,7 @@ const ProductDetails = () => {
                       {showFullDesc ? "Mostrar menos" : "Ler mais"}
                     </Button>
                   )}
+                  </div>
                 </TabsContent>
             <TabsContent value="ficha" className="mt-6">
               {p.tech_sheet ? (
@@ -347,7 +350,7 @@ const ProductDetails = () => {
                   {p.tech_sheet}
                 </div>
               ) : (
-                <p className="text-zinc-500">Nenhuma ficha t√©cnica cadastrada.</p>
+                <p className="text-zinc-500">Nenhuma ficha tÈcnica cadastrada.</p>
               )}
             </TabsContent>
           </Tabs>
@@ -361,13 +364,13 @@ const ProductDetails = () => {
         >
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-black uppercase italic text-white flex items-center gap-3">
-              <Star className="text-primary fill-primary" /> An√°lise do <span className="text-primary">Especialista</span>
+              <Star className="text-primary fill-primary" /> An·lise do <span className="text-primary">Especialista</span>
             </h2>
             {competitorPrice && (
-              <span className="text-xs uppercase text-zinc-500">Comparador + frete gr√°tis ArsenalFit</span>
+              <span className="text-xs uppercase text-zinc-500">Comparador + frete gr·tis ArsenalFit</span>
             )}
           </div>
-          <div className="bg-zinc-900/20 rounded-[40px] border border-white/5 p-2 sm:p-4">
+          <div className="bg-zinc-900/30 rounded-[40px] border border-white/10 p-2 sm:p-4 shadow-2xl shadow-black/40">
             <ProductAnalysis
               price={p.price}
               competitor_price={competitorPrice}
@@ -410,9 +413,11 @@ const ProductDetails = () => {
             </div>
           </motion.div>
         )}
+        </div>
       </div>
     </Layout>
   );
 };
 
 export default ProductDetails;
+
