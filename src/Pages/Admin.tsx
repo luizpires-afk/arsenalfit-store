@@ -492,7 +492,16 @@ export default function Admin() {
     }
   };
 
-  const filteredProducts = products.filter(product => {\n    const q = searchQuery.toLowerCase();\n    return (\n      product.name.toLowerCase().includes(q) ||\n      product.description?.toLowerCase().includes(q) ||\n      product.brand?.toLowerCase().includes(q) ||\n      product.subcategory?.toLowerCase().includes(q) ||\n      product.marketplace?.toLowerCase().includes(q)\n    );\n  });
+    const filteredProducts = products.filter((product) => {
+      const q = searchQuery.toLowerCase();
+      return (
+        product.name.toLowerCase().includes(q) ||
+        product.description?.toLowerCase().includes(q) ||
+        product.brand?.toLowerCase().includes(q) ||
+        product.subcategory?.toLowerCase().includes(q) ||
+        product.marketplace?.toLowerCase().includes(q)
+      );
+    });
 
   if (authLoading) {
     return (
