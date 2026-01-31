@@ -33,6 +33,7 @@ const ProductDetails = () => {
   const { product, loading, error } = useProduct(slug || "");
   const { addToCart } = useCart();
   const [user, setUser] = useState<any>(null);
+  const [showFullDesc, setShowFullDesc] = useState(false);
   const queryClient = useQueryClient();
 
   const p: any = product;
@@ -91,6 +92,23 @@ const ProductDetails = () => {
     if (!p?.price) return null;
     return p.competitor_price || Number(p.price) * 1.25;
   }, [p]);
+
+  const savingsPercent = useMemo(() => {
+    if (!competitorPrice || !p?.price) return null;
+    return Math.max(
+      0,
+      Math.round(((competitorPrice - Number(p.price)) / competitorPrice) * 100)
+    );
+  }, [competitorPrice, p?.price]);
+
+  const fullDescription =
+    p?.description ||
+    "Produto selecionado pela curadoria Arsenal. Nossa seleção prioriza performance, procedência e custo‑benefício.";
+
+  const truncatedDescription =
+    fullDescription.length > 420
+      ? `${fullDescription.slice(0, 420)}…`
+      : fullDescription;
 
   const { data: related = [] } = useQuery({
     queryKey: ["related", p?.brand, p?.id],
@@ -218,6 +236,11 @@ const ProductDetails = () => {
                   <span className="text-5xl font-black text-white italic">
                     R$ {Number(p.price).toFixed(2).replace(".", ",")}
                   </span>
+                  {savingsPercent !== null && (
+                    <span className="text-[11px] text-green-400 font-bold uppercase tracking-widest mt-1">
+                      Economia real: -{savingsPercent}%
+                    </span>
+                  )}
                 </div>
                 {competitorPrice && (
                   <div className="flex flex-col border-l border-white/10 pl-4 pb-1">
@@ -229,12 +252,22 @@ const ProductDetails = () => {
                     </span>
                   </div>
                 )}
+                </div>
               </div>
-            </div>
 
-            <p className="text-zinc-400 text-lg leading-relaxed font-medium italic border-l-4 border-primary/50 pl-6 py-2">
-              “{p.short_description || p.description || "Produto selecionado pela curadoria Arsenal."}”
-            </p>
+            <div className="space-y-2">
+              <p className="text-zinc-300 text-lg leading-relaxed font-semibold italic">
+                “{p.short_description || truncatedDescription}”
+              </p>
+              {fullDescription.length > 420 && (
+                <button
+                  onClick={() => setShowFullDesc((s) => !s)}
+                  className="text-primary text-sm font-bold underline underline-offset-4"
+                >
+                  {showFullDesc ? "Mostrar menos" : "Ler mais"}
+                </button>
+              )}
+            </div>
 
             <div className="space-y-4">
               <div className="flex gap-4">
@@ -288,14 +321,26 @@ const ProductDetails = () => {
           viewport={{ once: true }}
           className="mt-16"
         >
-          <Tabs defaultValue="descricao" className="w-full">
-            <TabsList className="bg-zinc-900/40 border border-white/5 rounded-full px-2 py-1">
-              <TabsTrigger value="descricao">Descrição</TabsTrigger>
-              <TabsTrigger value="ficha">Ficha técnica</TabsTrigger>
-            </TabsList>
-            <TabsContent value="descricao" className="mt-6 text-zinc-300 leading-relaxed space-y-4">
-              <p className="whitespace-pre-line">{p.description || "Produto selecionado pela curadoria Arsenal."}</p>
-            </TabsContent>
+              <Tabs defaultValue="descricao" className="w-full">
+                <TabsList className="bg-zinc-900/40 border border-white/5 rounded-full px-2 py-1">
+                  <TabsTrigger value="descricao">Descrição</TabsTrigger>
+                  <TabsTrigger value="ficha">Ficha técnica</TabsTrigger>
+                </TabsList>
+                <TabsContent value="descricao" className="mt-6 text-zinc-300 leading-relaxed space-y-4">
+                  <p className="whitespace-pre-line">
+                    {showFullDesc ? fullDescription : truncatedDescription}
+                  </p>
+                  {fullDescription.length > 420 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="px-0 text-primary"
+                      onClick={() => setShowFullDesc((s) => !s)}
+                    >
+                      {showFullDesc ? "Mostrar menos" : "Ler mais"}
+                    </Button>
+                  )}
+                </TabsContent>
             <TabsContent value="ficha" className="mt-6">
               {p.tech_sheet ? (
                 <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-6 text-zinc-200 whitespace-pre-line leading-relaxed">
