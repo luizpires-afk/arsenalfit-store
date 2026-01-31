@@ -1,18 +1,27 @@
 export default async function handler(event) {
   try {
-    const { url, proxy } = JSON.parse(event.body || "{}");
-    if (!url) return { statusCode: 400, body: "missing url" };
+    let body = event.body;
+    if (typeof body === "string") {
+      try { body = JSON.parse(body || "{}"); } catch { body = {}; }
+    } else if (!body) {
+      body = {};
+    }
 
-    const agent = proxy ? new (await import("https-proxy-agent")).HttpsProxyAgent(proxy) : undefined;
-    const html = await fetch(url, { agent }).then(r => r.text());
+    const { url, proxy } = body;
+    if (!url) return new Response("missing url", { status: 400 });
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-      body: html
-    };
+    const { HttpsProxyAgent } = await import("https-proxy-agent");
+    const agent = proxy ? new HttpsProxyAgent(proxy) : undefined;
+
+    const resp = await fetch(url, { agent });
+    const html = await resp.text();
+
+    return new Response(html, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" }
+    });
   } catch (err) {
     console.error(err);
-    return { statusCode: 500, body: err.message };
+    return new Response(err.message || "error", { status: 500 });
   }
 }

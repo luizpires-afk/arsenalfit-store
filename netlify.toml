@@ -1,6 +1,18 @@
 [build]
+  command = "npm run build"
+  publish = "dist"
   functions = "netlify/functions"
+
+[dev]
+  command = "npm run dev"
+  port = 5173
+  targetPort = 5173
 
 [functions]
   node_bundler = "esbuild"
   included_files = ["netlify/functions/**"]
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

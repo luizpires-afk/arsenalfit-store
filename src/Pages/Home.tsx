@@ -50,11 +50,17 @@ export default function Home() {
     })
     .slice(0, 4);
 
-  // 2. PRODUTOS EM DESTAQUE (Marcados manualmente como featured)
+  
+  // 2.1 MELHORES DO DIA (pre?os mais baixos hoje)
+  const bestOfDay = [...products]
+    .filter(p => p.is_active !== false)
+    .sort((a, b) => (a.price || 0) - (b.price || 0))
+    .slice(0, 8);
+// 2. PRODUTOS EM DESTAQUE (Marcados manualmente como featured)
   const featuredProducts = filteredProducts.filter(p => p.is_featured);
   
   // 3. RESTANTE DOS PRODUTOS
-  const regularProducts = filteredProducts.filter(p => !p.featured);
+  const regularProducts = filteredProducts.filter(p => !p.is_featured);
 
   return (
     <div className="min-h-screen bg-[#FBFBFB]">
