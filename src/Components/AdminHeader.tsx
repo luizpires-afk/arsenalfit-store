@@ -33,7 +33,7 @@ export const AdminHeader = () => {
           <div className="flex items-center gap-2">
             <ShieldCheck className="text-primary w-5 h-5" />
             <span className="font-display font-black text-lg tracking-tighter">
-              FIT<span className="text-primary">ADMIN</span>
+              ARSENAL <span className="text-primary">ADMIN</span>
             </span>
           </div>
           <div className="h-4 w-px bg-border hidden md:block" />
@@ -65,4 +65,5 @@ export const AdminHeader = () => {
     </header>
   );
 };
+
 

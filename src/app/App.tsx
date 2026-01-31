@@ -1,4 +1,4 @@
-﻿import { Toaster } from "@/Components/ui/toaster";
+import { Toaster } from "@/Components/ui/toaster";
 import { Toaster as Sonner } from "@/Components/ui/sonner";
 import { TooltipProvider } from "@/Components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -26,6 +26,7 @@ import MelhoresOfertas from "@/Pages/MelhoresOfertas";
 import AuthSent from "@/Pages/AuthSent";
 import AuthConfirmed from "@/Pages/AuthConfirmed";
 import NotFound from "@/Pages/NotFound";
+import PriceAdjustments from "@/Pages/PriceAdjustments";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,7 @@ const App = () => (
             <Route path="/register" element={<Register />} />
             <Route path="/update-password" element={<UpdatePassword />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/price-adjustments" element={<PriceAdjustments />} />
             <Route path="/produto/:slug" element={<ProductDetail />} />
             <Route path="/categoria/:slug" element={<CategoryPage />} />
             <Route path="/categorias" element={<CategoryPage />} />
