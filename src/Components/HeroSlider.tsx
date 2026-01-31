@@ -51,7 +51,7 @@ export const HeroSlider = () => {
             <div key={index} className="relative flex-[0_0_100%] min-w-0 py-24 md:py-36">
               {/* Imagem de Fundo com Zoom Suave */}
               <div 
-                className="absolute inset-0 bg-cover bg-center grayscale opacity-20 transition-transform duration-[10000ms] scale-110" 
+                className="absolute inset-0 bg-cover bg-center grayscale opacity-20 transition-transform duration-\[10000ms\] scale-110" 
                 style={{ 
                   backgroundImage: `url(${banner.image})`,
                   transform: selectedIndex === index ? 'scale(1)' : 'scale(1.1)'
