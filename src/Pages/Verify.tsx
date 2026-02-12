@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/Components/ui/button";
-import { Input } from "@/Components/ui/input";
 import { toast } from "sonner";
 import { CheckCircle2, AlertTriangle, Mail } from "lucide-react";
 import logoImage from "../assets/arsenalfit-logo.png";
@@ -12,8 +11,6 @@ type Status = "loading" | "error" | "success";
 const Verify = () => {
   const [status, setStatus] = useState<Status>("loading");
   const [message, setMessage] = useState("Validando seu link...");
-  const [email, setEmail] = useState("");
-  const [resending, setResending] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -48,7 +45,6 @@ const Verify = () => {
         const otp = payload?.otp;
         const otpType = payload?.otpType || "magiclink";
         const userEmail = payload?.email || "";
-        if (mounted) setEmail(userEmail);
 
         const { error } = await supabase.auth.verifyOtp({
           email: userEmail,
@@ -78,30 +74,6 @@ const Verify = () => {
       mounted = false;
     };
   }, [token, type, navigate]);
-
-  const handleResend = async () => {
-    if (!email) {
-      toast.error("Digite um e-mail valido.");
-      return;
-    }
-    setResending(true);
-    try {
-      const response = await fetch("/api/auth/send-verification", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload?.message || "Erro ao reenviar.");
-      }
-      toast.success("Se existir conta, enviamos um novo e-mail.");
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao reenviar.");
-    } finally {
-      setResending(false);
-    }
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 overflow-hidden relative">
@@ -141,26 +113,6 @@ const Verify = () => {
                 : "Confirmando sua conta"}
           </h2>
           <p className="text-muted-foreground text-sm mt-3">{message}</p>
-
-          {status === "error" && (
-            <div className="mt-6 space-y-3">
-              <Input
-                type="email"
-                placeholder="Digite seu e-mail"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 border-none text-black dark:text-white placeholder:text-zinc-500 focus-visible:ring-2 ring-primary shadow-inner"
-              />
-              <Button
-                type="button"
-                onClick={handleResend}
-                disabled={resending}
-                className="w-full h-12 rounded-2xl font-black uppercase italic"
-              >
-                {resending ? "Enviando..." : "Reenviar verificacao"}
-              </Button>
-            </div>
-          )}
 
           <div className="mt-8 flex flex-col gap-3">
             <Link to="/login">

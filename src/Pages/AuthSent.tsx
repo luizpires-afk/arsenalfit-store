@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Mail, ArrowLeft } from "lucide-react";
 import { Button } from "@/Components/ui/button";
 import { toast } from "sonner";
@@ -12,16 +12,25 @@ export default function AuthSent() {
 
   const isReset = mode === "reset";
   const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   const handleResend = async () => {
     if (!email) {
-      toast.error("Digite um e-mail válido.");
+      toast.error("Digite um e-mail valido.");
       return;
     }
+    if (cooldown > 0) return;
     setResending(true);
     try {
-      const endpoint = isReset ? "/api/auth/send-recovery" : "/api/auth/send-verification";
-      const response = await fetch(endpoint, {
+      const response = await fetch("/api/auth/send-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -31,6 +40,7 @@ export default function AuthSent() {
         throw new Error(payload?.message || "Erro ao reenviar.");
       }
       toast.success("Se existir conta, enviamos um novo e-mail.");
+      setCooldown(60);
     } catch (error) {
       toast.error(error.message || "Erro ao reenviar.");
     } finally {
@@ -45,7 +55,7 @@ export default function AuthSent() {
           <CheckCircle2 className="h-8 w-8 text-primary" />
         </div>
         <h1 className="text-2xl font-black uppercase italic text-foreground">
-          {isReset ? "Link enviado" : "Verificação enviada"}
+          {isReset ? "Link enviado" : "Verificacao enviada"}
         </h1>
         <p className="text-muted-foreground text-sm mt-3">
           {isReset
@@ -59,14 +69,20 @@ export default function AuthSent() {
         )}
 
         <div className="mt-8 flex flex-col gap-3">
-          <Button
-            onClick={handleResend}
-            disabled={resending}
-            variant="outline"
-            className="w-full h-12 rounded-2xl font-black uppercase italic"
-          >
-            {resending ? "Reenviando..." : "Reenviar e-mail"}
-          </Button>
+          {!isReset && (
+            <Button
+              onClick={handleResend}
+              disabled={resending || cooldown > 0}
+              variant="outline"
+              className="w-full h-12 rounded-2xl font-black uppercase italic"
+            >
+              {resending
+                ? "Enviando..."
+                : cooldown > 0
+                  ? `Enviar novo link em ${cooldown}s`
+                  : "Enviar novo link de confirmacao"}
+            </Button>
+          )}
           <Link to="/login">
             <Button className="w-full h-12 rounded-2xl font-black uppercase italic">Ir para Login</Button>
           </Link>

@@ -3,12 +3,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/Components/ui/dialog';
 import { toast } from "sonner";
 import { Mail, Lock, User, ArrowRight, ChevronLeft, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import logoImage from '../assets/arsenalfit-logo.png';
@@ -27,8 +21,6 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [resendOpen, setResendOpen] = useState(false);
-  const [resendEmail, setResendEmail] = useState('');
   const [resendLoading, setResendLoading] = useState(false);
 
   const navigate = useNavigate();
@@ -123,36 +115,6 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
     }
   };
 
-  const sendVerificationEmail = async (targetEmail: string) => {
-    if (!isValidEmail(targetEmail)) {
-      toast.error("Digite um e-mail válido.");
-      return false;
-    }
-    setResendLoading(true);
-    try {
-      const response = await fetch("/api/auth/send-verification", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload?.message || "Erro ao reenviar.");
-      }
-      toast.success("Se existir conta, enviamos um novo e-mail.");
-      return true;
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao reenviar.");
-      return false;
-    } finally {
-      setResendLoading(false);
-    }
-  };
-
-  const handleResendVerification = async () => {
-    await sendVerificationEmail(email);
-  };
-
   const handleResendRecovery = async () => {
     if (!isValidEmail(email)) {
       toast.error("Digite um e-mail válido.");
@@ -177,17 +139,6 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
     }
   };
 
-  const openResendModal = () => {
-    setResendEmail(email);
-    setResendOpen(true);
-  };
-
-  const handleModalResend = async () => {
-    const ok = await sendVerificationEmail(resendEmail);
-    if (ok) {
-      setResendOpen(false);
-    }
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 overflow-hidden relative">
@@ -311,15 +262,6 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
                 </span>
               )}
             </Button>
-            {authMode === 'login' && (
-              <button
-                type="button"
-                onClick={openResendModal}
-                className="w-full text-[10px] font-black uppercase tracking-widest text-primary hover:text-black dark:hover:text-white transition-colors mt-2"
-              >
-                Reenviar verificação
-              </button>
-            )}
             {authMode === 'reset' && (
               <button
                 type="button"
@@ -332,14 +274,6 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
             )}
             {authMode === 'signup' && (
               <>
-                <button
-                  type="button"
-                  onClick={handleResendVerification}
-                  disabled={resendLoading}
-                  className="w-full text-[10px] font-black uppercase tracking-widest text-primary hover:text-black dark:hover:text-white transition-colors mt-2 disabled:opacity-60"
-                >
-                  {resendLoading ? 'Enviando...' : 'Reenviar verificação'}
-                </button>
                 <p className="mt-3 text-center text-[11px] text-muted-foreground">
                   Ao criar uma conta, você concorda com nossos Termos e Política de Privacidade
                 </p>
@@ -361,47 +295,6 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
           </div>
         </div>
       </div>
-
-      <Dialog open={resendOpen} onOpenChange={setResendOpen}>
-        <DialogContent className="max-w-md rounded-[28px] border-2 border-border/60 bg-card p-6 shadow-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-black uppercase italic text-foreground">
-              Reenviar verificação
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Informe o e-mail da conta para enviarmos um novo link.
-          </p>
-          <div className="relative mt-4">
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-zinc-600 z-20" />
-            <Input
-              type="email"
-              placeholder="Digite seu e-mail"
-              value={resendEmail}
-              onChange={(e) => setResendEmail(e.target.value)}
-              className="pl-12 h-12 bg-zinc-100 dark:bg-zinc-800 border-none rounded-2xl text-black dark:text-white font-black placeholder:text-zinc-500 placeholder:font-normal focus-visible:ring-2 ring-primary transition-all shadow-inner"
-            />
-          </div>
-          <div className="mt-6 flex flex-col sm:flex-row gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full h-11 rounded-2xl font-black uppercase italic"
-              onClick={() => setResendOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              className="w-full h-11 rounded-2xl font-black uppercase italic bg-primary text-black hover:bg-primary/90"
-              disabled={resendLoading}
-              onClick={handleModalResend}
-            >
-              {resendLoading ? 'Enviando...' : 'Enviar link'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
