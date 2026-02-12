@@ -2138,11 +2138,11 @@ export default function Admin() {
               </div>
             </div>
             {isRoupasSelected && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>G?nero da Roupa *</Label>
-                  <span className="text-xs text-muted-foreground">Obrigat?rio</span>
-                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                  <Label>Gênero da roupa *</Label>
+                  <span className="text-xs text-muted-foreground">Obrigatório</span>
+                  </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {CLOTHING_OPTIONS.map((option) => {
                     const isActive = formData.gender === option.value;

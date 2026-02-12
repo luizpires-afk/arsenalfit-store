@@ -455,13 +455,13 @@ export default function Category() {
     <div className="min-h-screen bg-background text-white selection:bg-primary selection:text-black">
       {/* HERO SECTION */}
       <div className="relative min-h-[320px] overflow-hidden">
-        <motion.div
-          initial={{ scale: 1.08 }}
-          animate={{ scale: 1 }}
-          transition={{ duration: 1.5 }}
-          className="absolute inset-0 bg-zinc-900 bg-cover bg-center"
-          style={{ backgroundImage: `url(${category.image})` }}
-        />
+         <motion.div
+           initial={{ scale: 1.08 }}
+           animate={{ scale: 1 }}
+           transition={{ duration: 1.5 }}
+           className="absolute inset-0 bg-zinc-900 bg-cover bg-center bg-no-repeat"
+           style={{ backgroundImage: `url(${category.image})` }}
+         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent" />
 
@@ -516,10 +516,10 @@ export default function Category() {
                         className="group relative overflow-hidden rounded-[24px] border border-white/10 bg-black/40 shadow-[0_18px_36px_rgba(0,0,0,0.35)] transition-transform duration-300 hover:-translate-y-1"
                         aria-label={card.title}
                       >
-                        <div
-                          className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105"
-                          style={{ backgroundImage: `url(${card.image})` }}
-                        />
+                         <div
+                           className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-transform duration-500 group-hover:scale-105"
+                           style={{ backgroundImage: `url(${card.image})` }}
+                         />
                         <div className="absolute inset-0 bg-gradient-to-br from-black/80 via-black/60 to-black/45" />
                         <div className="relative flex h-full min-h-[170px] flex-col justify-between p-5 sm:p-6">
                           <div className="space-y-2">

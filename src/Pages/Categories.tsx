@@ -257,6 +257,7 @@ export default function Categories() {
                   backgroundImage: `url("${sanitizeImageUrl(heroSlide.imagePrimary)}"), url("${sanitizeImageUrl(heroSlide.imageFallback)}")`,
                   backgroundSize: "cover, cover",
                   backgroundPosition: "center, center",
+                  backgroundRepeat: "no-repeat, no-repeat",
                 }}
               />
               <div className="absolute inset-0 bg-black/35" />
@@ -327,6 +328,7 @@ export default function Categories() {
                       backgroundImage: `url("${card.imagePrimary}"), url("${card.imageFallback}")`,
                       backgroundSize: "cover, cover",
                       backgroundPosition: "center, center",
+                      backgroundRepeat: "no-repeat, no-repeat",
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-br from-black/90 via-black/60 to-black/35" />

@@ -61,12 +61,12 @@ const Cart = () => {
   const handleToggleMonitoring = async (product: { id: string; title: string; imageUrl?: string | null; price: number }) => {
     const enabled = await toggleMonitoring(product);
     if (enabled) {
-      toast.success('?? Monitoramento ativado', {
-        description: 'Vamos te avisar quando este produto baixar de pre?o.',
+      toast.success('Monitoramento ativado', {
+        description: 'Vamos te avisar quando este produto baixar de preço.',
       });
     } else {
-      toast.success('?? Monitoramento desativado', {
-        description: 'Voc? n?o receber? alertas deste produto.',
+      toast.success('Monitoramento desativado', {
+        description: 'Você não receberá alertas deste produto.',
       });
     }
   };
@@ -93,7 +93,7 @@ const Cart = () => {
 
   const openOffer = (link: string | null) => {
     if (!link) {
-      toast.error('Oferta indispon?vel no momento.');
+      toast.error('Oferta indisponível no momento.');
       return;
     }
     setIsRedirecting(true);
@@ -103,7 +103,7 @@ const Cart = () => {
 
   const handlePrimaryOffer = () => {
     if (!availableOffers.length) {
-      toast.error('Nenhuma oferta dispon?vel para redirecionamento.');
+      toast.error('Nenhuma oferta disponível para redirecionamento.');
       return;
     }
 
@@ -133,7 +133,7 @@ const Cart = () => {
     );
   }
 
-  // ESTADO: N?O LOGADO
+  // ESTADO: NAO LOGADO
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen text-[var(--cart-text)]" style={cartThemeVars}>
@@ -148,7 +148,7 @@ const Cart = () => {
             </div>
             <h1 className="text-4xl font-black uppercase italic tracking-tighter mb-4">Acesso Bloqueado</h1>
             <p className="text-[var(--cart-muted)] font-bold uppercase tracking-widest text-[10px] mb-10 leading-relaxed">
-              Voc? precisa estar no time para recrutar itens para o seu arsenal pessoal.
+              Você precisa estar no time para recrutar itens para o seu arsenal pessoal.
             </p>
             <Link to="/auth">
               <Button className="w-full h-16 bg-[var(--cart-accent)] hover:bg-[#e85f00] text-white font-black uppercase italic rounded-2xl transition-all duration-300">
@@ -408,7 +408,7 @@ const Cart = () => {
                   }}
                 >
                   <h2 className="text-base font-black uppercase italic tracking-tight text-[var(--cart-text)]">
-                    Resumo da Miss?o
+                    Resumo da Missão
                   </h2>
                   <ShieldCheck size={20} className="text-[var(--cart-accent)]" />
                 </div>
@@ -421,8 +421,8 @@ const Cart = () => {
                     </div>
 
                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-[var(--cart-muted)]">
-                      <span>Log?stica (Frete)</span>
-                      <span className="text-[var(--cart-success)] italic">Gr?tis</span>
+                      <span>Logística (Frete)</span>
+                      <span className="text-[var(--cart-success)] italic">Grátis</span>
                     </div>
                   </div>
 
@@ -453,7 +453,7 @@ const Cart = () => {
 
                   <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--cart-muted)]">
                     <span className="inline-flex items-center gap-2 rounded-full border border-[var(--cart-border)] bg-white px-3 py-2">
-                      <Truck className="h-3.5 w-3.5 text-[var(--cart-accent)]" /> Frete gr?tis
+                      <Truck className="h-3.5 w-3.5 text-[var(--cart-accent)]" /> Frete grátis
                     </span>
                     <span className="inline-flex items-center gap-2 rounded-full border border-[var(--cart-border)] bg-white px-3 py-2">
                       <ShieldCheck className="h-3.5 w-3.5 text-[var(--cart-accent)]" /> Compra segura
