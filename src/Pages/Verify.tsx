@@ -25,7 +25,7 @@ const Verify = () => {
     const consumeToken = async () => {
       if (!token || type !== "signup") {
         setStatus("error");
-        setMessage("Link invalido ou expirado.");
+        setMessage("Link inválido ou expirado.");
         return;
       }
 
@@ -65,7 +65,7 @@ const Verify = () => {
       } catch {
         if (!mounted) return;
         setStatus("error");
-        setMessage("Link invalido ou expirado.");
+        setMessage("Link inválido ou expirado.");
       }
     };
 
@@ -109,7 +109,7 @@ const Verify = () => {
             {status === "success"
               ? "Conta confirmada"
               : status === "error"
-                ? "Link invalido"
+                ? "Link inválido"
                 : "Confirmando sua conta"}
           </h2>
           <p className="text-muted-foreground text-sm mt-3">{message}</p>

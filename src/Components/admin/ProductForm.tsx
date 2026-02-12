@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+?import React, { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Loader2, Link2, Bot } from 'lucide-react';
@@ -15,11 +15,11 @@ export default function ProductForm() {
     source_url: '',
     image_url: '',
     external_id: '',
-    marketplace: 'manual', // Valor padrão
+    marketplace: 'manual', // Valor padr?o
     category_id: '',
   });
 
-  // FUNÇÃO MÁGICA: Extrai ID e ativa o robô
+  // FUN??O M?GICA: Extrai ID e ativa o rob?
   const handleLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value;
     const mlid = extractMercadoLivreId(url);
@@ -32,7 +32,7 @@ export default function ProductForm() {
         external_id: mlid,
         marketplace: 'mercadolivre'
       }));
-      toast.success(`Robô ativado para o ID: ${mlid}`, {
+      toast.success(`Rob? ativado para o ID: ${mlid}`, {
         icon: <Bot className="text-blue-500" />
       });
     } else {
@@ -56,7 +56,7 @@ export default function ProductForm() {
         .insert([payload]);
 
       if (error) throw error;
-      toast.success('Produto salvo e robô configurado!');
+      toast.success('Produto salvo e rob? configurado!');
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -76,12 +76,12 @@ export default function ProductForm() {
           onChange={handleLinkChange}
           className="w-full p-4 rounded-2xl border border-zinc-200 focus:ring-2 focus:ring-primary outline-none transition-all"
         />
-        <p className="text-[10px] text-zinc-400 italic">O sistema identificará o ID automaticamente para o robô.</p>
+        <p className="text-[10px] text-zinc-400 italic">O sistema identificar? o ID automaticamente para o rob?.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-bold text-zinc-700">ID do Robô (Auto)</label>
+          <label className="text-sm font-bold text-zinc-700">ID do Rob? (Auto)</label>
           <input 
             type="text" 
             value={formData.external_id} 
@@ -100,7 +100,7 @@ export default function ProductForm() {
         </div>
       </div>
 
-      {/* Outros campos (Nome, Preço, etc) */}
+      {/* Outros campos (Nome, Pre?o, etc) */}
       <div className="space-y-2">
         <label className="text-sm font-bold text-zinc-700">Nome do Produto</label>
         <input 

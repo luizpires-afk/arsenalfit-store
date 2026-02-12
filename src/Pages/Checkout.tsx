@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+?import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '@/hooks/useCart'; 
 import { supabase } from '@/integrations/supabase/client';
@@ -14,7 +14,7 @@ export default function Checkout() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  // CORREÇÃO: Acessando 'products' (plural) conforme o erro de tipagem indicou
+  // CORRE??O: Acessando 'products' (plural) conforme o erro de tipagem indicou
   const total = useMemo(() => {
     return cartItems.reduce((acc, item) => {
       const price = item.products?.price || 0;
@@ -50,7 +50,7 @@ export default function Checkout() {
           total_amount: total,
           status: 'pending',
           shipping_address: `${formData.address}, ${formData.city} - ${formData.zipCode}`,
-          // Salvamos os itens para referência histórica
+          // Salvamos os itens para refer?ncia hist?rica
           items: cartItems.map(item => ({
             product_id: item.product_id,
             title: item.products?.title,
@@ -77,9 +77,9 @@ export default function Checkout() {
         <div className="text-center bg-white p-10 rounded-[40px] shadow-sm border border-zinc-100">
           <Truck className="w-12 h-12 text-zinc-200 mx-auto mb-4" />
           <h2 className="text-2xl font-black uppercase italic tracking-tighter">Carrinho Vazio</h2>
-          <p className="text-zinc-500 mb-6">Seu arsenal está aguardando produtos.</p>
+          <p className="text-zinc-500 mb-6">Seu arsenal est? aguardando produtos.</p>
           <Button onClick={() => navigate('/')} className="bg-[#a3e635] text-black hover:bg-[#bef264] rounded-full px-8 font-bold">
-            Voltar à Loja
+            Voltar ? Loja
           </Button>
         </div>
       </div>
@@ -88,7 +88,7 @@ export default function Checkout() {
 
   return (
     <div className="min-h-screen bg-[#FBFBFB] pt-24 pb-12 px-4">
-      <SEOHead title="Checkout" description="Finalize sua compra com segurança na ArsenalFit." />
+      <SEOHead title="Checkout" description="Finalize sua compra com seguran?a na ArsenalFit." />
       
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12">
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
@@ -105,7 +105,7 @@ export default function Checkout() {
               <h3 className="font-bold text-sm uppercase tracking-widest text-zinc-400 mb-4">Dados de Entrega</h3>
               <Input name="fullName" placeholder="Nome Completo" required onChange={handleInputChange} className="rounded-xl border-zinc-200" />
               <Input name="email" type="email" placeholder="E-mail" required onChange={handleInputChange} className="rounded-xl border-zinc-200" />
-              <Input name="address" placeholder="Endereço Completo" required onChange={handleInputChange} className="rounded-xl border-zinc-200" />
+              <Input name="address" placeholder="Endere?o Completo" required onChange={handleInputChange} className="rounded-xl border-zinc-200" />
               <div className="grid grid-cols-2 gap-4">
                 <Input name="city" placeholder="Cidade" required onChange={handleInputChange} className="rounded-xl border-zinc-200" />
                 <Input name="zipCode" placeholder="CEP" required onChange={handleInputChange} className="rounded-xl border-zinc-200" />
@@ -133,7 +133,7 @@ export default function Checkout() {
             {cartItems.map((item) => (
               <div key={item.id} className="flex justify-between items-start border-b border-zinc-800 pb-4">
                 <div className="flex flex-col">
-                  {/* CORREÇÃO: Acessando item.products?.title */}
+                  {/* CORRE??O: Acessando item.products?.title */}
                   <span className="font-bold text-sm">{item.products?.title || 'Produto'}</span>
                   <span className="text-zinc-500 text-xs">{item.quantity}x R$ {item.products?.price?.toFixed(2)}</span>
                 </div>
@@ -151,7 +151,7 @@ export default function Checkout() {
             </div>
             <div className="flex justify-between text-zinc-400 text-sm">
               <span>Frete</span>
-              <span className="text-[#a3e635] font-bold">GRÁTIS</span>
+              <span className="text-[#a3e635] font-bold">GR?TIS</span>
             </div>
             <div className="border-t border-zinc-800 pt-6 flex justify-between items-end">
               <span className="text-zinc-400 font-bold uppercase text-xs tracking-widest">Total Final</span>

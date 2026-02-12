@@ -24,7 +24,7 @@ export default function AuthSent() {
 
   const handleResend = async () => {
     if (!email) {
-      toast.error("Digite um e-mail valido.");
+      toast.error("Digite um e-mail válido.");
       return;
     }
     if (cooldown > 0) return;
@@ -55,7 +55,7 @@ export default function AuthSent() {
           <CheckCircle2 className="h-8 w-8 text-primary" />
         </div>
         <h1 className="text-2xl font-black uppercase italic text-foreground">
-          {isReset ? "Link enviado" : "Verificacao enviada"}
+          {isReset ? "Link enviado" : "Verificação enviada"}
         </h1>
         <p className="text-muted-foreground text-sm mt-3">
           {isReset
@@ -80,7 +80,7 @@ export default function AuthSent() {
                 ? "Enviando..."
                 : cooldown > 0
                   ? `Enviar novo link em ${cooldown}s`
-                  : "Enviar novo link de confirmacao"}
+                  : "Enviar novo link de confirmação"}
             </Button>
           )}
           <Link to="/login">

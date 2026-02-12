@@ -30,11 +30,11 @@ const ResetPassword = () => {
       return;
     }
     if (password !== confirmPassword) {
-      toast.error("As senhas nao coincidem.");
+      toast.error("As senhas não coincidem.");
       return;
     }
     if (!token || type !== "recovery") {
-      toast.error("Link invalido ou expirado.");
+      toast.error("Link inválido ou expirado.");
       return;
     }
 
@@ -47,7 +47,7 @@ const ResetPassword = () => {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.message || "Link invalido ou expirado.");
+        throw new Error(payload?.message || "Link inválido ou expirado.");
       }
 
       const otp = payload?.otp;

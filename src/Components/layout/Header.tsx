@@ -15,12 +15,12 @@ export const Header = () => {
   const brandLetter = 'A';
 
   useEffect(() => {
-    // Verificar sessão inicial
+    // Verificar sess?o inicial
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
     });
 
-    // Escutar mudanças na autenticação
+    // Escutar mudan?as na autentica??o
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
@@ -41,14 +41,14 @@ export const Header = () => {
           </span>
         </Link>
 
-        {/* NAVEGAÇÃO DESKTOP */}
+        {/* NAVEGA??O DESKTOP */}
         <nav className="hidden md:flex items-center gap-8">
           <Link to="/" className="text-sm font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">Vitrine</Link>
           <Link to="/suplementos" className="text-sm font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">Suplementos</Link>
           <Link to="/admin" className="text-sm font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors">Painel</Link>
         </nav>
 
-        {/* AÇÕES (BUSCA, NOTIFICAÇÃO, USER) */}
+        {/* A??ES (BUSCA, NOTIFICA??O, USER) */}
         <div className="flex items-center gap-2 md:gap-4">
           <NotificationBell />
 

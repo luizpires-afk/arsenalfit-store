@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, AlertCircle, BarChart, ShieldCheck } from "lucide-react";
+?import { CheckCircle2, AlertCircle, BarChart, ShieldCheck } from "lucide-react";
 import { Progress } from "@/Components/ui/progressx";
 
 interface AnalysisProps {
@@ -14,16 +14,16 @@ export const ProductAnalysis = ({ price, competitor_price, quality_score, techni
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 my-12">
-      {/* CARD 1: COMPARADOR DE PREÇOS */}
+      {/* CARD 1: COMPARADOR DE PRE?OS */}
       <div className="bg-zinc-900 rounded-[32px] p-8 border border-zinc-800 relative overflow-hidden">
         <div className="flex items-center gap-2 mb-6 text-primary uppercase font-black italic tracking-tighter">
-          <BarChart size={20} /> Comparador de Preços
+          <BarChart size={20} /> Comparador de Pre?os
         </div>
         
         <div className="space-y-6">
           <div className="flex justify-between items-end">
             <div>
-              <p className="text-zinc-500 text-xs uppercase font-bold">Na Concorrência</p>
+              <p className="text-zinc-500 text-xs uppercase font-bold">Na Concorr?ncia</p>
               <p className="text-zinc-400 line-through text-xl font-mono">R$ {competitor_price?.toFixed(2)}</p>
             </div>
             <div className="text-right">
@@ -41,25 +41,25 @@ export const ProductAnalysis = ({ price, competitor_price, quality_score, techni
         </div>
       </div>
 
-      {/* CARD 2: AVALIAÇÃO DO ESPECIALISTA */}
+      {/* CARD 2: AVALIA??O DO ESPECIALISTA */}
       <div className="bg-white rounded-[32px] p-8 border border-zinc-200 shadow-xl">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2 text-zinc-900 uppercase font-black italic tracking-tighter">
-            <ShieldCheck size={20} className="text-primary" /> Avaliação Técnica
+            <ShieldCheck size={20} className="text-primary" /> Avalia??o T?cnica
           </div>
           <div className="text-3xl font-black italic text-primary">{quality_score}/10</div>
         </div>
 
         <div className="space-y-4">
           <div>
-            <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">Indicação de Uso</p>
+            <p className="text-[10px] font-black uppercase text-zinc-400 mb-1">Indica??o de Uso</p>
             <div className="flex items-center gap-2 text-zinc-900 font-bold italic">
               <CheckCircle2 size={16} className="text-green-500" /> {best_use_case}
             </div>
           </div>
 
           <div className="pt-4 border-t border-zinc-100">
-            <p className="text-[10px] font-black uppercase text-zinc-400 mb-2">Análise do Tecido/Qualidade</p>
+            <p className="text-[10px] font-black uppercase text-zinc-400 mb-2">An?lise do Tecido/Qualidade</p>
             <p className="text-zinc-700 text-sm leading-relaxed italic">
               "{technical_analysis}"
             </p>

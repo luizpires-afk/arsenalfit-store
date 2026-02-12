@@ -56,10 +56,10 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
-            throw new Error("E-mail n„o vinculado ou senha incorreta.");
+            throw new Error("E-mail n√£o vinculado ou senha incorreta.");
           }
           if (error.message.toLowerCase().includes("email") && error.message.toLowerCase().includes("confirm")) {
-            throw new Error("Conta ainda n„o verificada. Enviamos um novo link se vocÍ desejar.");
+            throw new Error("Conta ainda n√£o verificada. Enviamos um novo link se voc√™ desejar.");
           }
           throw error;
         }
@@ -75,15 +75,15 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           if (payload?.error === "invalid_email") {
-            throw new Error("Digite um e-mail v·lido.");
+            throw new Error("Digite um e-mail v√°lido.");
           }
           if (payload?.error === "weak_password") {
             throw new Error("Use pelo menos 8 caracteres.");
           }
           if (payload?.error === "rate_limited") {
-            throw new Error("Muitas solicitaÁıes. Tente novamente em alguns minutos.");
+            throw new Error("Muitas solicita√ß√µes. Tente novamente em alguns minutos.");
           }
-          throw new Error(payload?.message || "Erro ao enviar verificaÁ„o.");
+          throw new Error(payload?.message || "Erro ao enviar verifica√ß√£o.");
         }
         toast.success("Cadastro realizado! Verifique seu e-mail.");
         navigate(`/auth/sent?mode=signup&email=${encodeURIComponent(email)}`);
@@ -97,10 +97,10 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
           if (payload?.error === "invalid_email") {
-            throw new Error("Digite um e-mail v·lido.");
+            throw new Error("Digite um e-mail v√°lido.");
           }
           if (payload?.error === "rate_limited") {
-            throw new Error("Muitas solicitaÁıes. Tente novamente em alguns minutos.");
+            throw new Error("Muitas solicita√ß√µes. Tente novamente em alguns minutos.");
           }
           throw new Error(payload?.message || "Erro ao enviar link.");
         }
@@ -117,7 +117,7 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
 
   const handleResendRecovery = async () => {
     if (!isValidEmail(email)) {
-      toast.error("Digite um e-mail v·lido.");
+      toast.error("Digite um e-mail v√°lido.");
       return;
     }
     setResendLoading(true);
@@ -158,7 +158,7 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
           <p className="text-muted-foreground font-bold uppercase text-[11px] sm:text-[13px] tracking-[0.12em] mt-1.5 px-4">
             {authMode === 'login'
               ? 'Acesse sua conta de atleta'
-              : 'Curadoria premium com os menores preÁos do mercado.'}
+              : 'Curadoria premium com os menores pre√ßos do mercado.'}
           </p>
         </div>
 
@@ -205,7 +205,7 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
               />
               {emailError && (
                 <p id="auth-email-error" className="mt-2 text-[10px] font-semibold text-orange-500">
-                  Digite um e-mail v·lido
+                  Digite um e-mail v√°lido
                 </p>
               )}
             </div>
@@ -257,7 +257,7 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
             <Button disabled={loading} className="w-full h-14 rounded-2xl font-black uppercase italic text-lg bg-primary text-black hover:bg-primary/90 mt-2 transition-all shadow-lg shadow-primary/20 active:scale-[0.98]">
               {loading ? 'Processando...' : (
                 <span className="flex items-center gap-2">
-                  {authMode === 'login' ? 'Entrar' : authMode === 'signup' ? 'COME«AR AGORA' : 'Enviar Link'} 
+                  {authMode === 'login' ? 'Entrar' : authMode === 'signup' ? 'COME√áAR AGORA' : 'Enviar Link'} 
                   <ArrowRight size={20} />
                 </span>
               )}
@@ -269,17 +269,17 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
                 disabled={resendLoading}
                 className="w-full text-[10px] font-black uppercase tracking-widest text-primary hover:text-black dark:hover:text-white transition-colors mt-2 disabled:opacity-60"
               >
-                {resendLoading ? 'Enviando...' : 'Reenviar recuperaÁ„o'}
+                {resendLoading ? 'Enviando...' : 'Reenviar recupera√ß√£o'}
               </button>
             )}
             {authMode === 'signup' && (
               <>
                 <p className="mt-3 text-center text-[11px] text-muted-foreground">
-                  Ao criar uma conta, vocÍ concorda com nossos Termos e PolÌtica de Privacidade
+                  Ao criar uma conta, voc√™ concorda com nossos Termos e Pol√≠tica de Privacidade
                 </p>
                 <p className="mt-3 flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-bold uppercase tracking-[0.2em]">
                   <ShieldCheck size={14} className="text-primary" />
-                  Seus dados est„o protegidos e nunca ser„o compartilhados
+                  Seus dados est√£o protegidos e nunca ser√£o compartilhados
                 </p>
               </>
             )}
@@ -290,7 +290,7 @@ const Auth = ({ initialMode = 'login' }: AuthProps) => {
               onClick={() => setAuthMode(authMode === 'signup' ? 'login' : 'signup')} 
               className="text-xs font-black text-muted-foreground hover:text-primary uppercase tracking-widest transition-colors"
             >
-              {authMode === 'signup' ? 'J¡ FAZ PARTE DO TIME? ENTRAR' : 'NOVO POR AQUI? CRIAR CONTA'}
+              {authMode === 'signup' ? 'J√Å FAZ PARTE DO TIME? ENTRAR' : 'NOVO POR AQUI? CRIAR CONTA'}
             </button>
           </div>
         </div>

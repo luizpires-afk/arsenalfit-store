@@ -44,7 +44,7 @@ import {
   DialogTitle,
 } from "@/Components/ui/dialog";
 
-// Hooks e UtilitÃ¡rios
+// Hooks e Utilitï¿½rios
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import type { Product, Category } from "@/types/database";
@@ -82,7 +82,7 @@ const CLOTHING_OPTIONS = [
   },
 ];
 
-// Tipagem do FormulÃ¡rio
+// Tipagem do Formulï¿½rio
 interface ProductFormData {
   name: string;
   description: string;
@@ -209,11 +209,11 @@ export default function Admin() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncAlertShown, setSyncAlertShown] = useState(false);
 
-  // Redirecionamento de seguranÃ§a
+  // Redirecionamento de seguranï¿½a
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
       toast.error('Acesso negado', {
-        description: 'VocÃª nÃ£o tem permissÃ£o para acessar esta pÃ¡gina.',
+        description: 'Vocï¿½ nï¿½o tem permissï¿½o para acessar esta pï¿½gina.',
       });
       navigate('/');
     }
@@ -498,7 +498,7 @@ export default function Admin() {
   const lastSyncCandidate =
     latestSyncRun?.finished_at ?? latestSyncRun?.started_at ?? automationStats.lastSync ?? null;
   const lastSyncMs = lastSyncCandidate ? new Date(lastSyncCandidate).getTime() : null;
-  const lastSyncSource = latestSyncRun ? "ExecuÃ§Ã£o do robÃ´" : "AtualizaÃ§Ã£o dos produtos";
+  const lastSyncSource = latestSyncRun ? "Execuï¿½ï¿½o do robï¿½" : "Atualizaï¿½ï¿½o dos produtos";
   const nowMs = Date.now();
   const lastCronMs = Math.floor(nowMs / syncIntervalMs) * syncIntervalMs;
   const nextCronMs = lastCronMs + syncIntervalMs;
@@ -527,9 +527,9 @@ export default function Admin() {
   const formatAge = (ms?: number | null) => {
     if (!ms && ms !== 0) return "Sem dados";
     if (ms < 60 * 1000) return "Agora";
-    if (ms < 60 * 60 * 1000) return `${Math.floor(ms / (60 * 1000))}m atrÃ¡s`;
+    if (ms < 60 * 60 * 1000) return `${Math.floor(ms / (60 * 1000))}m atrï¿½s`;
     const hours = Math.floor(ms / (60 * 60 * 1000));
-    return `${hours}h atrÃ¡s`;
+    return `${hours}h atrï¿½s`;
   };
   const syncAgeLabel = isSyncMissing
     ? "Sem sync registrado"
@@ -592,7 +592,7 @@ export default function Admin() {
       const slug = generateSlug(data.name);
       const marketplace = detectMarketplace(data.source_url || data.affiliate_link);
       
-      // SanitizaÃ§Ã£o dos dados numÃ©ricos
+      // Sanitizaï¿½ï¿½o dos dados numï¿½ricos
       const numericPrice = parseFloat(data.price) || 0;
       const numericPixPrice = data.pix_price ? parseFloat(data.pix_price) : null;
       const numericOriginalPrice = data.original_price ? parseFloat(data.original_price) : null;
@@ -616,7 +616,7 @@ export default function Admin() {
       const genderValue = isRoupasSelected ? data.gender || null : null;
       const productData = {
         name: data.name,
-        slug: data.id ? undefined : slug, // NÃ£o atualiza slug na ediÃ§Ã£o para manter SEO
+        slug: data.id ? undefined : slug, // Nï¿½o atualiza slug na ediï¿½ï¿½o para manter SEO
         description: data.description || null,
         short_description: data.short_description || null,
         price: numericPrice,
@@ -684,7 +684,7 @@ export default function Admin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] });
-      toast.success('Produto excluÃ­do!');
+      toast.success('Produto excluï¿½do!');
     },
     onError: (error: Error) => {
       toast.error('Erro ao excluir produto', {
@@ -756,8 +756,8 @@ export default function Admin() {
       const itemRes = await fetch(`https://api.mercadolibre.com/items/${externalId}`);
       if (!itemRes.ok) {
         const msg = itemRes.status === 404 
-          ? 'ID nÃ£o encontrado no Mercado Livre. Copie o cÃ³digo MLB direto da URL do produto.'
-          : 'NÃ£o foi possÃ­vel consultar o Mercado Livre.';
+          ? 'ID nï¿½o encontrado no Mercado Livre. Copie o cï¿½digo MLB direto da URL do produto.'
+          : 'Nï¿½o foi possï¿½vel consultar o Mercado Livre.';
         throw new Error(msg);
       }
       const itemData = await itemRes.json();
@@ -770,7 +770,7 @@ export default function Admin() {
           description = descData?.plain_text || '';
         }
       } catch {
-        // silencioso: descriÃ§Ã£o Ã© opcional
+        // silencioso: descriï¿½ï¿½o ï¿½ opcional
       }
 
       const price = itemData?.price ?? '';
@@ -812,7 +812,7 @@ export default function Admin() {
     if (value.trim()) {
       const validation = isValidAffiliateLink(value);
       if (!validation.valid) {
-        setAffiliateLinkError(validation.error || 'Link invÃ¡lido');
+        setAffiliateLinkError(validation.error || 'Link invï¿½lido');
         return;
       }
       setAffiliateLinkError(null);
@@ -852,7 +852,7 @@ export default function Admin() {
       if (mlbId) {
         setFormData(prev => ({ ...prev, external_id: mlbId }));
         setExternalIdError(null);
-        // Para evitar bloqueio/403 no front, deixamos a importaÃ§Ã£o para o robÃ´ (edge function).
+        // Para evitar bloqueio/403 no front, deixamos a importaï¿½ï¿½o para o robï¿½ (edge function).
         // autoFillFromMercadoLivre(mlbId);
       } else if (value !== lastNoIdLink && value.length > 20) {
         setLastNoIdLink(value);
@@ -875,7 +875,7 @@ export default function Admin() {
       setExternalIdError('Use o ID completo do Mercado Livre (ex: MLB12345678...).');
       return;
     }
-    // Para evitar bloqueios no front, deixamos a importaÃ§Ã£o para o robÃ´ server-side.
+    // Para evitar bloqueios no front, deixamos a importaï¿½ï¿½o para o robï¿½ server-side.
     // if (normalized !== lastFetchedExternalId) {
     //   autoFillFromMercadoLivre(normalized);
     // }
@@ -887,7 +887,7 @@ export default function Admin() {
     if (formData.affiliate_link.trim()) {
       const validation = isValidAffiliateLink(formData.affiliate_link);
       if (!validation.valid) {
-        setAffiliateLinkError(validation.error || 'Link invÃ¡lido');
+        setAffiliateLinkError(validation.error || 'Link invï¿½lido');
         return;
       }
     }
@@ -919,9 +919,9 @@ export default function Admin() {
         .neq('status', 'paused');
 
       if (error) throw error;
-      toast.success('SincronizaÃ§Ã£o agendada para os produtos ativos.');
+      toast.success('Sincronizaï¿½ï¿½o agendada para os produtos ativos.');
     } catch (error: any) {
-      toast.error('Falha ao agendar sincronizaÃ§Ã£o', {
+      toast.error('Falha ao agendar sincronizaï¿½ï¿½o', {
         description: error.message,
       });
     } finally {
@@ -1052,8 +1052,8 @@ export default function Admin() {
   };
 
   const getSourceLabel = (source?: string | null) => {
-    if (source === 'catalog') return 'CatÃ¡logo';
-    if (source === 'public') return 'PÃºblico';
+    if (source === 'catalog') return 'Catï¿½logo';
+    if (source === 'public') return 'Pï¿½blico';
     if (source === 'auth') return 'Autenticado';
     if (source === 'scraper') return 'Scraper';
     return 'N/D';
@@ -1082,11 +1082,11 @@ export default function Admin() {
   };
 
   const getAnomalyLabel = (note?: string | null) => {
-    if (note === 'policy_blocked') return 'API bloqueou o anÃºncio';
-    if (note === 'catalog_lookup_failed') return 'CatÃ¡logo indisponÃ­vel';
-    if (note === 'preferred_item_missing_in_catalog') return 'Item nÃ£o estÃ¡ no catÃ¡logo';
-    if (note === 'catalog_fallback') return 'PreÃ§o veio do catÃ¡logo';
-    return 'DivergÃªncia';
+    if (note === 'policy_blocked') return 'API bloqueou o anï¿½ncio';
+    if (note === 'catalog_lookup_failed') return 'Catï¿½logo indisponï¿½vel';
+    if (note === 'preferred_item_missing_in_catalog') return 'Item nï¿½o estï¿½ no catï¿½logo';
+    if (note === 'catalog_fallback') return 'Preï¿½o veio do catï¿½logo';
+    return 'Divergï¿½ncia';
   };
 
   
@@ -1095,7 +1095,7 @@ export default function Admin() {
     if (status === 'sent') return 'Enviado';
     if (status === 'consumed') return 'Consumido';
     if (status === 'password_reset') return 'Senha resetada';
-    if (status === 'already_confirmed') return 'Já confirmado';
+    if (status === 'already_confirmed') return 'J? confirmado';
     if (status === 'rate_limited') return 'Rate limit';
     if (status === 'user_not_found') return 'Sem conta';
     if (status === 'error') return 'Erro';
@@ -1201,13 +1201,13 @@ export default function Admin() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={handleSyncNow} disabled>
-                SincronizaÃ§Ã£o desativada
+                Sincronizaï¿½ï¿½o desativada
               </Button>
               <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                RelatÃ³rio do robÃ´
+                Relatï¿½rio do robï¿½
               </Button>
               <Button variant="secondary" onClick={() => navigate('/admin/price-adjustments')}>
-                Ajustes de preÃ§o
+                Ajustes de preï¿½o
               </Button>
               <Button onClick={() => handleOpenDialog()} className="btn-energy">
                 <Plus className="h-4 w-4 mr-2" />
@@ -1216,19 +1216,19 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* AutomaÃ§Ã£o do RobÃ´ */}
+          {/* Automaï¿½ï¿½o do Robï¿½ */}
           <div className="bg-card rounded-xl p-6 mb-6 border border-border">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
               <div>
-                <h2 className="text-xl font-semibold text-foreground">AutomaÃ§Ã£o do RobÃ´</h2>
+                <h2 className="text-xl font-semibold text-foreground">Automaï¿½ï¿½o do Robï¿½</h2>
                 <p className="text-sm text-muted-foreground">
-                  Monitoramento contÃ­nuo de preÃ§os e relatÃ³rios diÃ¡rios.
+                  Monitoramento contï¿½nuo de preï¿½os e relatï¿½rios diï¿½rios.
                 </p>
                 {isSyncStale && (
                   <div className="mt-2 flex items-center gap-2 text-sm text-destructive">
                     <AlertTriangle className="h-4 w-4" />
                     {isSyncFailed
-                      ? "Falha no Ãºltimo sync. Reagendamos automaticamente."
+                      ? "Falha no ï¿½ltimo sync. Reagendamos automaticamente."
                       : "Sync atrasado. Reagendamos automaticamente."}
                   </div>
                 )}
@@ -1238,7 +1238,7 @@ export default function Admin() {
                   {isSyncing ? 'Agendando...' : 'Agendar Sync Agora'}
                 </Button>
                 <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                  Ver relatÃ³rio completo
+                  Ver relatï¿½rio completo
                 </Button>
               </div>
             </div>
@@ -1258,7 +1258,7 @@ export default function Admin() {
               </div>
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                  <Activity className="h-4 w-4" /> PromoÃ§Ãµes
+                  <Activity className="h-4 w-4" /> Promoï¿½ï¿½es
                 </div>
                 <p className="mt-2 text-2xl font-bold text-primary">{automationStats.promos}</p>
               </div>
@@ -1268,7 +1268,7 @@ export default function Admin() {
                 }`}
               >
                 <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                  <Clock className="h-4 w-4" /> Ãltimo sync
+                  <Clock className="h-4 w-4" /> ï¿½ltimo sync
                 </div>
                 <p className="mt-2 text-sm font-semibold text-foreground">
                   {formatDateTime(lastSyncCandidate)}
@@ -1276,7 +1276,7 @@ export default function Admin() {
                 <p className={`mt-1 text-xs ${isSyncStale ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {syncAgeLabel}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">HorÃ¡rio local</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Horï¿½rio local</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">Fonte: {lastSyncSource}</p>
                 {isSyncStale && (
                   <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-destructive">
@@ -1287,16 +1287,16 @@ export default function Admin() {
               </div>
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                  <Timer className="h-4 w-4" /> PrÃ³xima checagem
+                  <Timer className="h-4 w-4" /> Prï¿½xima checagem
                 </div>
                 <p className="mt-2 text-sm font-semibold text-foreground">
                   {formatDateTime(nextCheckEffective || automationStats.nextCheck)}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">HorÃ¡rio local</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Horï¿½rio local</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">{syncScheduleNote}</p>
                 {showNextProductDue && (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    PrÃ³ximo produto vence: {formatDateTime(new Date(nextProductDueMs as number).toISOString())}
+                    Prï¿½ximo produto vence: {formatDateTime(new Date(nextProductDueMs as number).toISOString())}
                   </p>
                 )}
               </div>
@@ -1306,7 +1306,7 @@ export default function Admin() {
                 </div>
                 <p className="mt-2 text-2xl font-bold text-warning">{anomalyStats.blocked}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  403 no Ãºltimo run: {latestSyncRun?.total_403 ?? 0}
+                  403 no ï¿½ltimo run: {latestSyncRun?.total_403 ?? 0}
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   Alertas na janela: {blockedAnomalies.length}
@@ -1318,7 +1318,7 @@ export default function Admin() {
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <Mail className="h-4 w-4" /> RelatÃ³rios enviados
+                    <Mail className="h-4 w-4" /> Relatï¿½rios enviados
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => navigate('/admin/price-sync')}>
                     Ver tudo
@@ -1327,7 +1327,7 @@ export default function Admin() {
                 {loadingReports ? (
                   <p className="text-sm text-muted-foreground">Carregando...</p>
                 ) : reports.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nenhum relatÃ³rio registrado ainda.</p>
+                  <p className="text-sm text-muted-foreground">Nenhum relatï¿½rio registrado ainda.</p>
                 ) : (
                   <div className="space-y-3">
                     {reports.map((report) => (
@@ -1335,11 +1335,11 @@ export default function Admin() {
                         <div>
                           <p className="font-medium text-foreground">{formatDateTime(report.sent_at)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {report.recipients?.join(', ') || 'DestinatÃ¡rio nÃ£o informado'}
+                            {report.recipients?.join(', ') || 'Destinatï¿½rio nï¿½o informado'}
                           </p>
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {report.total} mudanÃ§as â¢ {report.drops} quedas â¢ {report.promos} promos
+                          {report.total} mudanï¿½as . {report.drops} quedas . {report.promos} promos
                         </div>
                         <span
                           className={`text-xs px-2 py-1 rounded-full ${
@@ -1358,7 +1358,7 @@ export default function Admin() {
 
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
-                  <TrendingDown className="h-4 w-4" /> MudanÃ§as recentes
+                  <TrendingDown className="h-4 w-4" /> Mudanï¿½as recentes
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -1366,7 +1366,7 @@ export default function Admin() {
                     <p className="text-lg font-semibold">{priceChangeStats.total}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">PromoÃ§Ãµes</p>
+                    <p className="text-muted-foreground">Promoï¿½ï¿½es</p>
                     <p className="text-lg font-semibold text-primary">{priceChangeStats.promos}</p>
                   </div>
                   <div>
@@ -1444,7 +1444,7 @@ export default function Admin() {
               <div>
                 <h2 className="text-lg font-semibold text-foreground">Produtos</h2>
                 <p className="text-sm text-muted-foreground">
-                  Status de validaÃ§Ã£o, Pix manual/automÃ¡tico e filtros rÃ¡pidos.
+                  Status de validaï¿½ï¿½o, Pix manual/automï¿½tico e filtros rï¿½pidos.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1514,7 +1514,7 @@ export default function Admin() {
               >
                 <TabsList className="w-full sm:w-auto">
                   <TabsTrigger value="all">Todos ({filteredAllProducts.length})</TabsTrigger>
-                  <TabsTrigger value="valid">ValidaÃ§Ã£o ok ({filteredValidProducts.length})</TabsTrigger>
+                  <TabsTrigger value="valid">Validaï¿½ï¿½o ok ({filteredValidProducts.length})</TabsTrigger>
                   <TabsTrigger value="blocked">Bloqueados ({filteredBlockedProducts.length})</TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -1525,8 +1525,8 @@ export default function Admin() {
           <div className="bg-card rounded-xl p-4 mb-6 border border-border">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">MudanÃ§as de preÃ§o</h2>
-                <p className="text-sm text-muted-foreground">Ãltimas alteraÃ§Ãµes capturadas pelo robÃ´</p>
+                <h2 className="text-lg font-semibold text-foreground">Mudanï¿½as de preï¿½o</h2>
+                <p className="text-sm text-muted-foreground">ï¿½ltimas alteraï¿½ï¿½es capturadas pelo robï¿½</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1534,16 +1534,16 @@ export default function Admin() {
                   onClick={handleForceSync}
                   disabled={isSyncing}
                 >
-                  {isSyncing ? 'Agendando...' : 'ForÃ§ar sync'}
+                  {isSyncing ? 'Agendando...' : 'Forï¿½ar sync'}
                 </Button>
                 <Select value={changesWindow} onValueChange={(value) => setChangesWindow(value as '24h' | '7d' | '30d')}>
                   <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="PerÃ­odo" />
+                    <SelectValue placeholder="Perï¿½odo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="24h">Ãltimas 24h</SelectItem>
-                    <SelectItem value="7d">Ãltimos 7 dias</SelectItem>
-                    <SelectItem value="30d">Ãltimos 30 dias</SelectItem>
+                    <SelectItem value="24h">ï¿½ltimas 24h</SelectItem>
+                    <SelectItem value="7d">ï¿½ltimos 7 dias</SelectItem>
+                    <SelectItem value="30d">ï¿½ltimos 30 dias</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1551,15 +1551,15 @@ export default function Admin() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
               <div className="rounded-lg bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">MudanÃ§as</p>
+                <p className="text-xs text-muted-foreground">Mudanï¿½as</p>
                 <p className="text-lg font-semibold text-foreground">{priceChangeStats.total}</p>
               </div>
               <div className="rounded-lg bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">PromoÃ§Ãµes</p>
+                <p className="text-xs text-muted-foreground">Promoï¿½ï¿½es</p>
                 <p className="text-lg font-semibold text-foreground">{priceChangeStats.promos}</p>
               </div>
               <div className="rounded-lg bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">ReduÃ§Ãµes</p>
+                <p className="text-xs text-muted-foreground">Reduï¿½ï¿½es</p>
                 <p className="text-lg font-semibold text-foreground">{priceChangeStats.reductions}</p>
               </div>
               <div className="rounded-lg bg-secondary/30 p-3">
@@ -1572,11 +1572,11 @@ export default function Admin() {
               {loadingPriceChanges ? (
                 <div className="text-center py-6">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
-                  <p className="mt-2 text-sm text-muted-foreground">Carregando mudanÃ§as...</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Carregando mudanï¿½as...</p>
                 </div>
               ) : priceChanges.length === 0 ? (
                 <div className="text-center py-6 text-sm text-muted-foreground">
-                  Nenhuma mudanÃ§a registrada nesse perÃ­odo.
+                  Nenhuma mudanï¿½a registrada nesse perï¿½odo.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1641,18 +1641,18 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Avisos de verificaÃ§Ã£o */}
+          {/* Avisos de verificaï¿½ï¿½o */}
           <div className="bg-card rounded-xl p-4 mb-6 border border-border">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Avisos de verificaÃ§Ã£o</h2>
+                <h2 className="text-lg font-semibold text-foreground">Avisos de verificaï¿½ï¿½o</h2>
                 <p className="text-sm text-muted-foreground">
-                  Produtos com bloqueio de validaÃ§Ã£o de preÃ§o ou inconsistÃªncias detectadas.
+                  Produtos com bloqueio de validaï¿½ï¿½o de preï¿½o ou inconsistï¿½ncias detectadas.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                  Ver relatÃ³rio completo
+                  Ver relatï¿½rio completo
                 </Button>
                 <Button variant="secondary" onClick={handleCopyBlockedLinks} disabled={!blockedAnomalies.length}>
                   Copiar links bloqueados
@@ -1667,7 +1667,7 @@ export default function Admin() {
               {loadingAnomalies ? (
                 <p className="text-sm text-muted-foreground">Carregando...</p>
               ) : anomalies.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma divergÃªncia registrada.</p>
+                <p className="text-sm text-muted-foreground">Nenhuma divergï¿½ncia registrada.</p>
               ) : (
                 <div className="space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 p-3">
@@ -1679,18 +1679,18 @@ export default function Admin() {
                         Bloqueados: {anomalyStats.blocked}
                       </span>
                       <span className="rounded-full bg-muted text-muted-foreground px-2 py-1">
-                        CatÃ¡logo: {anomalyStats.catalogFallback}
+                        Catï¿½logo: {anomalyStats.catalogFallback}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Select value={anomaliesWindow} onValueChange={(value) => setAnomaliesWindow(value as '24h' | '7d' | '30d')}>
                         <SelectTrigger className="w-[140px]">
-                          <SelectValue placeholder="PerÃ­odo" />
+                          <SelectValue placeholder="Perï¿½odo" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="24h">Ãltimas 24h</SelectItem>
-                          <SelectItem value="7d">Ãltimos 7 dias</SelectItem>
-                          <SelectItem value="30d">Ãltimos 30 dias</SelectItem>
+                          <SelectItem value="24h">ï¿½ltimas 24h</SelectItem>
+                          <SelectItem value="7d">ï¿½ltimos 7 dias</SelectItem>
+                          <SelectItem value="30d">ï¿½ltimos 30 dias</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1706,7 +1706,7 @@ export default function Admin() {
                         <div>
                           <p className="font-medium text-foreground">{row.product?.name || 'Produto'}</p>
                           <p className="text-xs text-muted-foreground">
-                            MLB: {row.external_id || '-'} â¢ CatÃ¡logo: {row.catalog_id || '-'}
+                            MLB: {row.external_id || '-'} . Catï¿½logo: {row.catalog_id || '-'}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Detectado: {formatDateTime(row.detected_at)}
@@ -1718,7 +1718,7 @@ export default function Admin() {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         <span className="rounded-full bg-primary/10 text-primary px-2 py-1">
-                          CatÃ¡logo: {row.price_from_catalog !== null ? formatPrice(row.price_from_catalog) : '-'}
+                          Catï¿½logo: {row.price_from_catalog !== null ? formatPrice(row.price_from_catalog) : '-'}
                         </span>
                         <span className="rounded-full bg-muted text-muted-foreground px-2 py-1">
                           Item: {row.price_from_item !== null ? formatPrice(row.price_from_item) : '-'}
@@ -1730,7 +1730,7 @@ export default function Admin() {
                             rel="noreferrer"
                             className="text-primary underline text-sm"
                           >
-                            Abrir anÃºncio
+                            Abrir anï¿½ncio
                           </a>
                         )}
                       </div>
@@ -1755,9 +1755,9 @@ export default function Admin() {
                 {searchQuery
                   ? 'Tente outro termo de busca'
                   : productTab === 'blocked'
-                    ? 'Nenhum produto bloqueado atÃ© o momento.'
+                    ? 'Nenhum produto bloqueado atï¿½ o momento.'
                     : productTab === 'valid'
-                      ? 'Nenhum produto com validaÃ§Ã£o ok encontrado.'
+                      ? 'Nenhum produto com validaï¿½ï¿½o ok encontrado.'
                       : 'Comece adicionando seu primeiro produto'}
               </p>
               {!searchQuery && productTab === 'all' && (
@@ -1774,11 +1774,11 @@ export default function Admin() {
                   <thead className="bg-secondary/50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Produto</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">PreÃ§o</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Preï¿½o</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Categoria</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Marketplace</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">AÃ§Ãµes</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Aï¿½ï¿½es</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1807,7 +1807,7 @@ export default function Admin() {
                             </div>
                             <div>
                               <p className="font-medium text-foreground line-clamp-1">{product.name}</p>
-                              <p className="text-sm text-muted-foreground line-clamp-1">{product.short_description || 'Sem descriÃ§Ã£o'}</p>
+                              <p className="text-sm text-muted-foreground line-clamp-1">{product.short_description || 'Sem descriï¿½ï¿½o'}</p>
                             </div>
                           </div>
                         </td>
@@ -1849,7 +1849,7 @@ export default function Admin() {
                             )}
                             {isBlocked && (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
-                                <AlertCircle className="h-3 w-3" /> Sem validaÃ§Ã£o
+                                <AlertCircle className="h-3 w-3" /> Sem validaï¿½ï¿½o
                               </span>
                             )}
                             {showOk && (
@@ -1944,7 +1944,7 @@ export default function Admin() {
                     )}
                     {isBlocked && (
                       <span className="mt-2 inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
-                        Sem validaÃ§Ã£o
+                        Sem validaï¿½ï¿½o
                       </span>
                     )}
                     {showOk && (
@@ -1985,11 +1985,11 @@ export default function Admin() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="rounded-xl border border-border bg-secondary/30 p-4 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">Dica rÃ¡pida</p>
+              <p className="font-medium text-foreground">Dica rï¿½pida</p>
               <ul className="mt-2 list-disc pl-4 space-y-1 text-xs">
-                <li>Para importaÃ§Ã£o automÃ¡tica, use o link do produto que mostre o cÃ³digo <strong>MLB123...</strong> na URL.</li>
-                <li>Links encurtados <strong>/sec/</strong> nÃ£o trazem o ID: copie o ID completo e cole no campo ao lado.</li>
-                <li>O ID deve comeÃ§ar com <strong>MLB</strong> e ter pelo menos 10 dÃ­gitos numÃ©ricos.</li>
+                <li>Para importaï¿½ï¿½o automï¿½tica, use o link do produto que mostre o cï¿½digo <strong>MLB123...</strong> na URL.</li>
+                <li>Links encurtados <strong>/sec/</strong> nï¿½o trazem o ID: copie o ID completo e cole no campo ao lado.</li>
+                <li>O ID deve comeï¿½ar com <strong>MLB</strong> e ter pelo menos 10 dï¿½gitos numï¿½ricos.</li>
               </ul>
             </div>
 
@@ -2007,7 +2007,7 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="short_description">descriÃ§Ã£o Curta</Label>
+                <Label htmlFor="short_description">descriï¿½ï¿½o Curta</Label>
                 <Input
                   id="short_description"
                   value={formData.short_description}
@@ -2017,12 +2017,12 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="description">descriÃ§Ã£o Completa</Label>
+                <Label htmlFor="description">descriï¿½ï¿½o Completa</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="descriÃ§Ã£o detalhada do produto..."
+                  placeholder="descriï¿½ï¿½o detalhada do produto..."
                   rows={4}
                 />
               </div>
@@ -2031,7 +2031,7 @@ export default function Admin() {
             {/* Pricing */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <Label htmlFor="price">PreÃ§o *</Label>
+                <Label htmlFor="price">Preï¿½o *</Label>
                 <Input
                   id="price"
                   type="number"
@@ -2044,7 +2044,7 @@ export default function Admin() {
                 />
               </div>
               <div>
-                <Label htmlFor="pix_price">PreÃ§o Pix (opcional)</Label>
+                <Label htmlFor="pix_price">Preï¿½o Pix (opcional)</Label>
                 <Input
                   id="pix_price"
                   type="number"
@@ -2056,7 +2056,7 @@ export default function Admin() {
                 />
               </div>
               <div>
-                <Label htmlFor="original_price">PreÃ§o Original</Label>
+                <Label htmlFor="original_price">Preï¿½o Original</Label>
                 <Input
                   id="original_price"
                   type="number"
@@ -2115,8 +2115,8 @@ export default function Admin() {
             {isRoupasSelected && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label>Gênero da Roupa *</Label>
-                  <span className="text-xs text-muted-foreground">Obrigatório</span>
+                  <Label>G?nero da Roupa *</Label>
+                  <span className="text-xs text-muted-foreground">Obrigat?rio</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {CLOTHING_OPTIONS.map((option) => {
@@ -2210,7 +2210,7 @@ export default function Admin() {
               ) : formData.affiliate_link && !affiliateLinkError && (
                 <p className="text-xs text-success mt-1 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" />
-                  Link vÃ¡lido! Marketplace: {detectMarketplace(formData.affiliate_link)}
+                  Link vï¿½lido! Marketplace: {detectMarketplace(formData.affiliate_link)}
                 </p>
               )}
             </div>
@@ -2219,7 +2219,7 @@ export default function Admin() {
             <div>
               <Label htmlFor="external_id">
                 ID do Marketplace (ex: MLB1234567890)
-                <span className="text-xs text-muted-foreground ml-2">(use se o link nÃ£o tiver o MLB)</span>
+                <span className="text-xs text-muted-foreground ml-2">(use se o link nï¿½o tiver o MLB)</span>
               </Label>
               <Input
                 id="external_id"
@@ -2249,7 +2249,7 @@ export default function Admin() {
               )}
               {detectMarketplace(formData.source_url) === 'mercadolivre' && formData.external_id === '' && formData.source_url && (
                 <p className="text-[11px] text-warning mt-1">
-                  Link sem ID MLB. Sem ele o robÃ´ nÃ£o sincroniza PreÃ§o/imagem.
+                  Link sem ID MLB. Sem ele o robï¿½ nï¿½o sincroniza Preï¿½o/imagem.
                 </p>
               )}
             </div>
@@ -2261,7 +2261,7 @@ export default function Admin() {
                 id="advantages"
                 value={formData.advantages}
                 onChange={(e) => setFormData(prev => ({ ...prev, advantages: e.target.value }))}
-                placeholder="Alta concentraÃ§Ã£o de proteÃ­na&#10;Zero aÃ§Ãºcar"
+                placeholder="Alta concentraï¿½ï¿½o de proteï¿½na&#10;Zero aï¿½ï¿½car"
                 rows={3}
               />
             </div>
@@ -2285,7 +2285,7 @@ export default function Admin() {
                 />
               </div>
               <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-                <Label htmlFor="is_on_sale" className="cursor-pointer">Em PromoÃ§Ã£o</Label>
+                <Label htmlFor="is_on_sale" className="cursor-pointer">Em Promoï¿½ï¿½o</Label>
                 <Switch
                   id="is_on_sale"
                   checked={formData.is_on_sale}
@@ -2293,7 +2293,7 @@ export default function Admin() {
                 />
               </div>
               <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-                <Label htmlFor="free_shipping" className="cursor-pointer">Frete GrÃ¡tis</Label>
+                <Label htmlFor="free_shipping" className="cursor-pointer">Frete Grï¿½tis</Label>
                 <Switch
                   id="free_shipping"
                   checked={formData.free_shipping}

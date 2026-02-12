@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client'; // Ajustado para sua integração padrão
+import { supabase } from '@/integrations/supabase/client'; // Ajustado para sua integra??o padr?o
 import { Loader2, Search, TrendingDown, Sparkles, Package, Flame, ShieldCheck, Link2, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import useEmblaCarousel from 'embla-carousel-react';
@@ -79,7 +79,7 @@ export default function Home() {
     return product.is_active !== false && matchesCategory && matchesSearch;
   });
 
-  // 1. OFERTAS DO ROBÔ (Maiores quedas de preço reais)
+  // 1. OFERTAS DO ROB? (Maiores quedas de pre?o reais)
   const hotDeals = [...products]
     .filter(p => p.is_active !== false)
     .filter(p => typeof p.previous_price === 'number' && p.previous_price > p.price)
@@ -120,10 +120,10 @@ export default function Home() {
   );
 
   const formatLastUpdated = (value?: string | null) => {
-    if (!value) return 'Preço pode variar. Atualização em breve';
+    if (!value) return 'Pre?o pode variar. Atualiza??o em breve';
     const date = new Date(value);
-    if (!isValid(date)) return 'Preço pode variar. Atualização em breve';
-    return `Preço pode variar. Atualizado em ${format(date, "dd/MM 'às' HH:mm", { locale: ptBR })}`;
+    if (!isValid(date)) return 'Pre?o pode variar. Atualiza??o em breve';
+    return `Pre?o pode variar. Atualizado em ${format(date, "dd/MM '?s' HH:mm", { locale: ptBR })}`;
   };
 
   const bestDeals = useMemo(() => {
@@ -228,18 +228,18 @@ export default function Home() {
     <div className="min-h-screen bg-[#FBFBFB]">
       <SEOHead 
         title="ArsenalFit | Melhores Ofertas Fitness"
-        description="Encontre suplementos e equipamentos com preços verificados automaticamente no Mercado Livre e Amazon."
+        description="Encontre suplementos e equipamentos com pre?os verificados automaticamente no Mercado Livre e Amazon."
         ogType="website"
       />
       
       <HeroSection />
       
       <main id="main-content" className="py-12 md:py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        {/* --- PROVA DE CONFIANÇA --- */}
+        {/* --- PROVA DE CONFIAN?A --- */}
         <section className="mb-14">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-400">
-              Confiança ArsenalFit
+              Confian?a ArsenalFit
             </h2>
           </div>
           <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0 md:grid md:grid-cols-3 md:gap-6 md:overflow-visible">
@@ -249,8 +249,8 @@ export default function Home() {
                   <Activity size={18} />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-zinc-900">Preços monitorados</p>
-                  <p className="text-[11px] text-zinc-500">Atualizações automáticas e consistentes.</p>
+                  <p className="text-sm font-semibold text-zinc-900">Pre?os monitorados</p>
+                  <p className="text-[11px] text-zinc-500">Atualiza??es autom?ticas e consistentes.</p>
                 </div>
               </div>
             </div>
@@ -261,7 +261,7 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-zinc-900">Links oficiais</p>
-                  <p className="text-[11px] text-zinc-500">Você compra direto no marketplace.</p>
+                  <p className="text-[11px] text-zinc-500">Voc? compra direto no marketplace.</p>
                 </div>
               </div>
             </div>
@@ -272,7 +272,7 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-zinc-900">Curadoria relevante</p>
-                  <p className="text-[11px] text-zinc-500">Só o que faz sentido no fitness.</p>
+                  <p className="text-[11px] text-zinc-500">S? o que faz sentido no fitness.</p>
                 </div>
               </div>
             </div>
@@ -301,7 +301,7 @@ export default function Home() {
             </div>
           ) : bestDealCards.length === 0 ? (
             <div className="bg-white rounded-[24px] border border-zinc-100 p-8 text-center text-zinc-500">
-              Nenhuma queda de preço recente para destacar agora. Volte em instantes.
+              Nenhuma queda de pre?o recente para destacar agora. Volte em instantes.
             </div>
           ) : (
             <div className="overflow-hidden" ref={emblaRef}>
@@ -348,7 +348,7 @@ export default function Home() {
 
                           <div className="flex items-center justify-between gap-3">
                             <div>
-                              <div className="text-xs text-zinc-500">Preço</div>
+                              <div className="text-xs text-zinc-500">Pre?o</div>
                               <div className="text-2xl font-black text-zinc-900">
                                 R$ {deal.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                               </div>
@@ -386,7 +386,7 @@ export default function Home() {
                           <a href={link}>Ver oferta</a>
                         </Button>
                         <p className="text-[10px] text-zinc-400 text-center">
-                          Você será redirecionado para o site oficial
+                          Voc? ser? redirecionado para o site oficial
                         </p>
                       </div>
                     </div>
@@ -408,7 +408,7 @@ export default function Home() {
         </section>
 
 
-        {/* --- SEÇÃO: PREÇOS QUE CAÍRAM HOJE --- */}
+        {/* --- SE??O: PRE?OS QUE CA?RAM HOJE --- */}
         {showHighlights && priceDropsToday.length > 0 && (
           <div className="mb-20">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -418,9 +418,9 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black text-zinc-900 uppercase italic tracking-tighter">
-                    Preços que Caíram Hoje
+                    Pre?os que Ca?ram Hoje
                   </h3>
-                  <p className="text-sm text-zinc-500">Quedas reais confirmadas nas últimas 24 horas.</p>
+                  <p className="text-sm text-zinc-500">Quedas reais confirmadas nas ?ltimas 24 horas.</p>
                 </div>
               </div>
               <Button
@@ -441,7 +441,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- SEÇÃO 2: DESTAQUES (CURADORIA) --- */}
+        {/* --- SE??O 2: DESTAQUES (CURADORIA) --- */}
         {showHighlights && eliteShowcase.length > 0 && (
           <div className="mb-20">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -454,7 +454,7 @@ export default function Home() {
                     Curadoria Elite
                   </h3>
                   <p className="text-sm text-zinc-500">
-                    Selecionados por desempenho, qualidade e custo-benefício.
+                    Selecionados por desempenho, qualidade e custo-benef?cio.
                   </p>
                 </div>
               </div>
@@ -489,7 +489,7 @@ export default function Home() {
                 <h3 className="text-2xl font-black text-zinc-900 uppercase italic tracking-tighter">
                   Categorias Populares
                 </h3>
-                <p className="text-sm text-zinc-500">Explore o que está em alta no fitness.</p>
+                <p className="text-sm text-zinc-500">Explore o que est? em alta no fitness.</p>
               </div>
             </div>
 
@@ -525,7 +525,7 @@ export default function Home() {
                 {selectedCategory !== 'all' ? 'Filtrando Arsenal' : 'Todos os Produtos'}
               </h3>
               <p className="text-sm text-zinc-500">
-                Busque por nome, filtre por categoria e encontre o melhor preço.
+                Busque por nome, filtre por categoria e encontre o melhor pre?o.
               </p>
             </div>
           </div>
@@ -538,7 +538,7 @@ export default function Home() {
               <CategoryFilter
                 selected={selectedCategory}
                 onSelect={setSelectedCategory}
-                allowedCategories={["Acessórios", "Equipamentos", "Suplementos", "Vitaminas"]}
+                allowedCategories={["Acess?rios", "Equipamentos", "Suplementos", "Vitaminas"]}
               />
             </div>
           </div>
@@ -571,7 +571,7 @@ export default function Home() {
               </div>
               <h3 className="text-xl font-bold text-zinc-900 mb-2">Nada no radar...</h3>
               <p className="text-zinc-500 max-w-xs mx-auto">
-                Não encontramos produtos para essa busca ou categoria no momento.
+                N?o encontramos produtos para essa busca ou categoria no momento.
               </p>
             </motion.div>
           )}
@@ -585,8 +585,8 @@ export default function Home() {
               ARSENAL<span className="text-primary">FIT</span>
             </div>
             <p className="text-zinc-400 text-sm max-w-md">
-              Tecnologia de monitoramento de preços para quem leva o treino a sério. 
-              Sincronizamos ofertas reais para você economizar tempo e dinheiro.
+              Tecnologia de monitoramento de pre?os para quem leva o treino a s?rio. 
+              Sincronizamos ofertas reais para voc? economizar tempo e dinheiro.
             </p>
           </div>
           <div className="flex flex-col items-center md:items-end gap-4 text-zinc-500 text-xs">
@@ -595,7 +595,7 @@ export default function Home() {
               <a href="#" className="hover:text-primary transition-colors">Privacidade</a>
               <a href="#" className="hover:text-primary transition-colors">Afiliados</a>
             </div>
-            <p>© {new Date().getFullYear()} ArsenalFit. O melhor preço, verificado.</p>
+            <p>? {new Date().getFullYear()} ArsenalFit. O melhor pre?o, verificado.</p>
           </div>
         </div>
       </footer>
