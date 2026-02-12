@@ -297,7 +297,7 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
 
           <motion.button
             onClick={handleQuickAdd}
-            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all z-20 bg-zinc-100/85 text-zinc-500 hover:bg-[#FF6A00] hover:text-black hover:scale-110 shadow-sm"
+            className="absolute top-3 right-3 w-11 h-11 rounded-full flex items-center justify-center transition-all z-20 bg-zinc-100/90 text-zinc-500 hover:bg-[#FF6A00] hover:text-black hover:scale-110 shadow-sm"
             aria-label="Adicionar ao carrinho"
             whileTap={{ scale: 0.9 }}
           >
@@ -401,7 +401,7 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
             <Button
               onClick={handleBuyNow}
               className={`w-full bg-[#a3e635] hover:bg-[#b7f24c] text-black font-black rounded-xl transition-all flex items-center justify-center gap-2 uppercase italic tracking-wide shadow-[0_0_15px_rgba(163,230,53,0.1)] group-hover:shadow-[0_0_24px_rgba(163,230,53,0.4)] hover:scale-[1.01] ${
-                isCompact ? "h-9 text-[11px]" : "h-11 text-sm"
+                isCompact ? "h-11 text-[11px]" : "h-11 text-sm"
               }`}
               aria-label={`Ver oferta de ${displayTitle}`}
             >

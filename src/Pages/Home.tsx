@@ -578,27 +578,6 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="bg-zinc-950 text-white py-20 px-4 mt-20">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-          <div className="text-center md:text-left">
-            <div className="text-3xl font-black mb-4 italic tracking-tighter">
-              ARSENAL<span className="text-primary">FIT</span>
-            </div>
-            <p className="text-zinc-400 text-sm max-w-md">
-              Tecnologia de monitoramento de pre?os para quem leva o treino a s?rio. 
-              Sincronizamos ofertas reais para voc? economizar tempo e dinheiro.
-            </p>
-          </div>
-          <div className="flex flex-col items-center md:items-end gap-4 text-zinc-500 text-xs">
-            <div className="flex gap-6 mb-4">
-              <a href="#" className="hover:text-primary transition-colors">Termos</a>
-              <a href="#" className="hover:text-primary transition-colors">Privacidade</a>
-              <a href="#" className="hover:text-primary transition-colors">Afiliados</a>
-            </div>
-            <p>? {new Date().getFullYear()} ArsenalFit. O melhor pre?o, verificado.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

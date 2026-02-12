@@ -5,6 +5,8 @@ import {
   getSupabaseAdmin,
   getSiteUrl,
   getEmailFrom,
+  getEmailReplyTo,
+  getAuthUserByEmail,
   normalizeEmail,
   generateToken,
   hashToken,
@@ -76,9 +78,7 @@ export const handler = async (event) => {
 
   let user = null;
   try {
-    const { data, error } = await supabase.auth.admin.getUserByEmail(email);
-    if (error) throw error;
-    user = data?.user || null;
+    user = await getAuthUserByEmail(supabase, email);
   } catch {
     user = null;
   }
@@ -101,14 +101,14 @@ export const handler = async (event) => {
       });
       return jsonResponse(200, {
         ok: true,
-        message: "Se existir conta, enviamos instruções por e-mail.",
+        message: "Se existir conta, enviamos instru\u00e7\u00f5es por e-mail.",
       });
     }
     user = data?.user || null;
   }
 
   if (user?.email_confirmed_at) {
-    const message = "Se existir conta, enviamos instruções por e-mail.";
+    const message = "Se existir conta, enviamos instru\u00e7\u00f5es por e-mail.";
     await logEmailAttempt(supabase, {
       email,
       userId: user.id,
@@ -125,7 +125,7 @@ export const handler = async (event) => {
   }
 
   if (!user) {
-    const message = "Se existir conta, enviamos instruções por e-mail.";
+    const message = "Se existir conta, enviamos instru\u00e7\u00f5es por e-mail.";
     await logEmailAttempt(supabase, {
       email,
       type: "signup",
@@ -144,6 +144,7 @@ export const handler = async (event) => {
   const SITE_URL = getSiteUrl();
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const EMAIL_FROM = getEmailFrom();
+  const EMAIL_REPLY_TO = getEmailReplyTo();
 
   const missingEnv = [];
   if (!TOKEN_PEPPER) missingEnv.push("TOKEN_PEPPER");
@@ -162,7 +163,7 @@ export const handler = async (event) => {
     });
     return jsonResponse(500, {
       error: "missing_env",
-      message: "Configuração de e-mail incompleta.",
+      message: "Configura\u00e7\u00e3o de e-mail incompleta.",
     });
   }
 
@@ -195,7 +196,7 @@ export const handler = async (event) => {
   const baseUrl = SITE_URL.replace(/\/+$/, "");
   const verifyUrl = `${baseUrl}/verificar?token=${encodeURIComponent(
     token
-  )}&type=signup`;
+  )}&type=signup&email=${encodeURIComponent(email)}`;
   const html = renderVerifyEmail({ verifyUrl });
 
   const emailResp = await fetch("https://api.resend.com/emails", {
@@ -207,9 +208,10 @@ export const handler = async (event) => {
     body: JSON.stringify({
       from: EMAIL_FROM,
       to: [email],
-      subject: "Confirme seu e-mail para ativar sua conta — ArsenalFit",
+      reply_to: EMAIL_REPLY_TO,
+      subject: "Confirme seu e-mail para ativar sua conta - ArsenalFit",
       html,
-      text: `Olá! Falta só um passo para ativar sua conta. Verifique aqui: ${verifyUrl} (expira em 60 minutos). Se você não criou uma conta, ignore este e-mail.`,
+      text: `Ol\u00e1! Falta s\u00f3 um passo para ativar sua conta. Verifique aqui: ${verifyUrl} (expira em 60 minutos). Se voc\u00ea n\u00e3o criou uma conta, ignore este e-mail.`,
     }),
   });
 
@@ -242,6 +244,7 @@ export const handler = async (event) => {
 
   return jsonResponse(200, {
     ok: true,
-    message: "Se existir conta, enviamos instruções por e-mail.",
+    message: "Se existir conta, enviamos instru\u00e7\u00f5es por e-mail.",
   });
 };
+

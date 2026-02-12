@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Home, LayoutGrid, Menu, Package, ShoppingCart, X } from "lucide-react";
+import { Home, LayoutGrid, Menu, Package, Search, ShoppingCart, X } from "lucide-react";
 import { Button } from "@/Components/ui/button";
 import { Badge } from "@/Components/ui/badge";
 import { useCart } from "@/hooks/useCart";
@@ -119,8 +119,10 @@ export const Header = () => {
   const location = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null);
+  const isHomeRoute = location.pathname === "/" || location.pathname === "/home";
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 8);
@@ -157,6 +159,31 @@ export const Header = () => {
     }
   }, [mobileOpen]);
 
+  useEffect(() => {
+    const handleSearchState = (event: Event) => {
+      const customEvent = event as CustomEvent<{ expanded?: boolean }>;
+      if (typeof customEvent.detail?.expanded === "boolean") {
+        setIsSearchExpanded(customEvent.detail.expanded);
+      }
+    };
+
+    window.addEventListener(
+      "arsenalfit:search-state",
+      handleSearchState as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "arsenalfit:search-state",
+        handleSearchState as EventListener,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isHomeRoute) setIsSearchExpanded(false);
+  }, [isHomeRoute]);
+
   const headerHeight = isScrolled
     ? "h-[var(--header-height-scrolled)]"
     : "h-[var(--header-height)]";
@@ -172,9 +199,13 @@ export const Header = () => {
     setMobileOpen(false);
   };
 
+  const handleSearchToggle = () => {
+    window.dispatchEvent(new CustomEvent("arsenalfit:toggle-search"));
+  };
+
   return (
     <header
-      className={`sticky top-0 z-50 w-full border-b border-white/5 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/70 transition-all duration-300 ${headerHeight} ${
+      className={`sticky top-0 z-[60] w-full border-b border-zinc-200/80 bg-white/95 backdrop-blur-xl supports-[backdrop-filter]:bg-white/90 transition-all duration-300 ${headerHeight} ${
         isScrolled ? "shadow-[var(--header-shadow)]" : ""
       }`}
     >
@@ -215,6 +246,24 @@ export const Header = () => {
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-4">
+          {isHomeRoute && (
+            <button
+              type="button"
+              data-search-toggle
+              className="lg:hidden inline-flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-200/90 bg-white text-zinc-700 shadow-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label={isSearchExpanded ? "Fechar busca" : "Abrir busca"}
+              aria-expanded={isSearchExpanded}
+              aria-controls="sticky-search"
+              aria-haspopup="dialog"
+              onClick={handleSearchToggle}
+            >
+              {isSearchExpanded ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <Search className="h-5 w-5" />
+              )}
+            </button>
+          )}
           <Link
             to="/carrinho"
             className={`relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-xl ${
@@ -227,7 +276,7 @@ export const Header = () => {
               variant="ghost"
               size="icon"
               data-cart-icon
-              className={`hover:bg-primary/10 hover:text-primary text-zinc-700 dark:text-zinc-300 transition-all rounded-xl ${
+              className={`h-11 w-11 hover:bg-primary/10 hover:text-primary text-zinc-700 dark:text-zinc-300 transition-all rounded-xl ${
                 isCartActive ? "text-primary bg-primary/10" : ""
               }`}
             >
@@ -246,27 +295,28 @@ export const Header = () => {
           <button
             ref={menuButtonRef}
             type="button"
-            className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200/70 bg-white text-zinc-700 shadow-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            aria-label="Abrir menu"
+            className="lg:hidden inline-flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-200/90 bg-white text-zinc-700 shadow-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label={mobileOpen ? "Fechar menu" : "Abrir menu"}
             aria-expanded={mobileOpen}
             aria-controls="mobile-menu"
-            onClick={() => setMobileOpen(true)}
+            aria-haspopup="dialog"
+            onClick={() => setMobileOpen((current) => !current)}
           >
-            <Menu className="h-5 w-5" />
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[70] lg:hidden" role="dialog" aria-modal="true">
           <button
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-zinc-950/60 backdrop-blur-[2px]"
             aria-label="Fechar menu"
             onClick={() => setMobileOpen(false)}
           />
           <div
             id="mobile-menu"
-            className="absolute right-0 top-0 h-full w-[82%] max-w-[340px] bg-white shadow-2xl border-l border-zinc-200/60 flex flex-col"
+            className="absolute right-0 top-0 h-full w-[86%] max-w-[360px] bg-white shadow-[0_24px_56px_rgba(15,23,42,0.35)] border-l border-zinc-200/70 flex flex-col"
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/70">
               <span className="text-[11px] font-black uppercase tracking-[0.28em] text-zinc-400">
@@ -274,11 +324,11 @@ export const Header = () => {
               </span>
               <button
                 type="button"
-                className="h-9 w-9 rounded-lg border border-zinc-200/70 text-zinc-600 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="h-11 w-11 rounded-lg border border-zinc-200/70 text-zinc-600 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label="Fechar menu"
                 onClick={() => setMobileOpen(false)}
               >
-                <X className="h-4 w-4 mx-auto" />
+                <X className="h-5 w-5 mx-auto" />
               </button>
             </div>
             <nav className="flex flex-col gap-1 p-4" aria-label="Menu mobile">
@@ -291,7 +341,7 @@ export const Header = () => {
                     to={item.href}
                     ref={index === 0 ? firstMobileLinkRef : undefined}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-[0.2em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                    className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-[0.2em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                       active
                         ? "bg-primary/10 text-primary"
                         : "text-zinc-700 hover:bg-zinc-100"
@@ -314,7 +364,7 @@ export const Header = () => {
                   </div>
                   <Link
                     to="/perfil"
-                    className="flex items-center justify-between rounded-xl border border-zinc-200/70 px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+                    className="flex min-h-[44px] items-center justify-between rounded-xl border border-zinc-200/70 px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
                   >
                     Minha conta
                     {isAdmin && (
@@ -326,7 +376,7 @@ export const Header = () => {
                   <button
                     type="button"
                     onClick={handleMobileLogout}
-                    className="w-full rounded-xl border border-red-200/70 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
+                    className="w-full min-h-[44px] rounded-xl border border-red-200/70 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
                   >
                     Sair
                   </button>
@@ -334,7 +384,7 @@ export const Header = () => {
               ) : (
                 <Link
                   to="/login"
-                  className="flex items-center justify-center rounded-xl bg-primary text-black font-black uppercase tracking-[0.18em] py-3"
+                  className="flex min-h-[44px] items-center justify-center rounded-xl bg-primary text-black font-black uppercase tracking-[0.18em] py-3"
                 >
                   Entrar
                 </Link>

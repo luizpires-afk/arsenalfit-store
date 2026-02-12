@@ -1,36 +1,54 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { CheckCircle2, Mail, ArrowLeft } from "lucide-react";
-import { Button } from "@/Components/ui/button";
+import { ArrowLeft, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
+
+import { Button } from "@/Components/ui/button";
+import { useAuthResendCooldown } from "@/hooks/useAuthResendCooldown";
+import { startAuthResendCooldown } from "@/lib/authResendCooldown";
+
+const COOLDOWN_SECONDS = 60;
 
 export default function AuthSent() {
   const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  const mode = params.get("mode") || "signup";
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const mode = params.get("mode") === "reset" ? "reset" : "signup";
   const email = params.get("email") || "";
-
+  const sentAtRaw = Number(params.get("sentAt") || 0);
   const isReset = mode === "reset";
+  const resendKind = isReset ? "recovery" : "signup";
+  const endpoint = isReset ? "/api/auth-send-recovery" : "/api/auth-send-verification";
+
   const [resending, setResending] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  const { cooldown, startCooldown, syncCooldown } = useAuthResendCooldown(
+    resendKind,
+    email,
+  );
 
   useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setInterval(() => {
-      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [cooldown]);
+    if (!email) return;
+    if (!Number.isFinite(sentAtRaw) || sentAtRaw <= 0) return;
+    const elapsed = Math.floor((Date.now() - sentAtRaw) / 1000);
+    const remaining = COOLDOWN_SECONDS - elapsed;
+    if (remaining > 0) {
+      startAuthResendCooldown(resendKind, email, remaining);
+      syncCooldown();
+    }
+  }, [email, resendKind, sentAtRaw, syncCooldown]);
 
   const handleResend = async () => {
     if (!email) {
-      toast.error("Digite um e-mail válido.");
+      toast.error("Digite um e-mail v\u00e1lido.");
       return;
     }
-    if (cooldown > 0) return;
+    if (cooldown > 0) {
+      toast.error(`Aguarde ${cooldown}s para reenviar.`);
+      return;
+    }
+
     setResending(true);
     try {
-      const response = await fetch("/api/auth-send-verification", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -39,10 +57,10 @@ export default function AuthSent() {
       if (!response.ok) {
         throw new Error(payload?.message || "Erro ao reenviar.");
       }
+      startCooldown(COOLDOWN_SECONDS);
       toast.success("Se existir conta, enviamos um novo e-mail.");
-      setCooldown(60);
-    } catch (error) {
-      toast.error(error.message || "Erro ao reenviar.");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao reenviar.");
     } finally {
       setResending(false);
     }
@@ -55,7 +73,7 @@ export default function AuthSent() {
           <CheckCircle2 className="h-8 w-8 text-primary" />
         </div>
         <h1 className="text-2xl font-black uppercase italic text-foreground">
-          {isReset ? "Link enviado" : "Verificação enviada"}
+          {isReset ? "Link enviado" : "Verifica\u00e7\u00e3o enviada"}
         </h1>
         <p className="text-muted-foreground text-sm mt-3">
           {isReset
@@ -69,25 +87,30 @@ export default function AuthSent() {
         )}
 
         <div className="mt-8 flex flex-col gap-3">
-          {!isReset && (
-            <Button
-              onClick={handleResend}
-              disabled={resending || cooldown > 0}
-              variant="outline"
-              className="w-full h-12 rounded-2xl font-black uppercase italic"
-            >
-              {resending
-                ? "Enviando..."
-                : cooldown > 0
-                  ? `Enviar novo link em ${cooldown}s`
-                  : "Enviar novo link de confirmação"}
-            </Button>
-          )}
+          <Button
+            onClick={handleResend}
+            disabled={!email || resending || cooldown > 0}
+            variant="outline"
+            className="w-full min-h-[44px] h-12 rounded-2xl font-black uppercase italic"
+          >
+            {resending
+              ? "Enviando..."
+              : cooldown > 0
+                ? `Enviar novo link em ${cooldown}s`
+                : isReset
+                  ? "Enviar novo link de recupera\u00e7\u00e3o"
+                  : "Enviar novo link de verifica\u00e7\u00e3o"}
+          </Button>
           <Link to="/login">
-            <Button className="w-full h-12 rounded-2xl font-black uppercase italic">Ir para Login</Button>
+            <Button className="w-full min-h-[44px] h-12 rounded-2xl font-black uppercase italic">
+              Ir para Login
+            </Button>
           </Link>
           <Link to="/">
-            <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase italic">
+            <Button
+              variant="outline"
+              className="w-full min-h-[44px] h-12 rounded-2xl font-black uppercase italic"
+            >
               <ArrowLeft className="mr-2 h-4 w-4" /> Voltar ao site
             </Button>
           </Link>

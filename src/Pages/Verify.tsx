@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/Components/ui/button";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { AlertTriangle, CheckCircle2, Mail } from "lucide-react";
 import { toast } from "sonner";
-import { CheckCircle2, AlertTriangle, Mail } from "lucide-react";
+
+import { Button } from "@/Components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuthResendCooldown } from "@/hooks/useAuthResendCooldown";
 import logoImage from "../assets/arsenalfit-logo.png";
 
 type Status = "loading" | "error" | "success";
@@ -11,11 +13,14 @@ type Status = "loading" | "error" | "success";
 const Verify = () => {
   const [status, setStatus] = useState<Status>("loading");
   const [message, setMessage] = useState("Validando seu link...");
+  const [resending, setResending] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const token = searchParams.get("token") || "";
   const type = searchParams.get("type") || "signup";
+  const email = searchParams.get("email") || "";
+  const { cooldown, startCooldown } = useAuthResendCooldown("signup", email);
 
   useEffect(() => {
     document.title = "Verificar conta - ArsenalFit";
@@ -25,7 +30,7 @@ const Verify = () => {
     const consumeToken = async () => {
       if (!token || type !== "signup") {
         setStatus("error");
-        setMessage("Link inválido ou expirado.");
+        setMessage("Link inv\u00e1lido ou expirado.");
         return;
       }
 
@@ -65,15 +70,46 @@ const Verify = () => {
       } catch {
         if (!mounted) return;
         setStatus("error");
-        setMessage("Link inválido ou expirado.");
+        setMessage("Link inv\u00e1lido ou expirado.");
       }
     };
 
     consumeToken();
+
     return () => {
       mounted = false;
     };
   }, [token, type, navigate]);
+
+  const handleResend = async () => {
+    if (!email) {
+      toast.error("E-mail n\u00e3o encontrado no link.");
+      return;
+    }
+    if (cooldown > 0) {
+      toast.error(`Aguarde ${cooldown}s para reenviar.`);
+      return;
+    }
+
+    setResending(true);
+    try {
+      const response = await fetch("/api/auth-send-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.message || "Erro ao reenviar.");
+      }
+      startCooldown(60);
+      toast.success("Se existir conta, enviamos um novo link.");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao reenviar.");
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 overflow-hidden relative">
@@ -109,14 +145,32 @@ const Verify = () => {
             {status === "success"
               ? "Conta confirmada"
               : status === "error"
-                ? "Link inválido"
+                ? "Link inv\u00e1lido"
                 : "Confirmando sua conta"}
           </h2>
           <p className="text-muted-foreground text-sm mt-3">{message}</p>
 
           <div className="mt-8 flex flex-col gap-3">
+            {status === "error" && email && (
+              <Button
+                type="button"
+                onClick={handleResend}
+                disabled={resending || cooldown > 0}
+                variant="outline"
+                className="w-full min-h-[44px] h-12 rounded-2xl font-black uppercase italic"
+              >
+                {resending
+                  ? "Enviando..."
+                  : cooldown > 0
+                    ? `Reenviar em ${cooldown}s`
+                    : "Enviar novo link de verifica\u00e7\u00e3o"}
+              </Button>
+            )}
             <Link to="/login">
-              <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase italic">
+              <Button
+                variant="outline"
+                className="w-full min-h-[44px] h-12 rounded-2xl font-black uppercase italic"
+              >
                 Ir para Login
               </Button>
             </Link>

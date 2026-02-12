@@ -67,11 +67,56 @@ export const getSiteUrl = () =>
   "";
 
 export const getEmailFrom = () =>
-  process.env.EMAIL_FROM ||
   process.env.RESEND_FROM ||
+  process.env.EMAIL_FROM ||
   "ArsenalFit <onboarding@resend.dev>";
 
+export const getEmailReplyTo = () =>
+  process.env.RESEND_REPLY_TO ||
+  process.env.EMAIL_REPLY_TO ||
+  "powershop.bras@gmail.com";
+
 export const normalizeEmail = (email = "") => email.trim().toLowerCase();
+
+const DEFAULT_ADMIN_USER_SCAN_PER_PAGE = 200;
+const DEFAULT_ADMIN_USER_SCAN_MAX_PAGES = 6;
+
+export const getAuthUserByEmail = async (supabase, email) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+
+  const perPage = Math.min(
+    1000,
+    Math.max(
+      1,
+      Number(process.env.AUTH_ADMIN_USER_SCAN_PER_PAGE || DEFAULT_ADMIN_USER_SCAN_PER_PAGE),
+    ),
+  );
+  const maxPages = Math.min(
+    20,
+    Math.max(
+      1,
+      Number(process.env.AUTH_ADMIN_USER_SCAN_MAX_PAGES || DEFAULT_ADMIN_USER_SCAN_MAX_PAGES),
+    ),
+  );
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    const users = Array.isArray(data?.users)
+      ? data.users
+      : Array.isArray(data?.data?.users)
+        ? data.data.users
+        : [];
+
+    const match = users.find((user) => normalizeEmail(user?.email) === normalized);
+    if (match) return match;
+
+    if (users.length < perPage) break;
+  }
+
+  return null;
+};
 
 export const generateToken = () => crypto.randomBytes(32).toString("hex");
 

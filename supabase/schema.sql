@@ -71,10 +71,13 @@ CREATE TABLE IF NOT EXISTS public.products (
     sku TEXT,
     stock_quantity INTEGER DEFAULT 0,
     category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
+    gender TEXT,
     marketplace TEXT DEFAULT 'manual',
     external_id TEXT, 
     free_shipping BOOLEAN DEFAULT false,
     last_sync TIMESTAMP WITH TIME ZONE,
+    last_price_source TEXT,
+    last_price_verified_at TIMESTAMP WITH TIME ZONE,
     clicks_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL

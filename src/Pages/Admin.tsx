@@ -21,6 +21,7 @@ import {
   Activity,
   Timer,
 } from "lucide-react";
+import logoImage from "../assets/arsenalfit-logo.png";
 
 // Imports de Componentes
 import { Layout } from "@/Components/layout/Layout";
@@ -44,7 +45,7 @@ import {
   DialogTitle,
 } from "@/Components/ui/dialog";
 
-// Hooks e Utilitï¿½rios
+// Hooks e Utilitários
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import type { Product, Category } from "@/types/database";
@@ -82,7 +83,7 @@ const CLOTHING_OPTIONS = [
   },
 ];
 
-// Tipagem do Formulï¿½rio
+// Tipagem do Formulário
 interface ProductFormData {
   name: string;
   description: string;
@@ -209,11 +210,11 @@ export default function Admin() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncAlertShown, setSyncAlertShown] = useState(false);
 
-  // Redirecionamento de seguranï¿½a
+  // Redirecionamento de segurança
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
       toast.error('Acesso negado', {
-        description: 'Vocï¿½ nï¿½o tem permissï¿½o para acessar esta pï¿½gina.',
+        description: 'Você não tem permissão para acessar esta página.',
       });
       navigate('/');
     }
@@ -498,7 +499,7 @@ export default function Admin() {
   const lastSyncCandidate =
     latestSyncRun?.finished_at ?? latestSyncRun?.started_at ?? automationStats.lastSync ?? null;
   const lastSyncMs = lastSyncCandidate ? new Date(lastSyncCandidate).getTime() : null;
-  const lastSyncSource = latestSyncRun ? "Execuï¿½ï¿½o do robï¿½" : "Atualizaï¿½ï¿½o dos produtos";
+  const lastSyncSource = latestSyncRun ? "Execução do robô" : "Atualização dos produtos";
   const nowMs = Date.now();
   const lastCronMs = Math.floor(nowMs / syncIntervalMs) * syncIntervalMs;
   const nextCronMs = lastCronMs + syncIntervalMs;
@@ -527,9 +528,9 @@ export default function Admin() {
   const formatAge = (ms?: number | null) => {
     if (!ms && ms !== 0) return "Sem dados";
     if (ms < 60 * 1000) return "Agora";
-    if (ms < 60 * 60 * 1000) return `${Math.floor(ms / (60 * 1000))}m atrï¿½s`;
+    if (ms < 60 * 60 * 1000) return `${Math.floor(ms / (60 * 1000))}m atrás`;
     const hours = Math.floor(ms / (60 * 60 * 1000));
-    return `${hours}h atrï¿½s`;
+    return `${hours}h atrás`;
   };
   const syncAgeLabel = isSyncMissing
     ? "Sem sync registrado"
@@ -592,7 +593,7 @@ export default function Admin() {
       const slug = generateSlug(data.name);
       const marketplace = detectMarketplace(data.source_url || data.affiliate_link);
       
-      // Sanitizaï¿½ï¿½o dos dados numï¿½ricos
+      // Sanitização dos dados numéricos
       const numericPrice = parseFloat(data.price) || 0;
       const numericPixPrice = data.pix_price ? parseFloat(data.pix_price) : null;
       const numericOriginalPrice = data.original_price ? parseFloat(data.original_price) : null;
@@ -616,7 +617,7 @@ export default function Admin() {
       const genderValue = isRoupasSelected ? data.gender || null : null;
       const productData = {
         name: data.name,
-        slug: data.id ? undefined : slug, // Nï¿½o atualiza slug na ediï¿½ï¿½o para manter SEO
+        slug: data.id ? undefined : slug, // Não atualiza slug na edição para manter SEO
         description: data.description || null,
         short_description: data.short_description || null,
         price: numericPrice,
@@ -684,7 +685,7 @@ export default function Admin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-products'] });
-      toast.success('Produto excluï¿½do!');
+      toast.success('Produto excluído!');
     },
     onError: (error: Error) => {
       toast.error('Erro ao excluir produto', {
@@ -756,8 +757,8 @@ export default function Admin() {
       const itemRes = await fetch(`https://api.mercadolibre.com/items/${externalId}`);
       if (!itemRes.ok) {
         const msg = itemRes.status === 404 
-          ? 'ID nï¿½o encontrado no Mercado Livre. Copie o cï¿½digo MLB direto da URL do produto.'
-          : 'Nï¿½o foi possï¿½vel consultar o Mercado Livre.';
+          ? 'ID não encontrado no Mercado Livre. Copie o código MLB direto da URL do produto.'
+          : 'Não foi possível consultar o Mercado Livre.';
         throw new Error(msg);
       }
       const itemData = await itemRes.json();
@@ -770,7 +771,7 @@ export default function Admin() {
           description = descData?.plain_text || '';
         }
       } catch {
-        // silencioso: descriï¿½ï¿½o ï¿½ opcional
+        // silencioso: descrição é opcional
       }
 
       const price = itemData?.price ?? '';
@@ -812,7 +813,7 @@ export default function Admin() {
     if (value.trim()) {
       const validation = isValidAffiliateLink(value);
       if (!validation.valid) {
-        setAffiliateLinkError(validation.error || 'Link invï¿½lido');
+        setAffiliateLinkError(validation.error || 'Link inválido');
         return;
       }
       setAffiliateLinkError(null);
@@ -852,7 +853,7 @@ export default function Admin() {
       if (mlbId) {
         setFormData(prev => ({ ...prev, external_id: mlbId }));
         setExternalIdError(null);
-        // Para evitar bloqueio/403 no front, deixamos a importaï¿½ï¿½o para o robï¿½ (edge function).
+        // Para evitar bloqueio/403 no front, deixamos a importação para o robô (edge function).
         // autoFillFromMercadoLivre(mlbId);
       } else if (value !== lastNoIdLink && value.length > 20) {
         setLastNoIdLink(value);
@@ -875,7 +876,7 @@ export default function Admin() {
       setExternalIdError('Use o ID completo do Mercado Livre (ex: MLB12345678...).');
       return;
     }
-    // Para evitar bloqueios no front, deixamos a importaï¿½ï¿½o para o robï¿½ server-side.
+    // Para evitar bloqueios no front, deixamos a importação para o robô server-side.
     // if (normalized !== lastFetchedExternalId) {
     //   autoFillFromMercadoLivre(normalized);
     // }
@@ -887,7 +888,7 @@ export default function Admin() {
     if (formData.affiliate_link.trim()) {
       const validation = isValidAffiliateLink(formData.affiliate_link);
       if (!validation.valid) {
-        setAffiliateLinkError(validation.error || 'Link invï¿½lido');
+        setAffiliateLinkError(validation.error || 'Link inválido');
         return;
       }
     }
@@ -912,16 +913,22 @@ export default function Admin() {
   const handleForceSync = async () => {
     setIsSyncing(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('products')
         .update({ next_check_at: new Date().toISOString() })
         .eq('marketplace', 'mercadolivre')
-        .neq('status', 'paused');
+        .eq('is_active', true)
+        .select('id');
 
       if (error) throw error;
-      toast.success('Sincronizaï¿½ï¿½o agendada para os produtos ativos.');
+      const updatedCount = data?.length ?? 0;
+      if (updatedCount === 0) {
+        toast.error('Nenhum produto elegível para sincronização.');
+      } else {
+        toast.success('Sincronização agendada para os produtos ativos.');
+      }
     } catch (error: any) {
-      toast.error('Falha ao agendar sincronizaï¿½ï¿½o', {
+      toast.error('Falha ao agendar sincronização', {
         description: error.message,
       });
     } finally {
@@ -1052,8 +1059,8 @@ export default function Admin() {
   };
 
   const getSourceLabel = (source?: string | null) => {
-    if (source === 'catalog') return 'Catï¿½logo';
-    if (source === 'public') return 'Pï¿½blico';
+    if (source === 'catalog') return 'Catálogo';
+    if (source === 'public') return 'Público';
     if (source === 'auth') return 'Autenticado';
     if (source === 'scraper') return 'Scraper';
     return 'N/D';
@@ -1082,11 +1089,11 @@ export default function Admin() {
   };
 
   const getAnomalyLabel = (note?: string | null) => {
-    if (note === 'policy_blocked') return 'API bloqueou o anï¿½ncio';
-    if (note === 'catalog_lookup_failed') return 'Catï¿½logo indisponï¿½vel';
-    if (note === 'preferred_item_missing_in_catalog') return 'Item nï¿½o estï¿½ no catï¿½logo';
-    if (note === 'catalog_fallback') return 'Preï¿½o veio do catï¿½logo';
-    return 'Divergï¿½ncia';
+    if (note === 'policy_blocked') return 'API bloqueou o anúncio';
+    if (note === 'catalog_lookup_failed') return 'Catálogo indisponível';
+    if (note === 'preferred_item_missing_in_catalog') return 'Item não está no catélogo';
+    if (note === 'catalog_fallback') return 'Preço veio do catélogo';
+    return 'Divergência';
   };
 
   
@@ -1095,7 +1102,7 @@ export default function Admin() {
     if (status === 'sent') return 'Enviado';
     if (status === 'consumed') return 'Consumido';
     if (status === 'password_reset') return 'Senha resetada';
-    if (status === 'already_confirmed') return 'J? confirmado';
+    if (status === 'already_confirmed') return 'Já confirmado';
     if (status === 'rate_limited') return 'Rate limit';
     if (status === 'user_not_found') return 'Sem conta';
     if (status === 'error') return 'Erro';
@@ -1195,19 +1202,28 @@ export default function Admin() {
         <div className="container-tight py-8">
           {/* Header */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Painel Admin</h1>
-              <p className="text-muted-foreground">Gerencie seus produtos</p>
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center shadow-sm">
+                <img
+                  src={logoImage}
+                  alt="ArsenalFit"
+                  className="h-8 w-8 object-contain"
+                />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-foreground">Painel Admin</h1>
+                <p className="text-muted-foreground">Automação, curadoria e monitoramento premium</p>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={handleSyncNow} disabled>
-                Sincronizaï¿½ï¿½o desativada
+                Sincronização desativada
               </Button>
               <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                Relatï¿½rio do robï¿½
+                Relatório do robô
               </Button>
               <Button variant="secondary" onClick={() => navigate('/admin/price-adjustments')}>
-                Ajustes de preï¿½o
+                Ajustes de preço
               </Button>
               <Button onClick={() => handleOpenDialog()} className="btn-energy">
                 <Plus className="h-4 w-4 mr-2" />
@@ -1216,29 +1232,38 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Automaï¿½ï¿½o do Robï¿½ */}
-          <div className="bg-card rounded-xl p-6 mb-6 border border-border">
+          {/* Automação do Robô */}
+          <div className="bg-card rounded-2xl p-6 mb-6 border border-border shadow-sm">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-xl font-semibold text-foreground">Automaï¿½ï¿½o do Robï¿½</h2>
-                <p className="text-sm text-muted-foreground">
-                  Monitoramento contï¿½nuo de preï¿½os e relatï¿½rios diï¿½rios.
-                </p>
-                {isSyncStale && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-destructive">
-                    <AlertTriangle className="h-4 w-4" />
-                    {isSyncFailed
-                      ? "Falha no ï¿½ltimo sync. Reagendamos automaticamente."
-                      : "Sync atrasado. Reagendamos automaticamente."}
-                  </div>
-                )}
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-primary/10 flex items-center justify-center shadow-sm mt-0.5">
+                  <img
+                    src={logoImage}
+                    alt="ArsenalFit"
+                    className="h-6 w-6 object-contain"
+                  />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-foreground">Automação do Robô</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Monitoramento contínuo de preços e relatórios diários.
+                  </p>
+                  {isSyncStale && (
+                    <div className="mt-2 flex items-center gap-2 text-sm text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      {isSyncFailed
+                        ? "Falha no último sync. Reagendamos automaticamente."
+                        : "Sync atrasado. Reagendamos automaticamente."}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={handleForceSync} disabled={isSyncing}>
                   {isSyncing ? 'Agendando...' : 'Agendar Sync Agora'}
                 </Button>
                 <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                  Ver relatï¿½rio completo
+                  Ver relatério completo
                 </Button>
               </div>
             </div>
@@ -1258,7 +1283,7 @@ export default function Admin() {
               </div>
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                  <Activity className="h-4 w-4" /> Promoï¿½ï¿½es
+                  <Activity className="h-4 w-4" /> Promoções
                 </div>
                 <p className="mt-2 text-2xl font-bold text-primary">{automationStats.promos}</p>
               </div>
@@ -1268,7 +1293,7 @@ export default function Admin() {
                 }`}
               >
                 <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                  <Clock className="h-4 w-4" /> ï¿½ltimo sync
+                  <Clock className="h-4 w-4" /> último sync
                 </div>
                 <p className="mt-2 text-sm font-semibold text-foreground">
                   {formatDateTime(lastSyncCandidate)}
@@ -1276,7 +1301,7 @@ export default function Admin() {
                 <p className={`mt-1 text-xs ${isSyncStale ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {syncAgeLabel}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">Horï¿½rio local</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Horário local</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">Fonte: {lastSyncSource}</p>
                 {isSyncStale && (
                   <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-destructive">
@@ -1287,16 +1312,16 @@ export default function Admin() {
               </div>
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                  <Timer className="h-4 w-4" /> Prï¿½xima checagem
+                  <Timer className="h-4 w-4" /> Próxima checagem
                 </div>
                 <p className="mt-2 text-sm font-semibold text-foreground">
                   {formatDateTime(nextCheckEffective || automationStats.nextCheck)}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">Horï¿½rio local</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Horário local</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">{syncScheduleNote}</p>
                 {showNextProductDue && (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Prï¿½ximo produto vence: {formatDateTime(new Date(nextProductDueMs as number).toISOString())}
+                    Próximo produto vence: {formatDateTime(new Date(nextProductDueMs as number).toISOString())}
                   </p>
                 )}
               </div>
@@ -1306,7 +1331,7 @@ export default function Admin() {
                 </div>
                 <p className="mt-2 text-2xl font-bold text-warning">{anomalyStats.blocked}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  403 no ï¿½ltimo run: {latestSyncRun?.total_403 ?? 0}
+                  403 no último run: {latestSyncRun?.total_403 ?? 0}
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   Alertas na janela: {blockedAnomalies.length}
@@ -1318,7 +1343,7 @@ export default function Admin() {
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                    <Mail className="h-4 w-4" /> Relatï¿½rios enviados
+                    <Mail className="h-4 w-4" /> Relatórios enviados
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => navigate('/admin/price-sync')}>
                     Ver tudo
@@ -1327,7 +1352,7 @@ export default function Admin() {
                 {loadingReports ? (
                   <p className="text-sm text-muted-foreground">Carregando...</p>
                 ) : reports.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nenhum relatï¿½rio registrado ainda.</p>
+                  <p className="text-sm text-muted-foreground">Nenhum relatério registrado ainda.</p>
                 ) : (
                   <div className="space-y-3">
                     {reports.map((report) => (
@@ -1335,11 +1360,11 @@ export default function Admin() {
                         <div>
                           <p className="font-medium text-foreground">{formatDateTime(report.sent_at)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {report.recipients?.join(', ') || 'Destinatï¿½rio nï¿½o informado'}
+                            {report.recipients?.join(', ') || 'Destinatário não informado'}
                           </p>
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {report.total} mudanï¿½as . {report.drops} quedas . {report.promos} promos
+                          {report.total} mudanças . {report.drops} quedas . {report.promos} promos
                         </div>
                         <span
                           className={`text-xs px-2 py-1 rounded-full ${
@@ -1358,7 +1383,7 @@ export default function Admin() {
 
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
-                  <TrendingDown className="h-4 w-4" /> Mudanï¿½as recentes
+                  <TrendingDown className="h-4 w-4" /> Mudanças recentes
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -1366,7 +1391,7 @@ export default function Admin() {
                     <p className="text-lg font-semibold">{priceChangeStats.total}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Promoï¿½ï¿½es</p>
+                    <p className="text-muted-foreground">Promoções</p>
                     <p className="text-lg font-semibold text-primary">{priceChangeStats.promos}</p>
                   </div>
                   <div>
@@ -1444,7 +1469,7 @@ export default function Admin() {
               <div>
                 <h2 className="text-lg font-semibold text-foreground">Produtos</h2>
                 <p className="text-sm text-muted-foreground">
-                  Status de validaï¿½ï¿½o, Pix manual/automï¿½tico e filtros rï¿½pidos.
+                  Status de validação, Pix manual/automático e filtros rápidos.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1514,7 +1539,7 @@ export default function Admin() {
               >
                 <TabsList className="w-full sm:w-auto">
                   <TabsTrigger value="all">Todos ({filteredAllProducts.length})</TabsTrigger>
-                  <TabsTrigger value="valid">Validaï¿½ï¿½o ok ({filteredValidProducts.length})</TabsTrigger>
+                  <TabsTrigger value="valid">Validação ok ({filteredValidProducts.length})</TabsTrigger>
                   <TabsTrigger value="blocked">Bloqueados ({filteredBlockedProducts.length})</TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -1525,8 +1550,8 @@ export default function Admin() {
           <div className="bg-card rounded-xl p-4 mb-6 border border-border">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Mudanï¿½as de preï¿½o</h2>
-                <p className="text-sm text-muted-foreground">ï¿½ltimas alteraï¿½ï¿½es capturadas pelo robï¿½</p>
+                <h2 className="text-lg font-semibold text-foreground">Mudanças de preço</h2>
+                <p className="text-sm text-muted-foreground">últimas alterações capturadas pelo robô</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1534,16 +1559,16 @@ export default function Admin() {
                   onClick={handleForceSync}
                   disabled={isSyncing}
                 >
-                  {isSyncing ? 'Agendando...' : 'Forï¿½ar sync'}
+                  {isSyncing ? 'Agendando...' : 'Forçar sync'}
                 </Button>
                 <Select value={changesWindow} onValueChange={(value) => setChangesWindow(value as '24h' | '7d' | '30d')}>
                   <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Perï¿½odo" />
+                    <SelectValue placeholder="Período" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="24h">ï¿½ltimas 24h</SelectItem>
-                    <SelectItem value="7d">ï¿½ltimos 7 dias</SelectItem>
-                    <SelectItem value="30d">ï¿½ltimos 30 dias</SelectItem>
+                    <SelectItem value="24h">últimas 24h</SelectItem>
+                    <SelectItem value="7d">últimos 7 dias</SelectItem>
+                    <SelectItem value="30d">últimos 30 dias</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1551,15 +1576,15 @@ export default function Admin() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
               <div className="rounded-lg bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">Mudanï¿½as</p>
+                <p className="text-xs text-muted-foreground">Mudanças</p>
                 <p className="text-lg font-semibold text-foreground">{priceChangeStats.total}</p>
               </div>
               <div className="rounded-lg bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">Promoï¿½ï¿½es</p>
+                <p className="text-xs text-muted-foreground">Promoções</p>
                 <p className="text-lg font-semibold text-foreground">{priceChangeStats.promos}</p>
               </div>
               <div className="rounded-lg bg-secondary/30 p-3">
-                <p className="text-xs text-muted-foreground">Reduï¿½ï¿½es</p>
+                <p className="text-xs text-muted-foreground">Reduções</p>
                 <p className="text-lg font-semibold text-foreground">{priceChangeStats.reductions}</p>
               </div>
               <div className="rounded-lg bg-secondary/30 p-3">
@@ -1572,11 +1597,11 @@ export default function Admin() {
               {loadingPriceChanges ? (
                 <div className="text-center py-6">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
-                  <p className="mt-2 text-sm text-muted-foreground">Carregando mudanï¿½as...</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Carregando mudanças...</p>
                 </div>
               ) : priceChanges.length === 0 ? (
                 <div className="text-center py-6 text-sm text-muted-foreground">
-                  Nenhuma mudanï¿½a registrada nesse perï¿½odo.
+                  Nenhuma mudança registrada nesse período.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1641,18 +1666,18 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Avisos de verificaï¿½ï¿½o */}
+          {/* Avisos de verificação */}
           <div className="bg-card rounded-xl p-4 mb-6 border border-border">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Avisos de verificaï¿½ï¿½o</h2>
+                <h2 className="text-lg font-semibold text-foreground">Avisos de verificação</h2>
                 <p className="text-sm text-muted-foreground">
-                  Produtos com bloqueio de validaï¿½ï¿½o de preï¿½o ou inconsistï¿½ncias detectadas.
+                  Produtos com bloqueio de validação de preço ou inconsistências detectadas.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                  Ver relatï¿½rio completo
+                  Ver relatério completo
                 </Button>
                 <Button variant="secondary" onClick={handleCopyBlockedLinks} disabled={!blockedAnomalies.length}>
                   Copiar links bloqueados
@@ -1667,7 +1692,7 @@ export default function Admin() {
               {loadingAnomalies ? (
                 <p className="text-sm text-muted-foreground">Carregando...</p>
               ) : anomalies.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma divergï¿½ncia registrada.</p>
+                <p className="text-sm text-muted-foreground">Nenhuma divergência registrada.</p>
               ) : (
                 <div className="space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 p-3">
@@ -1679,18 +1704,18 @@ export default function Admin() {
                         Bloqueados: {anomalyStats.blocked}
                       </span>
                       <span className="rounded-full bg-muted text-muted-foreground px-2 py-1">
-                        Catï¿½logo: {anomalyStats.catalogFallback}
+                        Catálogo: {anomalyStats.catalogFallback}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Select value={anomaliesWindow} onValueChange={(value) => setAnomaliesWindow(value as '24h' | '7d' | '30d')}>
                         <SelectTrigger className="w-[140px]">
-                          <SelectValue placeholder="Perï¿½odo" />
+                          <SelectValue placeholder="Período" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="24h">ï¿½ltimas 24h</SelectItem>
-                          <SelectItem value="7d">ï¿½ltimos 7 dias</SelectItem>
-                          <SelectItem value="30d">ï¿½ltimos 30 dias</SelectItem>
+                          <SelectItem value="24h">últimas 24h</SelectItem>
+                          <SelectItem value="7d">últimos 7 dias</SelectItem>
+                          <SelectItem value="30d">últimos 30 dias</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1706,7 +1731,7 @@ export default function Admin() {
                         <div>
                           <p className="font-medium text-foreground">{row.product?.name || 'Produto'}</p>
                           <p className="text-xs text-muted-foreground">
-                            MLB: {row.external_id || '-'} . Catï¿½logo: {row.catalog_id || '-'}
+                            MLB: {row.external_id || '-'} . Catálogo: {row.catalog_id || '-'}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Detectado: {formatDateTime(row.detected_at)}
@@ -1718,7 +1743,7 @@ export default function Admin() {
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         <span className="rounded-full bg-primary/10 text-primary px-2 py-1">
-                          Catï¿½logo: {row.price_from_catalog !== null ? formatPrice(row.price_from_catalog) : '-'}
+                          Catálogo: {row.price_from_catalog !== null ? formatPrice(row.price_from_catalog) : '-'}
                         </span>
                         <span className="rounded-full bg-muted text-muted-foreground px-2 py-1">
                           Item: {row.price_from_item !== null ? formatPrice(row.price_from_item) : '-'}
@@ -1730,7 +1755,7 @@ export default function Admin() {
                             rel="noreferrer"
                             className="text-primary underline text-sm"
                           >
-                            Abrir anï¿½ncio
+                            Abrir anúncio
                           </a>
                         )}
                       </div>
@@ -1755,9 +1780,9 @@ export default function Admin() {
                 {searchQuery
                   ? 'Tente outro termo de busca'
                   : productTab === 'blocked'
-                    ? 'Nenhum produto bloqueado atï¿½ o momento.'
+                    ? 'Nenhum produto bloqueado até o momento.'
                     : productTab === 'valid'
-                      ? 'Nenhum produto com validaï¿½ï¿½o ok encontrado.'
+                      ? 'Nenhum produto com validação ok encontrado.'
                       : 'Comece adicionando seu primeiro produto'}
               </p>
               {!searchQuery && productTab === 'all' && (
@@ -1774,11 +1799,11 @@ export default function Admin() {
                   <thead className="bg-secondary/50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Produto</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Preï¿½o</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Preço</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Categoria</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">Marketplace</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Aï¿½ï¿½es</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1807,7 +1832,7 @@ export default function Admin() {
                             </div>
                             <div>
                               <p className="font-medium text-foreground line-clamp-1">{product.name}</p>
-                              <p className="text-sm text-muted-foreground line-clamp-1">{product.short_description || 'Sem descriï¿½ï¿½o'}</p>
+                              <p className="text-sm text-muted-foreground line-clamp-1">{product.short_description || 'Sem descrição'}</p>
                             </div>
                           </div>
                         </td>
@@ -1849,7 +1874,7 @@ export default function Admin() {
                             )}
                             {isBlocked && (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
-                                <AlertCircle className="h-3 w-3" /> Sem validaï¿½ï¿½o
+                                <AlertCircle className="h-3 w-3" /> Sem validação
                               </span>
                             )}
                             {showOk && (
@@ -1944,7 +1969,7 @@ export default function Admin() {
                     )}
                     {isBlocked && (
                       <span className="mt-2 inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive">
-                        Sem validaï¿½ï¿½o
+                        Sem validação
                       </span>
                     )}
                     {showOk && (
@@ -1985,11 +2010,11 @@ export default function Admin() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="rounded-xl border border-border bg-secondary/30 p-4 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">Dica rï¿½pida</p>
+              <p className="font-medium text-foreground">Dica rápida</p>
               <ul className="mt-2 list-disc pl-4 space-y-1 text-xs">
-                <li>Para importaï¿½ï¿½o automï¿½tica, use o link do produto que mostre o cï¿½digo <strong>MLB123...</strong> na URL.</li>
-                <li>Links encurtados <strong>/sec/</strong> nï¿½o trazem o ID: copie o ID completo e cole no campo ao lado.</li>
-                <li>O ID deve comeï¿½ar com <strong>MLB</strong> e ter pelo menos 10 dï¿½gitos numï¿½ricos.</li>
+                <li>Para importação automática, use o link do produto que mostre o código <strong>MLB123...</strong> na URL.</li>
+                <li>Links encurtados <strong>/sec/</strong> não trazem o ID: copie o ID completo e cole no campo ao lado.</li>
+                <li>O ID deve começar com <strong>MLB</strong> e ter pelo menos 10 dígitos numéricos.</li>
               </ul>
             </div>
 
@@ -2007,7 +2032,7 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="short_description">descriï¿½ï¿½o Curta</Label>
+                <Label htmlFor="short_description">descrição Curta</Label>
                 <Input
                   id="short_description"
                   value={formData.short_description}
@@ -2017,12 +2042,12 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="description">descriï¿½ï¿½o Completa</Label>
+                <Label htmlFor="description">descrição Completa</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="descriï¿½ï¿½o detalhada do produto..."
+                  placeholder="descrição detalhada do produto..."
                   rows={4}
                 />
               </div>
@@ -2031,7 +2056,7 @@ export default function Admin() {
             {/* Pricing */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <Label htmlFor="price">Preï¿½o *</Label>
+                <Label htmlFor="price">Preço *</Label>
                 <Input
                   id="price"
                   type="number"
@@ -2044,7 +2069,7 @@ export default function Admin() {
                 />
               </div>
               <div>
-                <Label htmlFor="pix_price">Preï¿½o Pix (opcional)</Label>
+                <Label htmlFor="pix_price">Preço Pix (opcional)</Label>
                 <Input
                   id="pix_price"
                   type="number"
@@ -2056,7 +2081,7 @@ export default function Admin() {
                 />
               </div>
               <div>
-                <Label htmlFor="original_price">Preï¿½o Original</Label>
+                <Label htmlFor="original_price">Preço Original</Label>
                 <Input
                   id="original_price"
                   type="number"
@@ -2210,7 +2235,7 @@ export default function Admin() {
               ) : formData.affiliate_link && !affiliateLinkError && (
                 <p className="text-xs text-success mt-1 flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" />
-                  Link vï¿½lido! Marketplace: {detectMarketplace(formData.affiliate_link)}
+                  Link válido! Marketplace: {detectMarketplace(formData.affiliate_link)}
                 </p>
               )}
             </div>
@@ -2219,7 +2244,7 @@ export default function Admin() {
             <div>
               <Label htmlFor="external_id">
                 ID do Marketplace (ex: MLB1234567890)
-                <span className="text-xs text-muted-foreground ml-2">(use se o link nï¿½o tiver o MLB)</span>
+                <span className="text-xs text-muted-foreground ml-2">(use se o link não tiver o MLB)</span>
               </Label>
               <Input
                 id="external_id"
@@ -2249,7 +2274,7 @@ export default function Admin() {
               )}
               {detectMarketplace(formData.source_url) === 'mercadolivre' && formData.external_id === '' && formData.source_url && (
                 <p className="text-[11px] text-warning mt-1">
-                  Link sem ID MLB. Sem ele o robï¿½ nï¿½o sincroniza Preï¿½o/imagem.
+                  Link sem ID MLB. Sem ele o robô não sincroniza Preço/imagem.
                 </p>
               )}
             </div>
@@ -2261,7 +2286,7 @@ export default function Admin() {
                 id="advantages"
                 value={formData.advantages}
                 onChange={(e) => setFormData(prev => ({ ...prev, advantages: e.target.value }))}
-                placeholder="Alta concentraï¿½ï¿½o de proteï¿½na&#10;Zero aï¿½ï¿½car"
+                placeholder="Alta concentração de proteína&#10;Zero açúcar"
                 rows={3}
               />
             </div>
@@ -2285,7 +2310,7 @@ export default function Admin() {
                 />
               </div>
               <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-                <Label htmlFor="is_on_sale" className="cursor-pointer">Em Promoï¿½ï¿½o</Label>
+                <Label htmlFor="is_on_sale" className="cursor-pointer">Em Promoção</Label>
                 <Switch
                   id="is_on_sale"
                   checked={formData.is_on_sale}
@@ -2293,7 +2318,7 @@ export default function Admin() {
                 />
               </div>
               <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-                <Label htmlFor="free_shipping" className="cursor-pointer">Frete Grï¿½tis</Label>
+                <Label htmlFor="free_shipping" className="cursor-pointer">Frete Grátis</Label>
                 <Switch
                   id="free_shipping"
                   checked={formData.free_shipping}

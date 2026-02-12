@@ -228,6 +228,29 @@ export default function SearchBarSticky() {
     setIsOpen(false);
   };
 
+  const expandMobileSearch = () => {
+    setIsExpandedMobile(true);
+    setIsFocused(true);
+    openDropdown();
+    if (!results && !isLoading) fetchResults("");
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const collapseMobileSearch = () => {
+    setIsExpandedMobile(false);
+    setIsFocused(false);
+    closeDropdown();
+    inputRef.current?.blur();
+  };
+
+  const toggleMobileSearch = () => {
+    if (isExpandedMobile) {
+      collapseMobileSearch();
+      return;
+    }
+    expandMobileSearch();
+  };
+
   const setQuerySafe = (value: string) => {
     setQuery(value);
     if (!isOpen) setIsOpen(true);
@@ -480,16 +503,25 @@ export default function SearchBarSticky() {
   }, [isFocused]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       if (!containerRef.current) return;
-      if (!containerRef.current.contains(event.target as Node)) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-search-toggle]")) return;
+      if (!containerRef.current.contains(target)) {
         closeDropdown();
         setIsFocused(false);
+        if (isMobile && isExpandedMobile) {
+          setIsExpandedMobile(false);
+        }
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [isMobile, isExpandedMobile]);
 
   useEffect(() => {
     const reduced =
@@ -657,6 +689,30 @@ export default function SearchBarSticky() {
   }, []);
 
   useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("arsenalfit:search-state", {
+        detail: { expanded: isExpandedMobile },
+      }),
+    );
+  }, [isExpandedMobile]);
+
+  useEffect(() => {
+    const handleExternalToggle = () => {
+      if (!isMobile) return;
+      toggleMobileSearch();
+    };
+
+    window.addEventListener("arsenalfit:toggle-search", handleExternalToggle);
+    return () => window.removeEventListener("arsenalfit:toggle-search", handleExternalToggle);
+  }, [isMobile, isExpandedMobile, results, isLoading]);
+
+  useEffect(() => {
+    if (!isMobile && isExpandedMobile) {
+      setIsExpandedMobile(false);
+    }
+  }, [isMobile, isExpandedMobile]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const sync = () => {
       Object.keys(autoScrollRefs.current).forEach((key) => updateScrollState(key));
@@ -699,15 +755,25 @@ export default function SearchBarSticky() {
   }, [trimmedQuery, hasSuggestions, hasCategories]);
 
   const handleFocus = () => {
+    if (isMobile && !isExpandedMobile) {
+      setIsExpandedMobile(true);
+    }
     setIsFocused(true);
     openDropdown();
     if (!results) fetchResults(trimmedQuery);
   };
 
-  const handleClear = () => {
-    setQuery("");
-    fetchResults("");
-    inputRef.current?.focus();
+  const handleClearOrClose = () => {
+    if (query.trim().length > 0) {
+      setQuery("");
+      fetchResults("");
+      inputRef.current?.focus();
+      return;
+    }
+
+    if (isMobile) {
+      collapseMobileSearch();
+    }
   };
 
   const handleSuggestionClick = async (item: SuggestionItem) => {
@@ -769,8 +835,9 @@ export default function SearchBarSticky() {
   const miniCardImageWrapper =
     "h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 rounded-lg bg-zinc-50 border border-zinc-200 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] overflow-hidden flex items-center justify-center p-1";
   const miniCardImageClass = "h-full w-full object-contain";
+  const showClearOrClose = Boolean(query.trim().length) || (isMobile && isExpandedMobile);
   return (
-    <div ref={containerRef} className="sticky top-14 md:top-16 z-40">
+    <div id="sticky-search" ref={containerRef} className="sticky top-20 md:top-16 z-40">
       <div
         className={`mx-auto max-w-6xl px-4 sm:px-6 transition-all duration-200 ${
           isCompact ? "py-2" : "py-3 sm:py-4"
@@ -778,17 +845,19 @@ export default function SearchBarSticky() {
       >
         <div className="flex items-center gap-3">
           <button
-            className="sm:hidden h-10 w-10 rounded-full border border-zinc-200 bg-white/90 backdrop-blur flex items-center justify-center text-zinc-600 shadow-sm"
-            onClick={() => {
-              setIsExpandedMobile(true);
-              setTimeout(() => inputRef.current?.focus(), 0);
-            }}
-            aria-label="Abrir busca"
+            type="button"
+            data-search-toggle
+            className="sm:hidden h-11 w-11 rounded-full border border-zinc-200 bg-white/95 backdrop-blur flex items-center justify-center text-zinc-600 shadow-sm hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            onClick={toggleMobileSearch}
+            aria-label={isExpandedMobile ? "Fechar busca" : "Abrir busca"}
+            aria-expanded={isExpandedMobile}
+            aria-controls="sticky-search-field"
           >
-            <Search className="h-5 w-5" />
+            {isExpandedMobile ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
           </button>
 
           <div
+            id="sticky-search-field"
             className={`relative w-full transition-all duration-200 ${
               isExpandedMobile ? "block" : "hidden sm:block"
             }`}
@@ -816,26 +885,46 @@ export default function SearchBarSticky() {
                     }
                     window.location.href = `/produtos?search=${encodeURIComponent(trimmedQuery)}`;
                   }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    if (isMobile) {
+                      collapseMobileSearch();
+                    } else {
+                      closeDropdown();
+                      setIsFocused(false);
+                      inputRef.current?.blur();
+                    }
+                  }
                 }}
                 aria-label="Buscar produtos"
                 className="h-full flex-1 border-0 bg-transparent px-1 pr-3 text-[13px] sm:text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
-              {query && (
+              {showClearOrClose && (
                 <button
-                  onClick={handleClear}
-                  className="mr-4 text-zinc-400 hover:text-zinc-600"
-                  aria-label="Limpar busca"
+                  type="button"
+                  onClick={handleClearOrClose}
+                  className="mr-1 h-10 w-10 rounded-full text-zinc-400 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  aria-label={query.trim().length > 0 ? "Limpar busca" : "Fechar busca"}
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4 mx-auto" />
                 </button>
               )}
             </div>
           </div>
         </div>
 
+        {isOpen && isMobile && isExpandedMobile && (
+          <button
+            type="button"
+            className="fixed inset-0 z-20 bg-zinc-950/35 backdrop-blur-[1px]"
+            onClick={collapseMobileSearch}
+            aria-label="Fechar busca"
+          />
+        )}
+
         {isOpen && (
           <div className="relative">
-            <div className="absolute left-0 right-0 mt-4 rounded-3xl border border-zinc-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] overflow-hidden">
+            <div className="absolute left-0 right-0 z-30 mt-3 max-h-[min(72vh,620px)] rounded-3xl border border-zinc-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] overflow-y-auto overflow-x-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 text-sm text-zinc-500">
                 <span className="font-medium text-zinc-700 flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-amber-500" />
@@ -936,26 +1025,26 @@ export default function SearchBarSticky() {
                     <span>Quentes do dia</span>
                   </div>
                   <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => scrollRow("hot", "left")}
-                      className={`absolute left-1 top-1/2 -translate-y-1/2 h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95 ${
-                        showLeft ? "opacity-100" : "opacity-0 pointer-events-none"
-                      }`}
-                      aria-label="Voltar quentes do dia"
-                    >
-                      <ChevronLeft className="h-4 w-4 mx-auto" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => scrollRow("hot", "right")}
-                      className={`absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95 ${
-                        showRight ? "opacity-100" : "opacity-0 pointer-events-none"
-                      }`}
-                      aria-label="Ver mais quentes do dia"
-                    >
-                      <ChevronRight className="h-4 w-4 mx-auto" />
-                    </button>
+                    {showLeft && (
+                      <button
+                        type="button"
+                        onClick={() => scrollRow("hot", "left")}
+                        className="absolute left-1 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95"
+                        aria-label="Voltar quentes do dia"
+                      >
+                        <ChevronLeft className="h-4 w-4 mx-auto" />
+                      </button>
+                    )}
+                    {showRight && (
+                      <button
+                        type="button"
+                        onClick={() => scrollRow("hot", "right")}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95"
+                        aria-label="Ver mais quentes do dia"
+                      >
+                        <ChevronRight className="h-4 w-4 mx-auto" />
+                      </button>
+                    )}
                     <div
                       className={`rounded-2xl transition-shadow duration-200 ${
                         hotDragging
@@ -1045,26 +1134,26 @@ export default function SearchBarSticky() {
                           {key}
                         </div>
                         <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => scrollRow(rowKey, "left")}
-                            className={`absolute left-1 top-1/2 -translate-y-1/2 h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95 ${
-                              showLeft ? "opacity-100" : "opacity-0 pointer-events-none"
-                            }`}
-                            aria-label={`Voltar em ${key}`}
-                          >
-                            <ChevronLeft className="h-4 w-4 mx-auto" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => scrollRow(rowKey, "right")}
-                            className={`absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 sm:h-9 sm:w-9 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95 ${
-                              showRight ? "opacity-100" : "opacity-0 pointer-events-none"
-                            }`}
-                            aria-label={`Ver mais em ${key}`}
-                          >
-                            <ChevronRight className="h-4 w-4 mx-auto" />
-                          </button>
+                          {showLeft && (
+                            <button
+                              type="button"
+                              onClick={() => scrollRow(rowKey, "left")}
+                              className="absolute left-1 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95"
+                              aria-label={`Voltar em ${key}`}
+                            >
+                              <ChevronLeft className="h-4 w-4 mx-auto" />
+                            </button>
+                          )}
+                          {showRight && (
+                            <button
+                              type="button"
+                              onClick={() => scrollRow(rowKey, "right")}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full border border-zinc-300 bg-white/95 text-zinc-500 shadow-md hover:text-zinc-900 hover:border-zinc-400 transition-all duration-200 hover:scale-105 active:scale-95"
+                              aria-label={`Ver mais em ${key}`}
+                            >
+                              <ChevronRight className="h-4 w-4 mx-auto" />
+                            </button>
+                          )}
                           <div
                             className={`rounded-2xl transition-shadow duration-200 ${
                               rowDragging
@@ -1255,15 +1344,5 @@ export default function SearchBarSticky() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
 
 

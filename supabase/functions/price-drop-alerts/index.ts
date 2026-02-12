@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: CORS_HEADERS });
   }
 
-  const CRON_SECRET = Deno.env.get("CRON_SECRET");
+  const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? Deno.env.get("X_CRON_SECRET");
   if (CRON_SECRET) {
     const headerSecret = req.headers.get("x-cron-secret");
     if (!headerSecret || headerSecret !== CRON_SECRET) {
@@ -84,6 +84,10 @@ Deno.serve(async (req) => {
 
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
   const RESEND_FROM = Deno.env.get("RESEND_FROM") ?? "ArsenalFit <no-reply@arsenalstore.org>";
+  const RESEND_REPLY_TO =
+    Deno.env.get("RESEND_REPLY_TO") ??
+    Deno.env.get("EMAIL_REPLY_TO") ??
+    "powershop.bras@gmail.com";
   const SITE_URL =
     Deno.env.get("SITE_URL") ??
     Deno.env.get("REPORT_SITE_URL") ??
@@ -111,6 +115,10 @@ Deno.serve(async (req) => {
     try {
       await supabase.rpc("set_cron_secret", {
         p_key: "price-drop-alerts",
+        p_value: CRON_SECRET,
+      });
+      await supabase.rpc("set_cron_secret", {
+        p_key: "price-sync",
         p_value: CRON_SECRET,
       });
     } catch {
@@ -181,7 +189,7 @@ Deno.serve(async (req) => {
       product?.affiliate_link ||
       (product?.slug ? `${SITE_URL}/produto/${product?.slug}` : SITE_URL);
 
-    const preheader = `Economia de ${savingsLabel} — veja o valor atual e aproveite a oferta.`;
+    const preheader = `Economia de ${savingsLabel} - veja o valor atual e aproveite a oferta.`;
     const html = template
       .replace(/{{preheader}}/g, htmlEscape(preheader))
       .replace(/{{logo_url}}/g, LOGO_URL)
@@ -195,7 +203,7 @@ Deno.serve(async (req) => {
       .replace(/{{site_url}}/g, SITE_URL)
       .replace(/{{year}}/g, String(new Date().getFullYear()));
 
-    const subject = `Baixou! Seu produto no ArsenalFit está mais barato (–${savingsLabel})`;
+    const subject = `Baixou! Seu produto no ArsenalFit est\u00e1 mais barato (-${savingsLabel})`;
 
     const resendResp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -206,9 +214,10 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         from: RESEND_FROM,
         to: [testEmail],
+        reply_to: RESEND_REPLY_TO,
         subject,
         html,
-        text: `Preço caiu! ${productName} agora está por ${formatPrice(currentPrice)}. Economia de ${savingsLabel}.`,
+        text: `Pre\u00e7o caiu! ${productName} agora est\u00e1 por ${formatPrice(currentPrice)}. Economia de ${savingsLabel}.`,
       }),
     });
 
@@ -251,7 +260,7 @@ Deno.serve(async (req) => {
       row.product.affiliate_link ||
       (row.product.slug ? `${SITE_URL}/produto/${row.product.slug}` : SITE_URL);
 
-    const preheader = `Economia de ${savingsLabel} — veja o valor atual e aproveite a oferta.`;
+    const preheader = `Economia de ${savingsLabel} - veja o valor atual e aproveite a oferta.`;
     const html = template
       .replace(/{{preheader}}/g, htmlEscape(preheader))
       .replace(/{{logo_url}}/g, LOGO_URL)
@@ -265,7 +274,7 @@ Deno.serve(async (req) => {
       .replace(/{{site_url}}/g, SITE_URL)
       .replace(/{{year}}/g, String(new Date().getFullYear()));
 
-    const subject = `Baixou! Seu produto no ArsenalFit está mais barato (–${savingsLabel})`;
+    const subject = `Baixou! Seu produto no ArsenalFit est\u00e1 mais barato (-${savingsLabel})`;
 
     const resendResp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -276,9 +285,10 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         from: RESEND_FROM,
         to: [recipient],
+        reply_to: RESEND_REPLY_TO,
         subject,
         html,
-        text: `Preço caiu! ${productName} agora está por ${formatPrice(currentPrice)}. Economia de ${savingsLabel}.`,
+        text: `Pre\u00e7o caiu! ${productName} agora est\u00e1 por ${formatPrice(currentPrice)}. Economia de ${savingsLabel}.`,
       }),
     });
 
@@ -308,3 +318,4 @@ Deno.serve(async (req) => {
     headers: { ...CORS_HEADERS, ...JSON_HEADERS },
   });
 });
+

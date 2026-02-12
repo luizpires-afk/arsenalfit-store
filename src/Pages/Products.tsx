@@ -31,6 +31,7 @@ export default function Products() {
   const { products, loading } = useProducts();
   const [searchParams, setSearchParams] = useSearchParams();
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const [isCompactGrid, setIsCompactGrid] = useState(false);
 
   const queryParam = searchParams.get("q") || searchParams.get("search") || "";
   const [searchInput, setSearchInput] = useState(queryParam);
@@ -45,6 +46,16 @@ export default function Products() {
   useEffect(() => {
     setSearchInput(queryParam);
   }, [queryParam]);
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setIsCompactGrid(window.innerWidth < 768);
+    };
+
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
 
   useEffect(() => {
     if (debouncedQuery === queryParam) return;
@@ -248,10 +259,14 @@ export default function Products() {
           <>
             <div
               ref={gridRef}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
+              className="grid max-[349px]:grid-cols-1 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 min-[480px]:gap-5 lg:gap-8"
             >
               {paginatedEntries.map((entry) => (
-                <ProductCard key={entry.item.id} product={entry.item as any} />
+                <ProductCard
+                  key={entry.item.id}
+                  product={entry.item as any}
+                  variant={isCompactGrid ? "compact" : "default"}
+                />
               ))}
             </div>
 

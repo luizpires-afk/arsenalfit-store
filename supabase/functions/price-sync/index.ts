@@ -20,7 +20,17 @@ const OAUTH_URL = `${API_BASE}/oauth/token`;
 
 const DEFAULT_TIMEOUT_MS = 8000;
 const AUTH_TIMEOUT_MS = 5000;
-const BATCH_SIZE = 200;
+const DEFAULT_BATCH_SIZE = Number(Deno?.env?.get?.("PRICE_SYNC_BATCH_SIZE") ?? "40");
+const MAX_BATCH_SIZE = Number(Deno?.env?.get?.("PRICE_SYNC_BATCH_SIZE_MAX") ?? "200");
+const DEFAULT_MAX_RUNTIME_MS = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_RUNTIME_MS") ?? "85000");
+const DEFAULT_MAX_CONTINUATIONS = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_CONTINUATIONS") ?? "3");
+const HARD_MAX_CONTINUATIONS = Number(
+  Deno?.env?.get?.("PRICE_SYNC_HARD_MAX_CONTINUATIONS") ?? "8",
+);
+const SYNC_LOCK_KEY = Deno?.env?.get?.("PRICE_SYNC_LOCK_KEY") ?? "price_sync_edge";
+const DEFAULT_LOCK_TTL_SECONDS = Number(
+  Deno?.env?.get?.("PRICE_SYNC_LOCK_TTL_SECONDS") ?? "900",
+);
 const ENABLE_PIX_PRICE =
   (Deno?.env?.get?.("PIX_PRICE_ENABLED") ?? "true").toLowerCase() !== "false";
 const SCRAPER_API_KEY = Deno?.env?.get?.("SCRAPER_API_KEY") ?? null;
@@ -31,6 +41,12 @@ const SCRAPER_ENABLED =
   "true";
 const SCRAPER_TIMEOUT_MS = Number(Deno?.env?.get?.("SCRAPER_TIMEOUT_MS") ?? "8000");
 const SCRAPER_DELAY_MS = Number(Deno?.env?.get?.("SCRAPER_DELAY_MS") ?? "900");
+const ITEM_DELAY_MIN_MS = Number(Deno?.env?.get?.("PRICE_SYNC_ITEM_DELAY_MIN_MS") ?? "120");
+const ITEM_DELAY_MAX_MS = Number(Deno?.env?.get?.("PRICE_SYNC_ITEM_DELAY_MAX_MS") ?? "220");
+const MAX_SCRAPER_FALLBACKS_PER_RUN = Number(
+  Deno?.env?.get?.("PRICE_SYNC_MAX_SCRAPER_FALLBACKS") ?? "8",
+);
+const MAX_PIX_SCRAPES_PER_RUN = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_PIX_SCRAPES") ?? "8");
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -43,6 +59,26 @@ const JSON_HEADERS = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomInt = (min: number, max: number) =>
   Math.floor(Math.random() * (max - min + 1)) + min;
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const toPositiveInt = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.floor(parsed));
+};
+const toNonNegativeInt = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
+};
+const toBoolean = (value: unknown, fallback: boolean) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+};
 
 const addMs = (now: Date, ms: number) => new Date(now.getTime() + ms);
 
@@ -485,7 +521,7 @@ const extractPriceSignals = (data: any) => {
   };
 };
 
-// --------- TOKEN STORE (corrigido para NÃƒO depender de upsert com id fixo) ---------
+// --------- TOKEN STORE (corrigido para NAO depender de upsert com id fixo) ---------
 
 const getTokenRow = async (supabase: ReturnType<typeof createClient>) => {
   const { data, error } = await supabase
@@ -517,7 +553,7 @@ const ensureMeliTokens = async (
     };
   }
 
-  // nÃ£o existe linha ainda
+  // nao existe linha ainda
   if (!envTokens.accessToken && !envTokens.refreshToken) {
     return { error: "MELI_ACCESS_TOKEN missing" };
   }
@@ -1230,8 +1266,61 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  const ensureCronSecret = async () => {
+    if (!cronSecret) return;
+    try {
+      await supabase.rpc("set_cron_secret", {
+        p_key: "price-sync",
+        p_value: cronSecret,
+      });
+      await supabase.rpc("set_cron_secret", {
+        p_key: "price-drop-alerts",
+        p_value: cronSecret,
+      });
+    } catch {
+      // Don't block sync on cron secret storage failures.
+    }
+  };
+
+  await ensureCronSecret();
+
   const forceSync = Boolean(
     (payload as any)?.force || (payload as any)?.force_sync || (payload as any)?.ignore_schedule,
+  );
+  const source =
+    typeof (payload as any)?.source === "string" ? String((payload as any)?.source) : "cron";
+  const batchSize = clamp(
+    toPositiveInt((payload as any)?.batch_size ?? (payload as any)?.batchSize, DEFAULT_BATCH_SIZE),
+    5,
+    Math.max(5, MAX_BATCH_SIZE),
+  );
+  const maxRuntimeMs = clamp(
+    toPositiveInt(
+      (payload as any)?.max_runtime_ms ?? (payload as any)?.maxRuntimeMs,
+      DEFAULT_MAX_RUNTIME_MS,
+    ),
+    15000,
+    240000,
+  );
+  const continuationDepth = clamp(
+    toNonNegativeInt(
+      (payload as any)?.continuation_depth ?? (payload as any)?.continuationDepth,
+      0,
+    ),
+    0,
+    Math.max(0, HARD_MAX_CONTINUATIONS),
+  );
+  const maxContinuations = clamp(
+    toNonNegativeInt(
+      (payload as any)?.max_continuations ?? (payload as any)?.maxContinuations,
+      DEFAULT_MAX_CONTINUATIONS,
+    ),
+    0,
+    Math.max(0, HARD_MAX_CONTINUATIONS),
+  );
+  const allowContinuation = toBoolean(
+    (payload as any)?.allow_continuation ?? (payload as any)?.allowContinuation,
+    true,
   );
   const debugUrl =
     typeof (payload as any)?.debug_url === "string" ? String((payload as any)?.debug_url) : null;
@@ -1431,7 +1520,7 @@ Deno.serve(async (req: Request) => {
     return { ok: true, status: resp.status, body: safeData };
   };
 
-  // Se nÃƒÂ£o houver expires_at gravado, tenta um refresh 1x para hidratar.
+  // Se nao houver expires_at gravado, tenta um refresh 1x para hidratar.
   if (!tokenState.tokens?.expires_at) {
     const hydrate = await refresh();
     if (!hydrate.ok) {
@@ -1501,6 +1590,57 @@ Deno.serve(async (req: Request) => {
     clearTimeout(authTimer);
   }
 
+  const lockTtlSeconds = Math.max(DEFAULT_LOCK_TTL_SECONDS, Math.ceil((maxRuntimeMs + 60000) / 1000));
+  let lockAcquired = false;
+  let lockReleased = false;
+  const releaseSyncLock = async () => {
+    if (!lockAcquired || lockReleased) return;
+    lockReleased = true;
+    try {
+      await supabase.rpc("release_price_sync_lock", {
+        lock_key: SYNC_LOCK_KEY,
+        holder_id: runId,
+      });
+    } catch {
+      // Non-blocking: lock has TTL.
+    }
+  };
+
+  const { data: lockData, error: lockError } = await supabase.rpc("acquire_price_sync_lock", {
+    lock_key: SYNC_LOCK_KEY,
+    holder_id: runId,
+    ttl_seconds: lockTtlSeconds,
+  });
+
+  if (lockError) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        message: "sync_lock_unavailable",
+        run_id: runId,
+        error: lockError.message,
+      }),
+    );
+    await upsertRun({
+      id: runId,
+      note: `lock_unavailable:${lockError.message}`,
+    });
+  } else if (lockData !== true) {
+    await upsertRun({
+      id: runId,
+      finished_at: new Date().toISOString(),
+      status: "skipped",
+      note: "lock_busy",
+    });
+    return new Response(JSON.stringify({ ok: true, run_id: runId, skipped: "lock_busy" }), {
+      status: 202,
+      headers: JSON_HEADERS,
+    });
+  } else {
+    lockAcquired = true;
+  }
+
+  try {
   // ---- resto do seu loop de products (igual ao seu) ----
   const startedAt = new Date(runStartedAt);
   const stats = {
@@ -1522,6 +1662,14 @@ Deno.serve(async (req: Request) => {
 
   const priceChanges: PriceChangeRow[] = [];
   const priceAnomalies: Array<Record<string, unknown>> = [];
+  const runDeadlineMs = Date.now() + maxRuntimeMs;
+  const itemDelayMin = clamp(ITEM_DELAY_MIN_MS, 0, 3000);
+  const itemDelayMax = Math.max(itemDelayMin, clamp(ITEM_DELAY_MAX_MS, itemDelayMin, 5000));
+  const maxScraperFallbacksPerRun = Math.max(0, MAX_SCRAPER_FALLBACKS_PER_RUN);
+  const maxPixScrapesPerRun = Math.max(0, MAX_PIX_SCRAPES_PER_RUN);
+  let scraperFallbacksUsed = 0;
+  let pixScrapesUsed = 0;
+  let stoppedByRuntime = false;
 
   const now = new Date();
   const nowIso = now.toISOString();
@@ -1541,7 +1689,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: products, error } = await query
     .order("next_check_at", { ascending: true })
-    .limit(BATCH_SIZE);
+    .limit(batchSize);
 
   if (error) {
     await upsertRun({
@@ -1588,6 +1736,11 @@ Deno.serve(async (req: Request) => {
   }
 
   for (const product of products ?? []) {
+    if (Date.now() >= runDeadlineMs) {
+      stoppedByRuntime = true;
+      break;
+    }
+
     const itemStartedAt = Date.now();
     const now = new Date();
     const nextCheck = product?.next_check_at ? new Date(product.next_check_at) : null;
@@ -1810,12 +1963,14 @@ Deno.serve(async (req: Request) => {
 
       if (
         SCRAPER_ENABLED &&
+        scraperFallbacksUsed < maxScraperFallbacksPerRun &&
         itemResp.status !== 200 &&
         itemResp.status !== 304 &&
         itemResp.status !== 429
       ) {
         const scrapeUrl = resolveScrapeUrl(product, normalizedExternalId, itemResp.body);
         if (scrapeUrl) {
+          scraperFallbacksUsed += 1;
           if (SCRAPER_DELAY_MS > 0) {
             await sleep(SCRAPER_DELAY_MS);
           }
@@ -1885,9 +2040,15 @@ Deno.serve(async (req: Request) => {
           etag: itemResp?.etag ?? null,
         };
 
-        if (ENABLE_PIX_PRICE && !result.pix_price && typeof resolvedPrice === "number") {
+        if (
+          ENABLE_PIX_PRICE &&
+          !result.pix_price &&
+          typeof resolvedPrice === "number" &&
+          pixScrapesUsed < maxPixScrapesPerRun
+        ) {
           const scrapeUrl = resolveScrapeUrl(product, normalizedExternalId, itemResp.body);
           if (scrapeUrl) {
+            pixScrapesUsed += 1;
             let scrapedPix: number | null = null;
             const html = await fetchScrapedHtml(scrapeUrl, controller.signal);
             scrapedPix = html ? extractPixPriceFromHtml(html) : null;
@@ -2045,7 +2206,7 @@ Deno.serve(async (req: Request) => {
             error: updateError?.message || errorMessage || result?.error || null,
           }),
         );
-        await sleep(randomInt(300, 500));
+        await sleep(randomInt(itemDelayMin, itemDelayMax));
         continue;
       }
 
@@ -2194,7 +2355,7 @@ Deno.serve(async (req: Request) => {
 
     const { error: updateError } = await supabase.from("products").update(update).eq("id", product.id);
 
-    // log simples (mantive seu padrÃ£o)
+    // log simples (mantive seu padrao)
     const etagBefore = await maskEtag(product?.etag);
     const etagAfter = await maskEtag(result?.etag ?? product?.etag ?? null);
     const durationMs = Date.now() - itemStartedAt;
@@ -2221,7 +2382,12 @@ Deno.serve(async (req: Request) => {
       }),
     );
 
-    await sleep(randomInt(300, 500));
+    if (Date.now() >= runDeadlineMs) {
+      stoppedByRuntime = true;
+      break;
+    }
+
+    await sleep(randomInt(itemDelayMin, itemDelayMax));
   }
 
   stats.finished_at = new Date().toISOString();
@@ -2242,6 +2408,7 @@ Deno.serve(async (req: Request) => {
     total_timeout: stats.total_timeout,
     total_erros_desconhecidos: stats.total_erros_desconhecidos,
     total_price_changes: stats.total_price_changes,
+    ...(stoppedByRuntime ? { note: "runtime_budget_reached" } : {}),
   });
 
   if (priceChanges.length) {
@@ -2327,15 +2494,101 @@ Deno.serve(async (req: Request) => {
     }
   };
 
-  const skipAlerts = Boolean(
-    (payload as any)?.skip_alerts || (payload as any)?.skipAlerts,
+  const skipAlerts = toBoolean(
+    (payload as any)?.skip_alerts ?? (payload as any)?.skipAlerts,
+    false,
   );
   if (!skipAlerts && priceChanges.length) {
     await triggerPriceDropAlerts();
   }
-  return new Response(JSON.stringify({ ok: true, run_id: runId, stats }), {
+
+  let continuationQueued = false;
+  let continuationError: string | null = null;
+  let remainingDueCount: number | null = null;
+  const shouldEvaluateContinuation =
+    allowContinuation &&
+    continuationDepth < maxContinuations &&
+    (stoppedByRuntime || (products?.length ?? 0) >= batchSize);
+
+  if (shouldEvaluateContinuation) {
+    const dueQuery = supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("marketplace", "mercadolivre")
+      .not("external_id", "is", null)
+      .neq("status", "paused");
+
+    const dueResult = forceSync
+      ? await dueQuery
+      : await dueQuery.lte("next_check_at", new Date(Date.now() + SCHEDULE_GRACE_MS).toISOString());
+
+    if (dueResult.error) {
+      continuationError = dueResult.error.message;
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "continuation_due_count_failed",
+          run_id: runId,
+          error: dueResult.error.message,
+        }),
+      );
+    } else {
+      remainingDueCount = dueResult.count ?? 0;
+      if ((remainingDueCount ?? 0) > 0) {
+        await releaseSyncLock();
+
+        const continuationPayload = {
+          source: source === "cron" ? "cron_continuation" : "manual_continuation",
+          parent_run_id: runId,
+          continuation_depth: continuationDepth + 1,
+          max_continuations: maxContinuations,
+          batch_size: batchSize,
+          max_runtime_ms: maxRuntimeMs,
+          allow_continuation: true,
+        };
+
+        const { error: enqueueError } = await supabase.rpc("enqueue_price_sync", {
+          p_payload: continuationPayload,
+        });
+
+        if (enqueueError) {
+          continuationError = enqueueError.message;
+          console.warn(
+            JSON.stringify({
+              level: "warn",
+              message: "continuation_enqueue_failed",
+              run_id: runId,
+              error: enqueueError.message,
+              payload: continuationPayload,
+            }),
+          );
+        } else {
+          continuationQueued = true;
+        }
+      }
+    }
+  }
+
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      run_id: runId,
+      stats,
+      continuation: {
+        queued: continuationQueued,
+        depth: continuationDepth,
+        max: maxContinuations,
+        remaining_due: remainingDueCount,
+        error: continuationError,
+      },
+    }),
+    {
     status: 200,
     headers: JSON_HEADERS,
-  });
+    },
+  );
+  } finally {
+    await releaseSyncLock();
+  }
 });
 

@@ -33,10 +33,10 @@ const BEST_DEAL_FALLBACK_MAX_AGE_HOURS = 24;
 const BEST_DEAL_FALLBACK_MAX_AGE_MS = BEST_DEAL_FALLBACK_MAX_AGE_HOURS * 60 * 60 * 1000;
 const RELIABLE_PRICE_SOURCES = new Set(["auth", "public"]);
 const CAROUSEL_ITEM_CLASS =
-  "shrink-0 basis-[calc((100%_-_16px)/1.5)] sm:basis-[calc((100%_-_32px)/2)] md:basis-[calc((100%_-_32px)/3)] lg:basis-[calc((100%_-_48px)/4)]";
+  "shrink-0 basis-[calc((100%_-_16px)/2)] md:basis-[calc((100%_-_32px)/3)] lg:basis-[calc((100%_-_48px)/4)]";
 const CAROUSEL_SKELETON_HEIGHT = "h-56";
 const CAROUSEL_BUTTON_CLASS =
-  "h-14 w-14 rounded-full border-2 border-zinc-300 bg-white text-zinc-700 shadow-[0_18px_36px_rgba(15,23,42,0.22)] backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:scale-[1.05] hover:bg-zinc-100 hover:text-zinc-900 hover:shadow-[0_22px_40px_rgba(15,23,42,0.26)]";
+  "h-11 w-11 sm:h-14 sm:w-14 rounded-full border-2 border-zinc-300 bg-white text-zinc-700 shadow-[0_18px_36px_rgba(15,23,42,0.22)] backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:scale-[1.05] hover:bg-zinc-100 hover:text-zinc-900 hover:shadow-[0_22px_40px_rgba(15,23,42,0.26)]";
 const ACTIVE_FILTER = "is_active.is.null,is_active.eq.true";
 const NON_BLOCKED_FILTER = "auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked";
 const CAROUSEL_LIMIT = 16;
@@ -1329,38 +1329,6 @@ export default function HomeV2() {
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
                 <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    bestDealsCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(bestDealsCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    bestDealsCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(bestDealsCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
                 <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
@@ -1374,38 +1342,6 @@ export default function HomeV2() {
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
                 <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    bestDealsCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(bestDealsCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    bestDealsCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(bestDealsCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
                 <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
@@ -1419,38 +1355,30 @@ export default function HomeV2() {
               <div className="relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
                 <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    bestDealsCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(bestDealsCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    bestDealsCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(bestDealsCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
+                {bestDealsCarouselState.canScrollLeft && (
+                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+                    <button
+                      type="button"
+                      onClick={() => scrollCarousel(bestDealsCarouselRef, "left")}
+                      className={CAROUSEL_BUTTON_CLASS}
+                      aria-label="Ver ofertas anteriores"
+                    >
+                      <ChevronLeft size={18} className="mx-auto" />
+                    </button>
+                  </div>
+                )}
+                {bestDealsCarouselState.canScrollRight && (
+                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+                    <button
+                      type="button"
+                      onClick={() => scrollCarousel(bestDealsCarouselRef, "right")}
+                      className={CAROUSEL_BUTTON_CLASS}
+                      aria-label="Ver mais ofertas"
+                    >
+                      <ChevronRight size={18} className="mx-auto" />
+                    </button>
+                  </div>
+                )}
                 <div
                   ref={bestDealsCarouselRef}
                   className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
@@ -1510,136 +1438,112 @@ export default function HomeV2() {
                     </div>
                   </div>
 
-            {dropsLoading && priceDropsShowLimited.length === 0 ? (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    priceDropsCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(priceDropsCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    priceDropsCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(priceDropsCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div
-                      key={i}
+	            {dropsLoading && priceDropsShowLimited.length === 0 ? (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {priceDropsCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(priceDropsCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver ofertas anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {priceDropsCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(priceDropsCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais ofertas"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
+	                  {[1, 2, 3, 4, 5, 6].map((i) => (
+	                    <div
+	                      key={i}
                       className={`${CAROUSEL_ITEM_CLASS} snap-start ${CAROUSEL_SKELETON_HEIGHT} rounded-[24px] bg-white border border-zinc-100`}
                     />
                   ))}
                 </div>
               </div>
-            ) : priceDropsShowLimited.length === 0 ? (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    priceDropsCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(priceDropsCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    priceDropsCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(priceDropsCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div
-                      key={i}
+	            ) : priceDropsShowLimited.length === 0 ? (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {priceDropsCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(priceDropsCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver ofertas anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {priceDropsCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(priceDropsCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais ofertas"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
+	                  {[1, 2, 3, 4, 5, 6].map((i) => (
+	                    <div
+	                      key={i}
                       className={`${CAROUSEL_ITEM_CLASS} snap-start ${CAROUSEL_SKELETON_HEIGHT} rounded-[24px] bg-white border border-zinc-100`}
                     />
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    priceDropsCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(priceDropsCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    priceDropsCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(priceDropsCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  ref={priceDropsCarouselRef}
-                  className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
-                >
+	            ) : (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {priceDropsCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(priceDropsCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver ofertas anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {priceDropsCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(priceDropsCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais ofertas"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div
+	                  ref={priceDropsCarouselRef}
+	                  className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
+	                >
                   {priceDropsShowLimited.map((product: any) => (
                     <div
                       key={product.id}
@@ -1685,136 +1589,112 @@ export default function HomeV2() {
               </div>
             </div>
 
-            {eliteLoading && eliteShowLimited.length === 0 ? (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    eliteCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(eliteCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    eliteCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(eliteCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div
-                      key={i}
+	            {eliteLoading && eliteShowLimited.length === 0 ? (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {eliteCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(eliteCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver ofertas anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {eliteCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(eliteCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais ofertas"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
+	                  {[1, 2, 3, 4, 5, 6].map((i) => (
+	                    <div
+	                      key={i}
                       className={`${CAROUSEL_ITEM_CLASS} snap-start ${CAROUSEL_SKELETON_HEIGHT} rounded-[24px] bg-white border border-zinc-100`}
                     />
                   ))}
                 </div>
               </div>
-            ) : eliteShowLimited.length === 0 ? (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    eliteCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(eliteCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    eliteCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(eliteCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div
-                      key={i}
+	            ) : eliteShowLimited.length === 0 ? (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {eliteCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(eliteCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver ofertas anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {eliteCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(eliteCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais ofertas"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
+	                  {[1, 2, 3, 4, 5, 6].map((i) => (
+	                    <div
+	                      key={i}
                       className={`${CAROUSEL_ITEM_CLASS} snap-start ${CAROUSEL_SKELETON_HEIGHT} rounded-[24px] bg-white border border-zinc-100`}
                     />
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    eliteCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(eliteCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver ofertas anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    eliteCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(eliteCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais ofertas"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  ref={eliteCarouselRef}
-                  className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
-                >
+	            ) : (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {eliteCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(eliteCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver ofertas anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {eliteCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(eliteCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais ofertas"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div
+	                  ref={eliteCarouselRef}
+	                  className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
+	                >
                   {eliteShowLimited.map((product: any) => (
                     <div key={product.id} className={`${CAROUSEL_ITEM_CLASS} snap-start`}>
                       <ProductCard product={product} variant="curation" />
@@ -1867,91 +1747,75 @@ export default function HomeV2() {
           </div>
 
           <div className="mb-10">
-            {previewLoading && previewProductsLimited.length === 0 ? (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    previewCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(previewCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver produtos anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    previewCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(previewCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais produtos"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <div
-                      key={`preview-skeleton-${index}`}
+	            {previewLoading && previewProductsLimited.length === 0 ? (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {previewCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(previewCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver produtos anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {previewCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(previewCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais produtos"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
+	                  {Array.from({ length: 8 }).map((_, index) => (
+	                    <div
+	                      key={`preview-skeleton-${index}`}
                       className={`${CAROUSEL_ITEM_CLASS} snap-start ${CAROUSEL_SKELETON_HEIGHT} rounded-[24px] bg-white border border-zinc-100`}
                     />
                   ))}
                 </div>
               </div>
-            ) : previewProductsLimited.length > 0 ? (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    previewCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(previewCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver produtos anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    previewCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(previewCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais produtos"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  ref={previewCarouselRef}
-                  className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
-                >
+	            ) : previewProductsLimited.length > 0 ? (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {previewCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(previewCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver produtos anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {previewCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(previewCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais produtos"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div
+	                  ref={previewCarouselRef}
+	                  className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory"
+	                >
                   {previewProductsLimited.map((product: any) => (
                     <div key={product.id} className={`${CAROUSEL_ITEM_CLASS} snap-start`}>
                       <ProductCard product={product} variant="compact" />
@@ -1965,46 +1829,38 @@ export default function HomeV2() {
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
-                <div
-                  className={`absolute inset-y-0 left-2 flex items-center z-10 transition-opacity ${
-                    previewCarouselState.canScrollLeft
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(previewCarouselRef, "left")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver produtos anteriores"
-                  >
-                    <ChevronLeft size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div
-                  className={`absolute inset-y-0 right-2 flex items-center z-10 transition-opacity ${
-                    previewCarouselState.canScrollRight
-                      ? "opacity-100"
-                      : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => scrollCarousel(previewCarouselRef, "right")}
-                    className={CAROUSEL_BUTTON_CLASS}
-                    aria-label="Ver mais produtos"
-                  >
-                    <ChevronRight size={18} className="mx-auto" />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
-                  {Array.from({ length: 8 }).map((_, index) => (
-                    <div
-                      key={`preview-empty-${index}`}
+	            ) : (
+	              <div className="relative">
+	                <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-[#FBFBFB] to-transparent" />
+	                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#FBFBFB] to-transparent" />
+	                {previewCarouselState.canScrollLeft && (
+	                  <div className="absolute inset-y-0 left-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(previewCarouselRef, "left")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver produtos anteriores"
+	                    >
+	                      <ChevronLeft size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                {previewCarouselState.canScrollRight && (
+	                  <div className="absolute inset-y-0 right-2 flex items-center z-10">
+	                    <button
+	                      type="button"
+	                      onClick={() => scrollCarousel(previewCarouselRef, "right")}
+	                      className={CAROUSEL_BUTTON_CLASS}
+	                      aria-label="Ver mais produtos"
+	                    >
+	                      <ChevronRight size={18} className="mx-auto" />
+	                    </button>
+	                  </div>
+	                )}
+	                <div className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-2 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory">
+	                  {Array.from({ length: 8 }).map((_, index) => (
+	                    <div
+	                      key={`preview-empty-${index}`}
                       className={`${CAROUSEL_ITEM_CLASS} snap-start ${CAROUSEL_SKELETON_HEIGHT} rounded-[24px] bg-white border border-zinc-100`}
                     />
                   ))}
@@ -2025,46 +1881,9 @@ export default function HomeV2() {
         </section>
       </main>
 
-      <footer className="bg-zinc-950 text-white py-16 px-4 mt-16">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-          <div className="text-center md:text-left">
-            <div className="text-3xl font-black mb-4 italic tracking-tighter">
-              ARSENAL<span className="text-primary">FIT</span>
-            </div>
-            <p className="text-zinc-400 text-sm max-w-md">
-              Tecnologia de monitoramento de preços para quem leva o treino a sério.
-            </p>
-          </div>
-          <div className="flex flex-col items-center md:items-end gap-4 text-zinc-500 text-xs">
-            <div className="flex gap-6 mb-4">
-              <a href="/termos" className="hover:text-primary transition-colors">
-                Termos
-              </a>
-              <a href="/privacidade" className="hover:text-primary transition-colors">
-                Privacidade
-              </a>
-              <a href="/afiliados" className="hover:text-primary transition-colors">
-                Afiliados
-              </a>
-            </div>
-            <p>© {new Date().getFullYear()} ArsenalFit.</p>
-          </div>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-
-
-
-
-
-
-
-
-
-
+	    </div>
+	  );
+	}
 
 
 

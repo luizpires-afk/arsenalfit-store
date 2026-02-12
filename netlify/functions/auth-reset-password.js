@@ -3,6 +3,7 @@ import {
   parseBody,
   getSupabaseAdmin,
   normalizeEmail,
+  getAuthUserByEmail,
   hashToken,
   nowIso,
   logEmailAttempt,
@@ -58,8 +59,8 @@ export const handler = async (event) => {
   let userId = tokenRow.user_id;
 
   if (!userId) {
-    const { data: userData } = await supabase.auth.admin.getUserByEmail(email);
-    userId = userData?.user?.id ?? null;
+    const user = await getAuthUserByEmail(supabase, email);
+    userId = user?.id ?? null;
   }
 
   if (!userId) {

@@ -2,7 +2,7 @@ import { Toaster } from "@/Components/ui/toaster";
 import { Toaster as Sonner } from "@/Components/ui/sonner";
 import { TooltipProvider } from "@/Components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import ScrollToTop from "@/Components/ScrollToTop";
 import { Header } from "@/Components/Header";
@@ -49,9 +49,6 @@ const queryClient = new QueryClient({
 });
 
 const AppRoutes = () => {
-  const location = useLocation();
-  const hideFooter = location.pathname === "/" || location.pathname === "/home";
-
   return (
     <>
       <Header />
@@ -88,7 +85,7 @@ const AppRoutes = () => {
         <Route path="/compare" element={<Compare />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-      {!hideFooter && <SiteFooter />}
+      <SiteFooter />
     </>
   );
 };
