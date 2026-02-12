@@ -2,6 +2,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Loader2, Link2, Bot } from 'lucide-react';
+import { extractMercadoLivreId } from '@/lib/validators';
 
 export default function ProductForm() {
   const [loading, setLoading] = useState(false);
@@ -11,6 +12,7 @@ export default function ProductForm() {
     price: 0,
     original_price: 0,
     affiliate_link: '',
+    source_url: '',
     image_url: '',
     external_id: '',
     marketplace: 'manual', // Valor padrão
@@ -20,13 +22,13 @@ export default function ProductForm() {
   // FUNÇÃO MÁGICA: Extrai ID e ativa o robô
   const handleLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const url = e.target.value;
-    const mlMatch = url.match(/MLB-?(\d+)/i);
+    const mlid = extractMercadoLivreId(url);
     
-    if (mlMatch) {
-      const mlid = `MLB${mlMatch[1]}`;
+    if (mlid) {
       setFormData(prev => ({
         ...prev,
         affiliate_link: url,
+        source_url: url,
         external_id: mlid,
         marketplace: 'mercadolivre'
       }));
@@ -34,7 +36,7 @@ export default function ProductForm() {
         icon: <Bot className="text-blue-500" />
       });
     } else {
-      setFormData(prev => ({ ...prev, affiliate_link: url }));
+      setFormData(prev => ({ ...prev, affiliate_link: url, source_url: url }));
     }
   };
 
@@ -43,9 +45,15 @@ export default function ProductForm() {
     setLoading(true);
 
     try {
+      const payload = {
+        ...formData,
+        source_url: formData.source_url || formData.affiliate_link || null,
+        affiliate_link: formData.affiliate_link || formData.source_url || null,
+        next_check_at: new Date().toISOString(),
+      };
       const { error } = await supabase
         .from('products')
-        .insert([formData]);
+        .insert([payload]);
 
       if (error) throw error;
       toast.success('Produto salvo e robô configurado!');

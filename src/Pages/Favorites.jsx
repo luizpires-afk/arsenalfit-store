@@ -40,8 +40,8 @@ export default function Favorites() {
     enabled: favorites.length > 0,
   });
 
-  const favoriteProducts = allProducts.filter(product => 
-    favorites.some(f => f.product_id === product.id)
+  const favoriteProducts = allProducts.filter(product =>
+    favorites.some(f => f.product_id === product.id) && !product.is_blocked
   );
 
   const isLoading = isCheckingAuth || favoritesLoading || productsLoading;

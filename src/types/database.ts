@@ -18,12 +18,16 @@ export interface Product {
   advantages: string[] | null;
 
   price: number;
+  pix_price?: number | null;
+  pix_price_source?: string | null;
+  pix_price_checked_at?: string | null;
   original_price: number | null;
   discount_percentage: number;
 
   is_featured: boolean;
   is_active: boolean;
   is_on_sale: boolean;
+  status?: string | null;
 
   image_url: string | null;
   images: string[] | null;
@@ -40,6 +44,7 @@ export interface Product {
   stock_quantity: number;
 
   category_id: string | null;
+  gender?: string | null;
 
   // No SQL está como TEXT DEFAULT 'manual'
   marketplace: "amazon" | "mercadolivre" | "manual" | string;
@@ -47,8 +52,17 @@ export interface Product {
   external_id: string | null;
   free_shipping: boolean;
 
+  previous_price?: number | null;
+  detected_price?: number | null;
+  detected_at?: string | null;
+  next_check_at?: string | null;
   last_sync: string | null;
+  last_price_source?: string | null;
+  last_price_verified_at?: string | null;
   clicks_count: number;
+  auto_disabled_reason?: string | null;
+  auto_disabled_at?: string | null;
+  is_blocked?: boolean | null;
 
   created_at: string | null;
   updated_at: string | null;
@@ -84,6 +98,21 @@ export interface UserRole {
   id: string;
   user_id: string;
   role: AppRole;
+}
+
+export interface MonitoredItem {
+  id: string;
+  user_id: string;
+  user_email?: string | null;
+  product_id: string;
+  product_title?: string | null;
+  image_url?: string | null;
+  baseline_price?: number | null;
+  last_notified_price?: number | null;
+  last_notified_at?: string | null;
+  is_enabled: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 

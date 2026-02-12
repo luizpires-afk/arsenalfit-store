@@ -23,7 +23,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    const adminEmails = ["luizfop.31@gmail.com"];
+    const parseEnvList = (value?: string) =>
+      (value ?? "")
+        .split(/[,;\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    const adminEmails = new Set(
+      ["luizfop.31@gmail.com", ...parseEnvList(import.meta.env.VITE_ADMIN_EMAILS)].map(
+        (email) => email.toLowerCase(),
+      ),
+    );
+
+    const adminUserIds = new Set([
+      "78c55456-cd4e-472f-bcdc-4ef5add49de6",
+      ...parseEnvList(import.meta.env.VITE_ADMIN_USER_IDS),
+    ]);
 
     const resolveRole = async (currentUser: User | null) => {
       if (!currentUser) {
@@ -44,32 +59,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        if (currentUser.email && adminEmails.includes(currentUser.email)) {
+        if (adminUserIds.has(currentUser.id)) {
           setRole("admin");
           return;
         }
 
-        setRole((currentUser.user_metadata as any)?.role ?? null);
+        if (currentUser.email && adminEmails.has(currentUser.email.toLowerCase())) {
+          setRole("admin");
+          return;
+        }
+
+        setRole(
+          (currentUser.app_metadata as any)?.role ??
+            (currentUser.user_metadata as any)?.role ??
+            null,
+        );
       } catch {
-        setRole((currentUser.user_metadata as any)?.role ?? null);
+        setRole(
+          (currentUser.app_metadata as any)?.role ??
+            (currentUser.user_metadata as any)?.role ??
+            null,
+        );
       }
     };
 
-    supabase.auth.getSession().then(({ data }) => {
+    const applySession = async (nextSession: Session | null) => {
       if (!mounted) return;
-      const s = data.session ?? null;
-      setSession(s);
-      setUser(s?.user ?? null);
-      resolveRole(s?.user ?? null);
-      setLoading(false);
+      setLoading(true);
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      await resolveRole(nextSession?.user ?? null);
+      if (mounted) setLoading(false);
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      applySession(data.session ?? null);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      if (!mounted) return;
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      resolveRole(newSession?.user ?? null);
-      setLoading(false);
+      applySession(newSession ?? null);
     });
 
     return () => {
@@ -81,7 +109,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = useMemo(() => role === "admin", [role]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    // Fast local sign-out to update UI immediately
+    setSession(null);
+    setUser(null);
+    setRole(null);
+    setLoading(false);
+
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Ignore local sign-out errors; we'll still attempt global sign-out.
+    }
+
+    // Best-effort global sign-out (do not block UI).
+    supabase.auth.signOut({ scope: "global" }).catch(() => {});
   };
 
   const value = useMemo(

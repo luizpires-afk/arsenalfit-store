@@ -1,31 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  CheckCircle2,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   Heart,
+  Lock,
   ShieldCheck,
   Star,
   Tag,
+  Truck,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Layout } from "@/Components/layout/Layout";
 import { Button } from "@/Components/ui/button";
 import { Skeleton } from "@/Components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/Components/ui/accordion";
+import { Dialog, DialogContent, DialogTrigger } from "@/Components/ui/dialog";
 import SEOHead from "@/Components/SEOHead";
-import { PriceTriggerCard } from "@/Components/product/PriceTriggerCard";
-import { TechSpecPanel } from "@/Components/product/TechSpecPanel";
-import { TechnicalRatingCard } from "@/Components/product/TechnicalRatingCard";
 import { StickyMobileCTA } from "@/Components/product/StickyMobileCTA";
 
 import { normalizeMarketplaceProduct } from "@/lib/productNormalizer";
 import { formatPrice } from "@/lib/validators";
+import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
 import { useProduct } from "@/hooks/useProducts";
 import { useCart } from "@/hooks/useCart";
+import { useSyncedHeight } from "@/hooks/useSyncedHeight";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ExtendedProduct {
@@ -34,6 +36,7 @@ interface ExtendedProduct {
   title?: string;
   slug?: string;
   price: number;
+  pix_price?: number | null;
   detected_price?: number | null;
   original_price?: number | null;
   discount_percentage?: number | null;
@@ -55,6 +58,9 @@ interface ExtendedProduct {
   is_featured?: boolean | null;
   is_active?: boolean | null;
   stock_quantity?: number | null;
+  last_sync?: string | null;
+  updated_at?: string | null;
+  ultima_verificacao?: string | null;
 }
 
 const buildJsonLd = (
@@ -103,10 +109,238 @@ const stripUndefined = (input: unknown): unknown => {
   return input === undefined ? undefined : input;
 };
 
+const ProductGallery = ({
+  title,
+  images,
+  activeIndex,
+  onSelect,
+  className,
+  isSticky,
+  mainImageRef,
+}: {
+  title: string;
+  images: string[];
+  activeIndex: number;
+  onSelect: (index: number) => void;
+  className?: string;
+  isSticky?: boolean;
+  mainImageRef?: RefObject<HTMLImageElement>;
+}) => (
+  <div className={`flex flex-col gap-4 ${className ?? ""}`}>
+    <div className="flex-1">
+      <Dialog>
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            className={`group relative h-full w-full overflow-hidden rounded-[28px] border border-zinc-200 bg-white p-4 sm:p-6 shadow-[0_16px_36px_rgba(15,23,42,0.08)] transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 motion-reduce:transition-none motion-reduce:transform-none ${
+              isSticky
+                ? "lg:scale-[0.985] lg:shadow-[0_18px_40px_rgba(0,0,0,0.08)] lg:filter lg:saturate-[1.02] lg:contrast-[1.02]"
+                : ""
+            }`}
+            aria-label="Ampliar imagem do produto"
+          >
+            <div className="flex h-full min-h-[260px] sm:min-h-[340px] lg:min-h-[440px] items-center justify-center">
+              <img
+                src={images[activeIndex]}
+                alt={title}
+                ref={mainImageRef}
+                className="block h-auto w-full max-w-[92%] max-h-[320px] sm:max-h-[360px] lg:max-h-[560px] object-contain object-center"
+                loading="lazy"
+              />
+            </div>
+            <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-600 shadow-sm opacity-70 transition-opacity duration-200 group-hover:opacity-100">
+              <ZoomIn size={12} /> Clique para ampliar
+            </span>
+          </button>
+        </DialogTrigger>
+        <DialogContent className="max-w-4xl w-[92vw] rounded-[24px] border border-zinc-200 bg-white p-6">
+          <div className="flex items-center justify-center max-h-[80vh]">
+            <img
+              src={images[activeIndex]}
+              alt={title}
+              className="max-h-[80vh] w-full object-contain"
+              loading="lazy"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+
+    {images.length > 1 && (
+      <div className="flex gap-3 overflow-x-auto pb-2 sm:grid sm:grid-cols-5 sm:overflow-visible">
+        {images.map((img, index) => (
+          <button
+            key={`${img}-${index}`}
+            onClick={() => onSelect(index)}
+            className={`min-w-[72px] rounded-2xl border p-2 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+              activeIndex === index ? "border-primary" : "border-zinc-200"
+            }`}
+            aria-label={`Selecionar imagem ${index + 1}`}
+            type="button"
+          >
+            <img src={img} alt="" className="h-16 w-full object-contain" loading="lazy" />
+          </button>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+const BuyBoxSticky = ({
+  price,
+  originalPrice,
+  pixPrice,
+  savings,
+  discountPercent,
+  isFeatured,
+  freeShipping,
+  installment,
+  lastUpdatedLabel,
+  onBuyNow,
+  onAddToCart,
+  isBuying,
+  isAdding,
+  containerRef,
+}: {
+  price: number;
+  originalPrice?: number | null;
+  pixPrice?: number | null;
+  savings?: number | null;
+  discountPercent?: number | null;
+  isFeatured?: boolean | null;
+  freeShipping?: boolean | null;
+  installment?: string;
+  lastUpdatedLabel?: string | null;
+  onBuyNow: () => void;
+  onAddToCart: () => void;
+  isBuying: boolean;
+  isAdding: boolean;
+  containerRef?: RefObject<HTMLDivElement>;
+}) => (
+  <div
+    ref={containerRef}
+    className="lg:sticky lg:top-[calc(var(--header-height,72px)+24px)]"
+  >
+    <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.08)] space-y-6">
+      {isFeatured && (
+        <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-zinc-400">
+          <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 font-semibold text-orange-700">
+            Destaque Arsenal
+          </span>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-400">
+          Preço ArsenalFit
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <span className="text-3xl sm:text-4xl font-black tracking-tight text-zinc-900">
+            {formatPrice(price)}
+          </span>
+          {originalPrice && originalPrice > price && (
+            <span className="text-sm text-zinc-400 line-through">
+              {formatPrice(originalPrice)}
+            </span>
+          )}
+        </div>
+        {pixPrice && pixPrice > 0 && (
+          <p className="text-sm font-semibold text-emerald-600">
+            no Pix: {formatPrice(pixPrice)}
+          </p>
+        )}
+        {savings && savings > 0 && discountPercent ? (
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            Economia de {formatPrice(savings)} ({discountPercent}%)
+          </span>
+        ) : null}
+        {installment && (
+          <p className="text-xs text-zinc-500">{installment}</p>
+        )}
+      </div>
+
+      <div className="grid gap-3">
+        <Button
+          onClick={onBuyNow}
+          className="h-14 rounded-2xl bg-[hsl(var(--accent-orange))] text-white font-semibold text-base transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:bg-[hsl(var(--accent-orange))]/90 focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/40"
+          disabled={isBuying}
+        >
+          {isBuying ? "Redirecionando..." : "Comprar agora"}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onAddToCart}
+          className="h-12 rounded-2xl border-zinc-200 text-zinc-900 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm hover:border-[hsl(var(--accent-orange))]/40 hover:text-[hsl(var(--accent-orange))]"
+          disabled={isAdding}
+        >
+          {isAdding ? "Adicionando..." : "Adicionar ao carrinho"}
+        </Button>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {freeShipping && (
+          <span className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-600">
+            <Truck size={14} className="text-[hsl(var(--accent-orange))]" />
+            Frete grátis
+          </span>
+        )}
+        <span className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-600">
+          <ShieldCheck size={14} className="text-[hsl(var(--accent-orange))]" />
+          Compra segura
+        </span>
+        <span className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-600">
+          <Lock size={14} className="text-[hsl(var(--accent-orange))]" />
+          Checkout protegido
+        </span>
+      </div>
+
+      {lastUpdatedLabel && (
+        <p className="text-[11px] text-zinc-400">{lastUpdatedLabel}</p>
+      )}
+    </div>
+  </div>
+);
+
+const CollapsibleDescription = ({ text }: { text: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  const canCollapse = text.length > 240;
+  const previewLength = Math.max(240, Math.floor(text.length * 0.38));
+  const previewText =
+    text.length > previewLength
+      ? text.slice(0, previewLength).replace(/\s+\S*$/, "")
+      : text;
+  const displayText = expanded ? text : previewText;
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <p className="text-sm leading-relaxed text-zinc-700 whitespace-pre-line">
+          {displayText}
+          {!expanded && displayText !== text ? "…" : null}
+        </p>
+        {!expanded && displayText !== text && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-white via-white/80 to-transparent" />
+        )}
+      </div>
+      {canCollapse && (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-[hsl(var(--accent-orange))] transition-colors hover:text-[hsl(var(--accent-orange))]/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/30"
+          aria-expanded={expanded}
+        >
+          {expanded ? "Ver menos" : "Ver mais"}
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      )}
+    </div>
+  );
+};
+
 export default function ProductDetails() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
-  const { addToCart } = useCart();
+  const { addToCart, isLoggedIn } = useCart();
 
   const { product, loading, error } = useProduct(slug);
   const p = product as ExtendedProduct | null;
@@ -115,6 +349,102 @@ export default function ProductDetails() {
   const [isFavorited, setIsFavorited] = useState(false);
   const [related, setRelated] = useState<ExtendedProduct[]>([]);
   const [activeImage, setActiveImage] = useState(0);
+  const [isAdding, setIsAdding] = useState(false);
+  const [isBuying, setIsBuying] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(false);
+  const [isSticky, setIsSticky] = useState(false);
+  const imageCardRef = useRef<HTMLDivElement | null>(null);
+  const buyBoxRef = useRef<HTMLDivElement | null>(null);
+  const stickySentinelRef = useRef<HTMLDivElement | null>(null);
+  const mainImageRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setSyncEnabled(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useSyncedHeight(buyBoxRef, imageCardRef, syncEnabled);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    let observer: IntersectionObserver | null = null;
+    let resizeTimeout: number | null = null;
+
+    const readHeaderOffset = () => {
+      const rootStyles = getComputedStyle(document.documentElement);
+      const raw = rootStyles.getPropertyValue("--header-height").trim();
+      const parsed = Number.parseFloat(raw);
+      const headerHeight = Number.isFinite(parsed) ? parsed : 72;
+      return headerHeight + 24;
+    };
+
+    const setupObserver = () => {
+      if (!stickySentinelRef.current) return;
+      if (observer) observer.disconnect();
+      const offset = readHeaderOffset();
+      observer = new IntersectionObserver(
+        ([entry]) => setIsSticky(!entry.isIntersecting),
+        {
+          root: null,
+          threshold: 0,
+          rootMargin: `-${offset}px 0px 0px 0px`,
+        }
+      );
+      observer.observe(stickySentinelRef.current);
+    };
+
+    const handleMediaChange = () => {
+      if (media.matches) {
+        setupObserver();
+      } else {
+        if (observer) observer.disconnect();
+        setIsSticky(false);
+      }
+    };
+
+    const handleResize = () => {
+      if (!media.matches) return;
+      if (resizeTimeout) window.clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(setupObserver, 100);
+    };
+
+    handleMediaChange();
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+
+    if (media.addEventListener) {
+      media.addEventListener("change", handleMediaChange);
+    } else {
+      media.addListener(handleMediaChange);
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+      if (resizeTimeout) window.clearTimeout(resizeTimeout);
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+      if (media.addEventListener) {
+        media.removeEventListener("change", handleMediaChange);
+      } else {
+        media.removeListener(handleMediaChange);
+      }
+      setIsSticky(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [slug]);
 
   const title = p?.name || p?.title || "Produto";
 
@@ -129,6 +459,8 @@ export default function ProductDetails() {
 
   const normalized = useMemo(() => (p ? normalizeMarketplaceProduct(p) : null), [p]);
   const shortDescription = normalized?.headline || "";
+  const tagline = shortDescription;
+  const originLine = normalized?.subheadline || null;
   const longDescription = useMemo(() => {
     if (!p?.description) return "";
     const trimmed = p.description.trim();
@@ -137,13 +469,49 @@ export default function ProductDetails() {
     return trimmed;
   }, [p?.description, shortDescription]);
 
-  const competitorPrice = p?.detected_price ?? null;
+  const pixPriceCandidate = p?.pix_price ?? normalized?.pixPrice ?? null;
+  const pixPrice =
+    pixPriceCandidate && p && pixPriceCandidate > 0 && pixPriceCandidate < p.price
+      ? pixPriceCandidate
+      : undefined;
+  const lastUpdated = p?.updated_at
+    ? new Date(p.updated_at)
+    : p?.last_sync
+      ? new Date(p.last_sync)
+      : p?.ultima_verificacao
+        ? new Date(p.ultima_verificacao)
+        : null;
   const availability =
     p?.is_active === false || p?.stock_quantity === 0
       ? "https://schema.org/OutOfStock"
       : p
         ? "https://schema.org/InStock"
         : undefined;
+
+  const discountPercent =
+    typeof p?.discount_percentage === "number" && p.discount_percentage > 0
+      ? Math.round(p.discount_percentage)
+      : p?.original_price && p.original_price > p.price
+        ? Math.round(((p.original_price - p.price) / p.original_price) * 100)
+        : null;
+  const pixDiscountPercent =
+    pixPrice && p?.price && pixPrice < p.price
+      ? Math.round(((p.price - pixPrice) / p.price) * 100)
+      : null;
+  const effectiveDiscountPercent = discountPercent ?? pixDiscountPercent;
+  const savings =
+    p?.original_price && p.original_price > p.price
+      ? p.original_price - p.price
+      : pixPrice && pixPrice < p.price
+        ? p.price - pixPrice
+        : null;
+
+  const lastUpdatedLabel = lastUpdated
+    ? `Última atualização em ${lastUpdated.toLocaleDateString("pt-BR")} às ${lastUpdated.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`
+    : null;
 
   useEffect(() => {
     const onScroll = () => {
@@ -191,12 +559,38 @@ export default function ProductDetails() {
   };
 
   const handleBuyNow = () => {
-    const link = p?.affiliate_link || p?.source_url;
+    const link = p?.affiliate_link;
     if (!link) {
-      toast.error("Link de compra indisponível.");
+      toast.error("Link de afiliado indisponível.");
       return;
     }
+    setIsBuying(true);
     window.open(link, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => setIsBuying(false), 800);
+  };
+
+  const handleAddToCart = async () => {
+    if (!p) return;
+    if (!isLoggedIn) {
+      await addToCart(p.id, 1);
+      return;
+    }
+    setIsAdding(true);
+    const targetEl = document.querySelector("[data-cart-icon]") as HTMLElement | null;
+    Promise.resolve(
+      flyToCartAnimation({
+        sourceEl: mainImageRef.current,
+        targetEl,
+        imageSrc: galleryImages?.[activeImage],
+      })
+    ).then(() => bounceCartIcon(targetEl));
+    const added = await addToCart(p.id, 1, { silent: true });
+    if (added) {
+      showAddToCartToast({
+        onGoToCart: () => navigate("/carrinho"),
+      });
+    }
+    setIsAdding(false);
   };
 
   if (loading)
@@ -241,212 +635,114 @@ export default function ProductDetails() {
     .filter(Boolean)
     .join(" ");
 
+  const descriptionText =
+    longDescription || shortDescription || "Descrição completa não informada.";
+
   return (
     <Layout>
-      <SEOHead title={seoTitle} description={seoDescription} />
+      <SEOHead
+        title={seoTitle}
+        description={seoDescription}
+        ogType="product"
+        ogImage={galleryImages?.[0]}
+      />
 
       <div className="container-fit py-8 md:py-12 pb-24 md:pb-12">
         <button
           onClick={() => navigate(-1)}
-          className="group flex items-center gap-2 text-zinc-500 hover:text-primary mb-8 transition-all text-xs font-semibold uppercase tracking-[0.3em]"
+          className="group inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-[hsl(var(--accent-orange))]/40 hover:text-zinc-900 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/40 mb-8"
+          aria-label="Voltar"
+          type="button"
         >
-          <div className="p-2 rounded-full bg-black/5 group-hover:bg-primary/20 transition-colors">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 transition-colors group-hover:bg-[hsl(var(--accent-orange))]/10 group-hover:text-[hsl(var(--accent-orange))]">
             <ChevronLeft size={14} />
-          </div>
-          Voltar ao Arsenal
+          </span>
+          Voltar
         </button>
 
-        <div className="grid gap-10 lg:grid-cols-[3fr_2fr] items-start">
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
-            <div className="rounded-[32px] border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="aspect-square w-full flex items-center justify-center">
-                <img
-                  src={galleryImages[activeImage]}
-                  alt={title}
-                  className="h-full w-full object-contain"
-                  loading="lazy"
-                />
-              </div>
+        <div ref={stickySentinelRef} className="hidden lg:block h-px w-full" aria-hidden="true" />
+
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
+          <motion.div initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}>
+            <div
+              ref={imageCardRef}
+              className="flex flex-col lg:sticky lg:top-[calc(var(--header-height,72px)+24px)]"
+            >
+              <ProductGallery
+                title={title}
+                images={galleryImages}
+                activeIndex={activeImage}
+                onSelect={setActiveImage}
+                className="flex-1"
+                isSticky={isSticky}
+                mainImageRef={mainImageRef}
+              />
             </div>
-            {galleryImages.length > 1 && (
-              <div className="grid grid-cols-5 gap-3">
-                {galleryImages.map((img, index) => (
-                  <button
-                    key={`${img}-${index}`}
-                    onClick={() => setActiveImage(index)}
-                    className={`rounded-2xl border p-2 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
-                      activeImage === index ? "border-primary" : "border-zinc-200"
-                    }`}
-                    aria-label={`Selecionar imagem ${index + 1}`}
-                    type="button"
-                  >
-                    <img src={img} alt="" className="h-12 w-full object-contain" loading="lazy" />
-                  </button>
-                ))}
-              </div>
-            )}
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col space-y-6">
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="space-y-3">
-              <div className="flex items-center gap-3 flex-wrap text-xs uppercase tracking-[0.3em] text-zinc-500 font-semibold">
+              <h1 className="text-2xl md:text-3xl font-semibold leading-snug tracking-tight text-zinc-900">
+                {title}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-semibold">
                 {p.brand && (
-                  <span className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-semibold tracking-[0.3em]">
+                  <span className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary">
                     <Tag size={12} /> {p.brand}
                   </span>
                 )}
                 {p.subcategory && <span>{p.subcategory}</span>}
                 <span className="text-zinc-400">REF: {p.id?.slice(0, 8)}</span>
               </div>
-
-              <h1 className="text-2xl md:text-3xl font-semibold leading-snug tracking-tight text-zinc-900 max-w-2xl">
-                {title}
-              </h1>
-              <p className="text-sm text-zinc-600">{normalized.subheadline}</p>
+              {originLine && <p className="text-xs text-zinc-500">{originLine}</p>}
             </div>
 
-            <PriceTriggerCard
+            <BuyBoxSticky
               price={p.price}
               originalPrice={p.original_price}
-              pixPrice={normalized.pixPrice || undefined}
-              competitorPrice={competitorPrice || undefined}
-              installmentText={normalized.installment || undefined}
+              pixPrice={pixPrice}
+              savings={savings}
+              discountPercent={effectiveDiscountPercent}
+              isFeatured={p.is_featured}
+              freeShipping={p.free_shipping}
+              installment={normalized.installment}
+              lastUpdatedLabel={lastUpdatedLabel}
               onBuyNow={handleBuyNow}
-              onAddToCart={() => addToCart(p.id, 1)}
-              isBestSeller={Boolean(p.is_featured)}
-              isFastShipping={Boolean(p.free_shipping)}
+              onAddToCart={handleAddToCart}
+              isBuying={isBuying}
+              isAdding={isAdding}
+              containerRef={buyBoxRef}
             />
 
-            <div className="space-y-4">
-              <p className="text-base text-zinc-700 leading-relaxed">
-                {shortDescription || "Descrição curta não informada."}
-              </p>
-
-              <ul className="grid gap-2">
-                {normalized.benefits.map((benefit, index) => (
-                  <li key={`${benefit}-${index}`} className="flex items-start gap-2 text-sm text-zinc-700">
-                    <CheckCircle2 size={16} className="text-primary mt-0.5" />
-                    <span>{benefit}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
-                <button
-                  type="button"
-                  onClick={handleFavorite}
-                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
-                    isFavorited
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-zinc-200 text-zinc-500 hover:border-primary"
-                  }`}
-                >
-                  <Heart className={isFavorited ? "fill-current" : ""} size={14} />
-                  {isFavorited ? "Monitorando preço" : "Monitorar preço"}
-                </button>
-                <div className="inline-flex items-center gap-2 text-zinc-500">
-                  <ShieldCheck size={14} className="text-primary" /> Checkout seguro
-                </div>
+            {tagline && (
+              <div className="rounded-[20px] border border-zinc-200 bg-white p-4 shadow-[0_12px_24px_rgba(15,23,42,0.06)]">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-zinc-500">Resumo</p>
+                <p className="text-sm text-zinc-600 mt-2">{tagline}</p>
               </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+              <button
+                type="button"
+                onClick={handleFavorite}
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                  isFavorited
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-zinc-200 text-zinc-500 hover:border-primary"
+                }`}
+              >
+                <Heart className={isFavorited ? "fill-current" : ""} size={14} />
+                {isFavorited ? "Monitorando preço" : "Monitorar preço"}
+              </button>
             </div>
           </motion.div>
         </div>
 
-        <div className="mt-12 rounded-3xl border border-black/10 overflow-hidden">
-          <div className="bg-black text-white px-6 py-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-white/70">Detalhes do produto</p>
-            <h2 className="text-lg font-semibold">Informações completas</h2>
-          </div>
-          <div className="bg-white p-6">
-            <Tabs defaultValue="descricao" className="w-full">
-              <TabsList className="flex flex-wrap gap-2 bg-zinc-50 border border-zinc-200 rounded-2xl p-1">
-                <TabsTrigger
-                  value="descricao"
-                  className="rounded-full px-4 py-2 text-sm font-semibold data-[state=active]:bg-black data-[state=active]:text-white"
-                >
-                  Descrição
-                </TabsTrigger>
-                <TabsTrigger
-                  value="ficha"
-                  className="rounded-full px-4 py-2 text-sm font-semibold data-[state=active]:bg-black data-[state=active]:text-white"
-                >
-                  Ficha técnica
-                </TabsTrigger>
-                <TabsTrigger
-                  value="como-usar"
-                  className="rounded-full px-4 py-2 text-sm font-semibold data-[state=active]:bg-black data-[state=active]:text-white"
-                >
-                  Como usar
-                </TabsTrigger>
-                <TabsTrigger
-                  value="faq"
-                  className="rounded-full px-4 py-2 text-sm font-semibold data-[state=active]:bg-black data-[state=active]:text-white"
-                >
-                  FAQ
-                </TabsTrigger>
-                <TabsTrigger
-                  value="avaliacoes"
-                  className="rounded-full px-4 py-2 text-sm font-semibold data-[state=active]:bg-black data-[state=active]:text-white"
-                >
-                  Avaliações
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="descricao" className="mt-6 space-y-4 text-zinc-700">
-                {longDescription ? (
-                  <p className="whitespace-pre-line leading-relaxed">{longDescription}</p>
-                ) : (
-                  <p className="text-sm text-zinc-500">Descrição completa não informada.</p>
-                )}
-              </TabsContent>
-
-              <TabsContent value="ficha" className="mt-6 space-y-8">
-                <TechSpecPanel specs={normalized.specs} />
-                <TechnicalRatingCard rating={normalized.technicalRating} />
-              </TabsContent>
-
-              <TabsContent value="como-usar" className="mt-6 space-y-4">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-zinc-900">Como usar</h3>
-                  <ol className="list-decimal list-inside space-y-2 text-sm text-zinc-700">
-                    {normalized.howToUse.map((step, index) => (
-                      <li key={`${step}-${index}`}>{step}</li>
-                    ))}
-                  </ol>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <p className="font-semibold text-zinc-900 mb-2">Avisos</p>
-                  <ul className="list-disc list-inside space-y-1">
-                    {normalized.warnings.map((warning, index) => (
-                      <li key={`${warning}-${index}`}>{warning}</li>
-                    ))}
-                  </ul>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="faq" className="mt-6">
-                <Accordion type="single" collapsible className="w-full">
-                  {normalized.faq.map((item, index) => (
-                    <AccordionItem key={`${item.question}-${index}`} value={`faq-${index}`}>
-                      <AccordionTrigger className="text-sm font-semibold text-zinc-800">
-                        {item.question}
-                      </AccordionTrigger>
-                      <AccordionContent className="text-sm text-zinc-600">
-                        {item.answer}
-                      </AccordionContent>
-                    </AccordionItem>
-                  ))}
-                </Accordion>
-              </TabsContent>
-
-              <TabsContent value="avaliacoes" className="mt-6">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6 text-center">
-                  <p className="text-sm text-zinc-600">
-                    Nenhuma avaliação disponível no momento. Em breve você verá experiências reais aqui.
-                  </p>
-                </div>
-              </TabsContent>
-            </Tabs>
+        <div className="mt-10 rounded-[24px] border border-zinc-200 bg-white p-6 shadow-[0_16px_32px_rgba(15,23,42,0.06)]">
+          <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">Descrição</p>
+          <h2 className="text-lg font-semibold text-zinc-900 mt-2">Detalhes do produto</h2>
+          <div className="mt-4">
+            <CollapsibleDescription text={descriptionText} />
           </div>
         </div>
 
@@ -460,14 +756,16 @@ export default function ProductDetails() {
                 <a
                   key={item.id}
                   href={`/produto/${item.slug || item.id}`}
-                  className="min-w-[220px] bg-white border border-zinc-200 rounded-2xl p-4 hover:border-primary transition-colors"
+                  className="min-w-[220px] bg-white border border-zinc-200 rounded-2xl p-4 hover:border-primary transition-colors shadow-[0_12px_24px_rgba(15,23,42,0.08)]"
                 >
                   <img
                     src={item.image_url || "/placeholder.svg"}
                     alt={item.name || item.title || "Produto"}
                     className="h-32 w-full object-contain mb-3"
                   />
-                  <p className="text-zinc-900 font-semibold line-clamp-2">{item.name || item.title}</p>
+                  <p className="text-zinc-900 font-semibold line-clamp-2">
+                    {item.name || item.title}
+                  </p>
                   <p className="text-primary font-bold text-lg">{formatPrice(Number(item.price))}</p>
                 </a>
               ))}

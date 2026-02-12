@@ -18,7 +18,7 @@ export default function AuthConfirmed() {
           <Link to="/login">
             <Button className="w-full h-12 rounded-2xl font-black uppercase italic">Fazer Login</Button>
           </Link>
-          <Link to="/ofertas">
+          <Link to="/melhores-ofertas">
             <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase italic">
               Ir para Ofertas <ArrowRight className="ml-2 h-4 w-4" />
             </Button>

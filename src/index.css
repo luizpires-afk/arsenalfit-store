@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 
 @layer base {
   :root {
@@ -18,6 +28,34 @@
     /* Primary - Vibrant Orange */
     --primary: 24 95% 53%;
     --primary-foreground: 0 0% 100%;
+
+    /* Brand Tokens (Header + UI Consistency) */
+    --brand-orange: 24 95% 53%;
+    --accent-orange: 24 95% 53%;
+    --accent-green: 142 70% 45%;
+    --accent-success: 142 70% 45%;
+    --success: 142 70% 45%;
+    --badge-red: 0 84% 60%;
+    --text: 220 15% 15%;
+    --muted: 220 10% 45%;
+    --bg: 0 0% 98%;
+    --bg-dark: 220 20% 8%;
+    --panel: 0 0% 100%;
+    --panel-muted: 220 14% 96%;
+    --panel-2: 220 14% 96%;
+    --border-subtle: 220 13% 90%;
+    --radius-lg: 28px;
+    --shadow-soft: 0 18px 50px -40px rgb(15 23 42 / 0.45);
+    --blur-glass: 12px;
+    --glass-bg: 0 0% 100% / 0.75;
+    --glass-border: 220 13% 90% / 0.6;
+    --chip-bg: 20 20 20 / 0.55;
+    --chip-border: 255 255 255 / 0.1;
+    --chip-radius: 999px;
+    --header-height: 80px;
+    --header-height-scrolled: 64px;
+    --header-radius: 18px;
+    --header-shadow: 0 10px 30px -20px rgb(15 23 42 / 0.35);
 
     /* Secondary - Deep Gray */
     --secondary: 220 14% 96%;
@@ -86,6 +124,30 @@
     --primary: 24 95% 55%;
     --primary-foreground: 0 0% 100%;
 
+    --brand-orange: 24 95% 55%;
+    --accent-orange: 24 95% 55%;
+    --accent-green: 142 70% 50%;
+    --accent-success: 142 70% 50%;
+    --success: 142 70% 50%;
+    --badge-red: 0 70% 50%;
+    --text: 0 0% 95%;
+    --muted: 220 10% 60%;
+    --bg: 220 20% 8%;
+    --bg-dark: 220 20% 8%;
+    --panel: 220 20% 12%;
+    --panel-muted: 220 15% 15%;
+    --panel-2: 220 18% 12%;
+    --border-subtle: 220 15% 22%;
+    --radius-lg: 28px;
+    --shadow-soft: 0 18px 50px -40px rgb(0 0 0 / 0.65);
+    --blur-glass: 12px;
+    --glass-bg: 220 20% 12% / 0.65;
+    --glass-border: 0 0% 100% / 0.08;
+    --chip-bg: 20 20 20 / 0.55;
+    --chip-border: 255 255 255 / 0.1;
+    --chip-radius: 999px;
+    --header-shadow: 0 10px 30px -20px rgb(0 0 0 / 0.6);
+
     --secondary: 220 15% 18%;
     --secondary-foreground: 0 0% 90%;
 
@@ -110,6 +172,31 @@
     --sidebar-accent-foreground: 0 0% 90%;
     --sidebar-border: 220 15% 18%;
     --sidebar-ring: 24 95% 55%;
+  }
+
+  .account-theme {
+    --bg: 220 20% 8%;
+    --bg-dark: 220 20% 8%;
+    --panel: 220 20% 12%;
+    --panel-muted: 220 18% 14%;
+    --panel-2: 220 18% 12%;
+    --border: 220 15% 22%;
+    --border-subtle: 220 15% 22%;
+    --text: 0 0% 95%;
+    --muted: 220 10% 60%;
+    --brand-orange: 24 95% 55%;
+    --accent-orange: 24 95% 55%;
+    --accent-green: 142 70% 50%;
+    --accent-success: 142 70% 50%;
+    --success: 142 70% 50%;
+    --radius-lg: 24px;
+    --shadow-soft: 0 18px 50px -40px rgb(0 0 0 / 0.6);
+    --blur-glass: 16px;
+    --glass-bg: 0 0% 7% / 0.7;
+    --glass-border: 0 0% 100% / 0.1;
+    --chip-bg: 20 20 20 / 0.55;
+    --chip-border: 255 255 255 / 0.1;
+    --chip-radius: 999px;
   }
 }
 
@@ -146,9 +233,76 @@
     background: var(--gradient-success);
   }
 
-  .gradient-hero {
-    background: var(--gradient-hero);
+.gradient-hero {
+  background: var(--gradient-hero);
+}
+
+.hero-marquee-mask {
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+.hero-marquee-track {
+  display: flex;
+  gap: 20px;
+  width: max-content;
+  animation: hero-marquee 18s linear infinite;
+  will-change: transform;
+}
+
+.hero-marquee-track.reverse {
+  animation: hero-marquee-reverse 22s linear infinite;
+  will-change: transform;
+}
+
+.hero-marquee-item {
+  width: 160px;
+  height: 100px;
+  border-radius: 18px;
+  background-size: cover;
+  background-position: center;
+  filter: grayscale(100%) brightness(1.15) contrast(1.05);
+  opacity: 0.78;
+}
+
+@media (min-width: 640px) {
+  .hero-marquee-item {
+    width: 190px;
+    height: 118px;
   }
+}
+
+@media (min-width: 1024px) {
+  .hero-marquee-item {
+    width: 220px;
+    height: 132px;
+  }
+}
+
+@keyframes hero-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes hero-marquee-reverse {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-marquee-track,
+  .hero-marquee-track.reverse {
+    animation-duration: 120s;
+  }
+}
 
   .shadow-energy {
     box-shadow: var(--shadow-energy);
@@ -240,12 +394,27 @@
     animation: float 3s ease-in-out infinite;
   }
 
+  .animate-cart-pulse {
+    animation: cartPulse 1.4s ease-in-out infinite;
+  }
+
   @keyframes float {
     0%, 100% {
       transform: translateY(0);
     }
     50% {
       transform: translateY(-10px);
+    }
+  }
+
+  @keyframes cartPulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.35);
+      opacity: 0.6;
     }
   }
 

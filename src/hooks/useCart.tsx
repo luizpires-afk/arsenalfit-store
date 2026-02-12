@@ -8,8 +8,16 @@ export interface Product {
   title?: string;
   name?: string;
   price: number;
+  original_price?: number | null;
+  previous_price?: number | null;
+  discount_percentage?: number | null;
+  affiliate_link?: string | null;
+  source_url?: string | null;
   image_url: string;
   slug: string;
+  is_active?: boolean | null;
+  is_blocked?: boolean | null;
+  auto_disabled_reason?: string | null;
 }
 
 export interface CartItem {
@@ -26,16 +34,19 @@ export const useCart = () => {
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserId(session?.user?.id ?? null);
       setUser(session?.user ? { id: session.user.id, email: session.user.email } : null);
+      setAuthReady(true);
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUserId(session?.user?.id ?? null);
       setUser(session?.user ? { id: session.user.id, email: session.user.email } : null);
+      setAuthReady(true);
     });
 
     return () => subscription.unsubscribe();
@@ -55,8 +66,48 @@ export const useCart = () => {
         .eq('user_id', userId);
 
       if (error) throw error;
-      // Forçamos o tipo para CartItem[]
-      setCartItems((data as any) || []);
+      const rawItems = (data as any) || [];
+      const invalidItems = rawItems.filter((item: CartItem) => {
+        const product = item?.products as Product | null;
+        if (!product) return true;
+        if (product.is_active === false) return true;
+        if (product.is_blocked === true) return true;
+        if (product.auto_disabled_reason === 'blocked') return true;
+        const price = Number(product.price);
+        if (!Number.isFinite(price) || price <= 0) return true;
+        return false;
+      });
+
+      if (invalidItems.length) {
+        const invalidIds = invalidItems.map((item: CartItem) => item.id);
+        const { error: cleanupError } = await supabase
+          .from('cart_items')
+          .delete()
+          .in('id', invalidIds);
+
+        if (cleanupError) {
+          console.error('Erro ao remover itens indisponíveis:', cleanupError);
+        } else {
+          toast.info(
+            invalidItems.length === 1
+              ? '1 item foi removido por indisponibilidade.'
+              : `${invalidItems.length} itens foram removidos por indisponibilidade.`
+          );
+        }
+      }
+
+      const validItems = rawItems.filter((item: CartItem) => {
+        const product = item?.products as Product | null;
+        if (!product) return false;
+        if (product.is_active === false) return false;
+        if (product.is_blocked === true) return false;
+        if (product.auto_disabled_reason === 'blocked') return false;
+        const price = Number(product.price);
+        if (!Number.isFinite(price) || price <= 0) return false;
+        return true;
+      });
+
+      setCartItems(validItems as CartItem[]);
     } catch (error) {
       console.error('Erro ao carregar carrinho:', error);
     } finally {
@@ -68,9 +119,15 @@ export const useCart = () => {
     fetchCart();
   }, [fetchCart]);
 
-  const addToCart = async (productId: string, quantity: number = 1) => {
+  const addToCart = async (
+    productId: string,
+    quantity: number = 1,
+    options?: { silent?: boolean }
+  ) => {
     if (!userId) {
-      toast.error('Você precisa estar logado para adicionar ao carrinho!');
+      if (!options?.silent) {
+        toast.error('Você precisa estar logado para adicionar ao carrinho!');
+      }
       return false;
     }
 
@@ -89,12 +146,16 @@ export const useCart = () => {
 
       if (error) throw error;
       
-      toast.success('Produto adicionado ao carrinho!');
+      if (!options?.silent) {
+        toast.success('Produto adicionado ao carrinho!');
+      }
       await fetchCart();
       return true;
     } catch (error) {
       console.error('Erro ao adicionar ao carrinho:', error);
-      toast.error('Erro ao adicionar produto.');
+      if (!options?.silent) {
+        toast.error('Erro ao adicionar produto.');
+      }
       return false;
     }
   };
@@ -148,7 +209,7 @@ export const useCart = () => {
   };
 
   const cartTotal = cartItems.reduce((total, item) => {
-    const price = item.products?.price || 0;
+    const price = Number(item.products?.price) || 0;
     return total + price * item.quantity;
   }, 0);
 
@@ -166,6 +227,7 @@ export const useCart = () => {
     cartCount,
     isLoggedIn: !!userId,
     user,
+    authReady,
   };
 };
 

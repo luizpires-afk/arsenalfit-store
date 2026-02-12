@@ -1,7 +1,5 @@
 ﻿import { ReactNode } from "react";
 import { Instagram } from "lucide-react";
-// CORREÇÃO: Importando o Header corretamente
-import { Header } from "@/Components/layout/Header"; 
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,9 +8,6 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   return (
     <div className="flex min-h-screen flex-col bg-background font-sans antialiased">
-      {/* Header Fixo no Topo */}
-      <Header />
-
       {/* Conteúdo Principal (Expandível) */}
       <main className="flex-1">
         {children}

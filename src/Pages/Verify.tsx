@@ -1,0 +1,178 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/Components/ui/button";
+import { Input } from "@/Components/ui/input";
+import { toast } from "sonner";
+import { CheckCircle2, AlertTriangle, Mail } from "lucide-react";
+import logoImage from "../assets/arsenalfit-logo.png";
+
+type Status = "loading" | "error" | "success";
+
+const Verify = () => {
+  const [status, setStatus] = useState<Status>("loading");
+  const [message, setMessage] = useState("Validando seu link...");
+  const [email, setEmail] = useState("");
+  const [resending, setResending] = useState(false);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const token = searchParams.get("token") || "";
+  const type = searchParams.get("type") || "signup";
+
+  useEffect(() => {
+    document.title = "Verificar conta - ArsenalFit";
+
+    let mounted = true;
+
+    const consumeToken = async () => {
+      if (!token || type !== "signup") {
+        setStatus("error");
+        setMessage("Link invalido ou expirado.");
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/auth/consume-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, type: "signup" }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "token_invalid");
+        }
+
+        const otp = payload?.otp;
+        const otpType = payload?.otpType || "magiclink";
+        const userEmail = payload?.email || "";
+        if (mounted) setEmail(userEmail);
+
+        const { error } = await supabase.auth.verifyOtp({
+          email: userEmail,
+          token: otp,
+          type: otpType,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (mounted) {
+          setStatus("success");
+          setMessage("Conta confirmada! Redirecionando...");
+        }
+        toast.success("Conta confirmada. Bem-vindo!");
+        setTimeout(() => navigate("/"), 800);
+      } catch {
+        if (!mounted) return;
+        setStatus("error");
+        setMessage("Link invalido ou expirado.");
+      }
+    };
+
+    consumeToken();
+    return () => {
+      mounted = false;
+    };
+  }, [token, type, navigate]);
+
+  const handleResend = async () => {
+    if (!email) {
+      toast.error("Digite um e-mail valido.");
+      return;
+    }
+    setResending(true);
+    try {
+      const response = await fetch("/api/auth/send-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.message || "Erro ao reenviar.");
+      }
+      toast.success("Se existir conta, enviamos um novo e-mail.");
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao reenviar.");
+    } finally {
+      setResending(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 overflow-hidden relative">
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
+      <div className="w-full max-w-md z-10">
+        <div className="flex flex-col items-center text-center mb-8 pt-6">
+          <div className="flex justify-center -mb-5">
+            <img
+              src={logoImage}
+              alt="ArsenalFit"
+              className="h-24 w-24 sm:h-28 sm:w-28 md:h-32 md:w-32 object-contain drop-shadow-lg"
+            />
+          </div>
+          <h1 className="text-5xl md:text-6xl font-black uppercase italic tracking-tighter text-zinc-900 dark:text-white mt-0 leading-none">
+            ARSENAL<span className="text-primary">FIT</span>
+          </h1>
+          <p className="text-muted-foreground font-bold uppercase text-[11px] sm:text-[13px] tracking-[0.12em] mt-1.5 px-4">
+            Confirme sua conta para continuar.
+          </p>
+        </div>
+
+        <div className="bg-card border-2 border-border/50 rounded-[36px] p-8 shadow-2xl text-center">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
+            {status === "success" ? (
+              <CheckCircle2 className="h-8 w-8 text-primary" />
+            ) : status === "error" ? (
+              <AlertTriangle className="h-8 w-8 text-orange-500" />
+            ) : (
+              <Mail className="h-8 w-8 text-primary" />
+            )}
+          </div>
+          <h2 className="text-2xl font-black uppercase italic text-foreground">
+            {status === "success"
+              ? "Conta confirmada"
+              : status === "error"
+                ? "Link invalido"
+                : "Confirmando sua conta"}
+          </h2>
+          <p className="text-muted-foreground text-sm mt-3">{message}</p>
+
+          {status === "error" && (
+            <div className="mt-6 space-y-3">
+              <Input
+                type="email"
+                placeholder="Digite seu e-mail"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 border-none text-black dark:text-white placeholder:text-zinc-500 focus-visible:ring-2 ring-primary shadow-inner"
+              />
+              <Button
+                type="button"
+                onClick={handleResend}
+                disabled={resending}
+                className="w-full h-12 rounded-2xl font-black uppercase italic"
+              >
+                {resending ? "Enviando..." : "Reenviar verificacao"}
+              </Button>
+            </div>
+          )}
+
+          <div className="mt-8 flex flex-col gap-3">
+            <Link to="/login">
+              <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase italic">
+                Ir para Login
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Verify;

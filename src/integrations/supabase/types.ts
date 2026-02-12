@@ -92,6 +92,7 @@ export type Database = {
           discount_percentage: number | null
           external_id: string | null
           free_shipping: boolean | null
+          gender: string | null
           id: string
           image_url: string | null
           images: string[] | null
@@ -100,10 +101,13 @@ export type Database = {
           is_active: boolean | null
           is_featured: boolean | null
           is_on_sale: boolean | null
+          last_price_source: string | null
+          last_price_verified_at: string | null
           last_sync: string | null
           marketplace: string | null
           name: string
           original_price: number | null
+          pix_price: number | null
           price: number
           short_description: string | null
           sku: string | null
@@ -123,6 +127,7 @@ export type Database = {
           discount_percentage?: number | null
           external_id?: string | null
           free_shipping?: boolean | null
+          gender?: string | null
           id?: string
           image_url?: string | null
           images?: string[] | null
@@ -131,10 +136,13 @@ export type Database = {
           is_active?: boolean | null
           is_featured?: boolean | null
           is_on_sale?: boolean | null
+          last_price_source?: string | null
+          last_price_verified_at?: string | null
           last_sync?: string | null
           marketplace?: string | null
           name: string
           original_price?: number | null
+          pix_price?: number | null
           price: number
           short_description?: string | null
           sku?: string | null
@@ -154,6 +162,7 @@ export type Database = {
           discount_percentage?: number | null
           external_id?: string | null
           free_shipping?: boolean | null
+          gender?: string | null
           id?: string
           image_url?: string | null
           images?: string[] | null
@@ -162,10 +171,13 @@ export type Database = {
           is_active?: boolean | null
           is_featured?: boolean | null
           is_on_sale?: boolean | null
+          last_price_source?: string | null
+          last_price_verified_at?: string | null
           last_sync?: string | null
           marketplace?: string | null
           name?: string
           original_price?: number | null
+          pix_price?: number | null
           price?: number
           short_description?: string | null
           sku?: string | null

@@ -9,6 +9,12 @@ export const CategoryManager = () => {
   const [newCatName, setNewCatName] = useState("");
   const { toast } = useToast();
 
+  const filteredCategories = categories.filter((cat) => {
+    const name = (cat?.name || "").toLowerCase();
+    const slug = (cat?.slug || "").toLowerCase();
+    return !name.includes("vitamin") && !slug.includes("vitamin");
+  });
+
   const fetchCategories = async () => {
     const { data } = await supabase.from('categories').select('*').order('name');
     if (data) setCategories(data);
@@ -60,7 +66,7 @@ export const CategoryManager = () => {
       </form>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {categories.map((cat) => (
+        {filteredCategories.map((cat) => (
           <div key={cat.id} className="flex items-center justify-between bg-muted/30 p-4 rounded-2xl border border-border group hover:border-primary/50 transition-all">
             <span className="font-bold uppercase text-xs tracking-widest">{cat.name}</span>
             <button 

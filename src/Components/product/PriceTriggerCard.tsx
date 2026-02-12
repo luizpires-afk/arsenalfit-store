@@ -1,5 +1,6 @@
-import { ArrowRight, ShieldCheck, ShoppingCart, Star, Truck } from "lucide-react";
+﻿import { ArrowRight, ShieldCheck, ShoppingCart, Star, Truck } from "lucide-react";
 import { formatPrice } from "@/lib/validators";
+import { PriceDisclaimer } from "@/Components/PriceDisclaimer";
 
 interface PriceTriggerCardProps {
   price: number;
@@ -12,6 +13,7 @@ interface PriceTriggerCardProps {
   isBestSeller?: boolean;
   isFastShipping?: boolean;
   showSecure?: boolean;
+  lastUpdated: Date | null;
 }
 
 export function PriceTriggerCard({
@@ -25,6 +27,7 @@ export function PriceTriggerCard({
   isBestSeller,
   isFastShipping,
   showSecure = true,
+  lastUpdated,
 }: PriceTriggerCardProps) {
   const hasOriginal = Boolean(originalPrice && originalPrice > price);
   const savingsValue = hasOriginal ? (originalPrice as number) - price : 0;
@@ -88,6 +91,8 @@ export function PriceTriggerCard({
         <p className="text-sm text-zinc-600">
           {installmentText || "Parcelamento: consulte opções no checkout."}
         </p>
+
+        <PriceDisclaimer lastUpdated={lastUpdated} className="text-xs text-zinc-500" />
       </div>
 
       <div className="grid gap-3">
@@ -127,3 +132,6 @@ export function PriceTriggerCard({
     </div>
   );
 }
+
+
+

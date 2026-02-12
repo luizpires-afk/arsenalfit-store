@@ -2,20 +2,25 @@ import { Toaster } from "@/Components/ui/toaster";
 import { Toaster as Sonner } from "@/Components/ui/sonner";
 import { TooltipProvider } from "@/Components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import ScrollToTop from "@/Components/ScrollToTop";
+import { Header } from "@/Components/Header";
+import { MonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog";
+import { SiteFooter } from "@/Components/SiteFooter";
 
 // Pages
-import Home from "@/Pages/Home";
+import HomeV2 from "@/Pages/HomeV2";
 import Login from "@/Pages/Login";
 import Cadastro from "@/Pages/Cadastro";
 import Admin from "@/Pages/Admin";
 import ProductDetail from "@/Pages/ProductDetails";
 import CategoryPage from "@/Pages/Category";
+import Categories from "@/Pages/Categories";
 import Products from "@/Pages/Products";
+import ArsenalCollection from "@/Pages/ArsenalCollection";
 import Profile from "@/Pages/Profile";
 import Auth from "@/Pages/Auth";
-import Offers from "@/Pages/Offers";
 import Cart from "@/Pages/Cart";
 import Checkout from "@/Pages/Checkout";
 import Favorites from "@/Pages/Favorites";
@@ -27,6 +32,12 @@ import AuthSent from "@/Pages/AuthSent";
 import AuthConfirmed from "@/Pages/AuthConfirmed";
 import NotFound from "@/Pages/NotFound";
 import PriceAdjustments from "@/Pages/PriceAdjustments";
+import PriceSyncReport from "@/Pages/PriceSyncReport";
+import Terms from "@/Pages/Terms";
+import Privacy from "@/Pages/Privacy";
+import Affiliates from "@/Pages/Affiliates";
+import Verify from "@/Pages/Verify";
+import ResetPassword from "@/Pages/ResetPassword";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,39 +48,61 @@ const queryClient = new QueryClient({
   },
 });
 
+const AppRoutes = () => {
+  const location = useLocation();
+  const hideFooter = location.pathname === "/" || location.pathname === "/home";
+
+  return (
+    <>
+      <Header />
+      <Routes>
+        <Route path="/" element={<HomeV2 />} />
+        <Route path="/home" element={<HomeV2 />} />
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/auth/confirm" element={<AuthConfirmed />} />
+        <Route path="/auth/sent" element={<AuthSent />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/cadastro" element={<Cadastro />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/update-password" element={<UpdatePassword />} />
+        <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/price-adjustments" element={<PriceAdjustments />} />
+        <Route path="/admin/price-sync" element={<PriceSyncReport />} />
+        <Route path="/produto/:slug" element={<ProductDetail />} />
+        <Route path="/categoria/:slug" element={<CategoryPage />} />
+        <Route path="/categorias" element={<Categories />} />
+        <Route path="/arsenal/:collection" element={<ArsenalCollection />} />
+        <Route path="/produtos" element={<Products />} />
+        <Route path="/perfil" element={<Profile />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/termos" element={<Terms />} />
+        <Route path="/privacidade" element={<Privacy />} />
+        <Route path="/afiliados" element={<Affiliates />} />
+        <Route path="/verificar" element={<Verify />} />
+        <Route path="/redefinir-senha" element={<ResetPassword />} />
+        <Route path="/ofertas" element={<Navigate to="/" replace />} />
+        <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />
+        <Route path="/carrinho" element={<Cart />} />
+        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/favoritos" element={<Favorites />} />
+        <Route path="/compare" element={<Compare />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {!hideFooter && <SiteFooter />}
+    </>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <MonitorInfoDialog />
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/auth/confirm" element={<AuthConfirmed />} />
-            <Route path="/auth/sent" element={<AuthSent />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/cadastro" element={<Cadastro />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/update-password" element={<UpdatePassword />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/admin/price-adjustments" element={<PriceAdjustments />} />
-            <Route path="/produto/:slug" element={<ProductDetail />} />
-            <Route path="/categoria/:slug" element={<CategoryPage />} />
-            <Route path="/categorias" element={<CategoryPage />} />
-            <Route path="/produtos" element={<Products />} />
-            <Route path="/perfil" element={<Profile />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/ofertas" element={<Offers />} />
-            <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />
-            <Route path="/carrinho" element={<Cart />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route path="/favoritos" element={<Favorites />} />
-            <Route path="/compare" element={<Compare />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <ScrollToTop />
+          <AppRoutes />
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Zap, TrendingDown, Timer } from 'lucide-react';
+import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 
 // Interface para remover o erro de "any"
 interface Product {
@@ -12,6 +13,7 @@ interface Product {
   image_url: string;
   affiliate_link: string;
   updated_at: string;
+  ultima_verificacao?: string | null;
 }
 
 export default function MelhoresOfertas() {
@@ -21,6 +23,9 @@ export default function MelhoresOfertas() {
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .eq('is_active', true)
+        .eq('is_blocked', false)
+        .or('auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked')
         .lt('price', 'original_price') 
         .order('updated_at', { ascending: false });
       
@@ -57,6 +62,11 @@ export default function MelhoresOfertas() {
               const discount = product.original_price > 0 
                 ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
                 : 0;
+              const lastUpdated = product.updated_at
+                ? new Date(product.updated_at)
+                : product.ultima_verificacao
+                  ? new Date(product.ultima_verificacao)
+                  : null;
               
               return (
                 <div key={product.id} className="group relative bg-white border border-zinc-100 rounded-[40px] p-6 hover:shadow-2xl transition-all hover:-translate-y-2">
@@ -86,8 +96,12 @@ export default function MelhoresOfertas() {
                     Aproveitar Agora
                   </a>
 
-                  <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                    <Timer size={12} /> Atualizado pelo Robô às {new Date(product.updated_at).toLocaleTimeString()}
+                  <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-semibold">
+                    <Timer size={12} />
+                    <PriceDisclaimer
+                      lastUpdated={lastUpdated}
+                      className="text-[10px] text-zinc-400 font-semibold"
+                    />
                   </div>
                 </div>
               );

@@ -27,6 +27,29 @@ export function isValidMercadoLivreLink(url: string): boolean {
 }
 
 /**
+ * Extrai o ID MLB de um link do Mercado Livre (ou texto contendo MLB)
+ */
+export function extractMercadoLivreId(input: string): string | null {
+  if (!input) return null;
+  const value = input.trim();
+  // 0) item_id=MLB123... (pdp_filters etc.)
+  const itemId = value.match(/item_id%3AMLB(\d+)/i) || value.match(/[?&#]item_id=MLB(\d+)/i);
+  if (itemId) return `MLB${itemId[1]}`;
+  // 1) ID canônico no caminho: .../p/MLB123...
+  const canonical = value.match(/\/p\/MLB(\d+)/i);
+  if (canonical) return `MLB${canonical[1]}`;
+  // 2) Parâmetro wid=MLB123...
+  const wid = value.match(/[?&#]wid=MLB(\d+)/i);
+  if (wid) return `MLB${wid[1]}`;
+  // 3) Parâmetro id=MLB123...
+  const pid = value.match(/[?&#]id=MLB(\d+)/i);
+  if (pid) return `MLB${pid[1]}`;
+  // 4) Qualquer MLB-123/MLB123 no texto
+  const match = value.match(/MLB-?(\d+)/i);
+  return match ? `MLB${match[1]}` : null;
+}
+
+/**
  * Valida links da Amazon
  * Aceita formatos:
  * - https://www.amazon.com.br/dp/ASIN

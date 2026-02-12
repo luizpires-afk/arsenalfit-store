@@ -1,9 +1,13 @@
-﻿import { Link } from 'react-router-dom';
-import { ShoppingCart, ExternalLink, Clock, Zap } from 'lucide-react';
+﻿import { Link, useNavigate } from 'react-router-dom';
+import { ShoppingCart, ExternalLink, Clock } from 'lucide-react';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
 import { useCart } from '@/hooks/useCart';
+import { toast } from 'sonner';
+import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
+import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from '@/lib/cartFeedback';
+import { useRef } from 'react';
 
 // Definindo a Interface localmente para resolver o erro de módulo
 interface Product {
@@ -11,9 +15,16 @@ interface Product {
   name?: string; // Adicione a interrogação aqui
   slug?: string;
   price: number;
+  pix_price?: number | null;
   original_price?: number;
+  previous_price?: number | null;
+  detected_at?: string | null;
   image_url?: string;
   images?: string[];
+  affiliate_link?: string | null;
+  last_sync?: string | null;
+  updated_at?: string | null;
+  ultima_verificacao?: string | null;
   [key: string]: any; // Isso permite que qualquer outra propriedade do hook passe sem erro
 }
 
@@ -22,21 +33,49 @@ interface OfferCardProps {
 }
 
 export const OfferCard = ({ product }: OfferCardProps) => {
-  const { addToCart } = useCart();
+  const { addToCart, isLoggedIn } = useCart();
+  const navigate = useNavigate();
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const lastUpdated = product.updated_at
+    ? new Date(product.updated_at)
+    : product.last_sync
+      ? new Date(product.last_sync)
+      : product.ultima_verificacao
+        ? new Date(product.ultima_verificacao)
+        : null;
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    await addToCart(product.id);
+    if (!isLoggedIn) {
+      await addToCart(product.id);
+      return;
+    }
+
+    const targetEl = document.querySelector("[data-cart-icon]") as HTMLElement | null;
+    Promise.resolve(
+      flyToCartAnimation({
+        sourceEl: imageRef.current,
+        targetEl,
+        imageSrc: imageUrl,
+      })
+    ).then(() => bounceCartIcon(targetEl));
+
+    const added = await addToCart(product.id, 1, { silent: true });
+    if (added) {
+      showAddToCartToast({ onGoToCart: () => navigate("/carrinho") });
+    }
   };
 
   const handleBuyNow = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const link = product.affiliate_link || product.source_url || product.instructions;
-    if (link) {
-      window.open(link, '_blank');
+    const link = product.affiliate_link;
+    if (!link) {
+      toast.error('Link de afiliado indisponível.');
+      return;
     }
+    window.open(link, '_blank', 'noopener,noreferrer');
   };
 
   // Ajuste de lógica para pegar a imagem correta
@@ -52,6 +91,17 @@ export const OfferCard = ({ product }: OfferCardProps) => {
     : discountPercentage;
 
   const hasDiscount = calculatedDiscount > 0;
+  const hasDrop = typeof product.previous_price === "number" && product.previous_price > product.price;
+  const dropPercent = hasDrop && product.previous_price
+    ? Math.round(((product.previous_price - product.price) / product.previous_price) * 100)
+    : 0;
+  const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
+  const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
+  const pixPrice =
+    typeof product.pix_price === "number" && Number.isFinite(product.pix_price)
+      ? product.pix_price
+      : null;
+  const showPix = pixPrice !== null && pixPrice > 0 && pixPrice < product.price;
 
   const productLink = product.slug ? `/produto/${product.slug}` : "#";
 
@@ -64,16 +114,23 @@ export const OfferCard = ({ product }: OfferCardProps) => {
           <img
             src={imageUrl}
             alt={product.name}
+            ref={imageRef}
             className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-110"
             loading="lazy"
           />
           
-          {/* Discount Badge */}
-          {hasDiscount && (
-            <Badge className="absolute left-3 top-3 bg-red-600 text-white font-black text-lg px-3 py-1 rounded-xl shadow-lg border-none">
-              -{calculatedDiscount}%
-            </Badge>
-          )}
+          <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
+            {hasDiscount && (
+              <Badge className="bg-red-600 text-white font-black text-lg px-3 py-1 rounded-xl shadow-lg border-none">
+                -{calculatedDiscount}%
+              </Badge>
+            )}
+            {isRecentDrop && (
+              <Badge className="bg-[#a3e635] text-black font-black text-[10px] uppercase tracking-widest px-3 py-1 rounded-xl shadow-lg border-none">
+                Baixou {dropPercent > 0 ? `${dropPercent}%` : "agora"}
+              </Badge>
+            )}
+          </div>
 
           {/* Robot Update Badge */}
           <div className="absolute right-3 top-3 flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-950/80 backdrop-blur-sm border border-zinc-700">
@@ -97,6 +154,15 @@ export const OfferCard = ({ product }: OfferCardProps) => {
             <span className="text-2xl font-black text-[#a3e635] italic">
               R$ {product.price.toFixed(2).replace('.', ',')}
             </span>
+            {showPix && (
+              <span className="text-[11px] text-emerald-400 font-semibold block">
+                no Pix: R$ {pixPrice?.toFixed(2).replace('.', ',')}
+              </span>
+            )}
+            <PriceDisclaimer
+              lastUpdated={lastUpdated}
+              className="text-[10px] text-zinc-500 block mt-1"
+            />
           </div>
 
           {/* Action Buttons */}
@@ -127,7 +193,6 @@ export const OfferCard = ({ product }: OfferCardProps) => {
     </Card>
   );
 };
-
 
 
 

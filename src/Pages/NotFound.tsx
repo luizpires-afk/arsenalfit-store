@@ -34,7 +34,7 @@ export default function NotFound() {
               Voltar para Home
             </Button>
           </Link>
-          <Link to="/ofertas" className="text-xs font-bold uppercase text-[#a3e635] hover:underline tracking-[0.2em]">
+          <Link to="/melhores-ofertas" className="text-xs font-bold uppercase text-[#a3e635] hover:underline tracking-[0.2em]">
             Ir direto para Ofertas
           </Link>
         </div>

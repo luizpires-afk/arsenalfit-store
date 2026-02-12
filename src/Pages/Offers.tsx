@@ -1,16 +1,17 @@
 ﻿import { useProducts } from '@/hooks/useProducts';
-import { Navbar } from '@/Components/Navbar';
 import { OfferCard } from '@/Components/OfferCard';
 import { Zap, Loader2 } from 'lucide-react';
 
 export default function Offers() {
   // Pegamos os produtos do hook
-  const { loading, getOnSaleProducts } = useProducts();
+  const { loading, getOnSaleProducts, getDailyDeals } = useProducts();
+  const dailyDeals = getDailyDeals();
   const onSaleProducts = getOnSaleProducts();
+  const dailyDealIds = new Set(dailyDeals.map((item) => item.id));
+  const otherSales = onSaleProducts.filter((item) => !dailyDealIds.has(item.id));
 
   return (
     <div className="min-h-screen bg-zinc-950">
-      <Navbar />
       
       <main id="main-content" className="container py-12 px-4">
         {/* Header */}
@@ -32,12 +33,47 @@ export default function Offers() {
             <Loader2 className="h-10 w-10 animate-spin text-[#a3e635]" />
             <p className="text-zinc-500 font-bold italic animate-pulse">SINCRONIZANDO COM O ROBÔ...</p>
           </div>
-        ) : onSaleProducts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-            {onSaleProducts.map((product) => (
-              // Usamos o "as any" aqui apenas se o erro de tipagem persistir entre os arquivos
-              <OfferCard key={product.id} product={product as any} />
-            ))}
+        ) : dailyDeals.length > 0 || onSaleProducts.length > 0 ? (
+          <div className="space-y-12">
+            {dailyDeals.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl md:text-3xl font-black italic text-white">
+                      OFERTAS DO <span className="text-[#a3e635]">DIA</span>
+                    </h2>
+                    <p className="text-zinc-500 text-sm">
+                      Produtos que baixaram de preço nas últimas 24h.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                  {dailyDeals.map((product) => (
+                    <OfferCard key={product.id} product={product as any} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {otherSales.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl md:text-3xl font-black italic text-white">
+                      PROMOÇÕES ATIVAS
+                    </h2>
+                    <p className="text-zinc-500 text-sm">
+                      Ofertas monitoradas que seguem com desconto.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                  {otherSales.map((product) => (
+                    <OfferCard key={product.id} product={product as any} />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         ) : (
           <div className="text-center py-32 border-2 border-dashed border-zinc-900 rounded-[40px]" role="status" aria-live="polite">

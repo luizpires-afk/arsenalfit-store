@@ -21,7 +21,7 @@ const pageRoutes: Record<PageName, string> = {
   ProductDetail: "/produto",
   Profile: "/perfil",
   Cart: "/carrinho",
-  Offers: "/ofertas",
+  Offers: "/melhores-ofertas",
   Categories: "/categorias",
   Admin: "/admin",
   Login: "/login",
@@ -47,4 +47,6 @@ export function createPageUrl(page: PageName, params?: PageParams) {
 
   return query ? `${base}?${query}` : base;
 }
+
+export { getFirstName } from "./user";
 

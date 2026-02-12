@@ -20,6 +20,7 @@ import { Badge } from '@/Components/ui/badge';
 import { toast } from 'sonner';
 
 import SEOHead from '@/Components/SEOHead';
+import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 
 const categoryLabels = {
   suplementos: "Suplementos",
@@ -52,8 +53,8 @@ export default function Compare() {
     enabled: compareItems.length > 0,
   });
 
-  const compareProducts = allProducts.filter(product => 
-    compareItems.includes(product.id)
+  const compareProducts = allProducts.filter(product =>
+    compareItems.includes(product.id) && !product.is_blocked
   );
 
   const getProductRating = (productId) => {
@@ -194,6 +195,16 @@ export default function Compare() {
                             R$ {product.original_price?.toFixed(2).replace('.', ',')}
                           </div>
                         )}
+                        <PriceDisclaimer
+                          lastUpdated={
+                            product.updated_at
+                              ? new Date(product.updated_at)
+                              : product.ultima_verificacao
+                                ? new Date(product.ultima_verificacao)
+                                : null
+                          }
+                          className="text-[10px] text-zinc-400 mt-1 block"
+                        />
                       </td>
                     ))}
                   </tr>

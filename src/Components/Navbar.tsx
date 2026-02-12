@@ -1,6 +1,6 @@
 ﻿import { Link } from "react-router-dom";
 import { Menu, X, LogOut } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/Components/ui/button";
@@ -10,21 +10,46 @@ const LOGO_URL = "https://pixqurduxqfcujfadkbw.supabase.co/storage/v1/object/pub
 export function Navbar() {
   const { user, signOut, isAdmin } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
   const displayName =
     user?.user_metadata?.full_name?.split(" ")[0] ||
     user?.email?.split("@")[0] ||
     "Atleta";
 
+  useEffect(() => {
+    const onScroll = () => {
+      setIsScrolled(window.scrollY > 12);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header
+      className={`sticky top-0 z-50 w-full border-b border-zinc-200/70 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 transition-all duration-200 ${
+        isScrolled ? "shadow-sm" : ""
+      }`}
+    >
       <a href="#main-content" className="skip-link">Pular para conteúdo</a>
-      <div className="container flex h-16 items-center justify-between px-4">
+      <div
+        className={`container flex items-center justify-between px-4 transition-all duration-200 ${
+          isScrolled ? "h-14" : "h-16"
+        }`}
+      >
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-3 font-bold text-xl md:text-2xl tracking-tighter hover:opacity-90 transition-opacity">
+        <Link
+          to="/"
+          className={`flex items-center gap-3 font-bold tracking-tighter hover:opacity-90 transition-opacity ${
+            isScrolled ? "text-lg md:text-xl" : "text-xl md:text-2xl"
+          }`}
+        >
           <img
             src={LOGO_URL}
             alt="ArsenalFit"
-            className="h-9 w-9 rounded-lg bg-white p-1 shadow-sm"
+            className={`rounded-lg bg-white p-1 shadow-sm transition-all ${
+              isScrolled ? "h-8 w-8" : "h-9 w-9"
+            }`}
             loading="lazy"
           />
           <span className="bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent uppercase">
@@ -34,10 +59,14 @@ export function Navbar() {
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-          <Link to="/categorias" className="text-foreground/60 transition-colors hover:text-foreground">Categorias</Link>
-          <Link to="/produtos" className="text-foreground/60 transition-colors hover:text-foreground">Produtos</Link>
+          <Link to="/produtos" className="text-zinc-900 font-semibold transition-colors hover:text-zinc-950">
+            Produtos
+          </Link>
+          <Link to="/categorias" className="text-zinc-500 transition-colors hover:text-zinc-900">
+            Categorias
+          </Link>
           {isAdmin && (
-            <Link to="/admin" className="text-primary font-bold transition-colors hover:text-primary/80">
+            <Link to="/admin" className="text-[11px] uppercase tracking-widest text-zinc-400 transition-colors hover:text-zinc-600">
               Painel Admin
             </Link>
           )}
@@ -47,7 +76,7 @@ export function Navbar() {
         <div className="hidden md:flex items-center gap-4">
           {user ? (
             <div className="flex items-center gap-4">
-              <Link to="/perfil" className="text-sm font-medium hover:underline">
+              <Link to="/perfil" className="text-sm font-medium text-zinc-700 hover:underline">
                 Olá, {displayName}
               </Link>
               <Button variant="ghost" size="icon" onClick={() => signOut()}>

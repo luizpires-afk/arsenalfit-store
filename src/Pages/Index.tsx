@@ -1,7 +1,6 @@
 ﻿import { useMemo } from "react"
 import { Dumbbell, TrendingUp, Zap } from "lucide-react"
 
-import { Navbar } from "@/Components/Navbar"
 import { ProductCard } from "@/Components/ProductCard"
 import { Skeleton } from "@/Components/ui/skeleton"
 import { useProducts } from "@/hooks/useProducts"
@@ -23,7 +22,6 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
 
       {/* HERO */}
       <section className="bg-zinc-950 py-24 text-center">

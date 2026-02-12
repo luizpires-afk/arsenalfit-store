@@ -1,6 +1,8 @@
-ï»¿import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { useState } from "react";
 import { CheckCircle2, Mail, ArrowLeft } from "lucide-react";
 import { Button } from "@/Components/ui/button";
+import { toast } from "sonner";
 
 export default function AuthSent() {
   const location = useLocation();
@@ -9,6 +11,32 @@ export default function AuthSent() {
   const email = params.get("email") || "";
 
   const isReset = mode === "reset";
+  const [resending, setResending] = useState(false);
+
+  const handleResend = async () => {
+    if (!email) {
+      toast.error("Digite um e-mail válido.");
+      return;
+    }
+    setResending(true);
+    try {
+      const endpoint = isReset ? "/api/auth/send-recovery" : "/api/auth/send-verification";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.message || "Erro ao reenviar.");
+      }
+      toast.success("Se existir conta, enviamos um novo e-mail.");
+    } catch (error) {
+      toast.error(error.message || "Erro ao reenviar.");
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -17,7 +45,7 @@ export default function AuthSent() {
           <CheckCircle2 className="h-8 w-8 text-primary" />
         </div>
         <h1 className="text-2xl font-black uppercase italic text-foreground">
-          {isReset ? "Link enviado" : "VerificaÃ§Ã£o enviada"}
+          {isReset ? "Link enviado" : "Verificação enviada"}
         </h1>
         <p className="text-muted-foreground text-sm mt-3">
           {isReset
@@ -31,6 +59,14 @@ export default function AuthSent() {
         )}
 
         <div className="mt-8 flex flex-col gap-3">
+          <Button
+            onClick={handleResend}
+            disabled={resending}
+            variant="outline"
+            className="w-full h-12 rounded-2xl font-black uppercase italic"
+          >
+            {resending ? "Reenviando..." : "Reenviar e-mail"}
+          </Button>
           <Link to="/login">
             <Button className="w-full h-12 rounded-2xl font-black uppercase italic">Ir para Login</Button>
           </Link>

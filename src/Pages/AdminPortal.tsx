@@ -6,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/Com
 import { Input } from "@/Components/ui/input";
 import { Label } from "@/Components/ui/label";
 import { supabase } from '@/integrations/supabase/client';
-import { Navbar } from '@/Components/Navbar'; 
 import { toast } from 'sonner';
+import { extractMercadoLivreId } from '@/lib/validators';
 
 export default function AdminPortal() {
   const navigate = useNavigate();
@@ -45,12 +45,6 @@ export default function AdminPortal() {
     checkAdmin();
   }, [navigate]);
 
-  const extractMLBId = (url: string): string | null => {
-    const regex = /MLB-?(\d+)/i;
-    const match = url.match(regex);
-    return match ? `MLB${match[1]}` : null;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -59,7 +53,7 @@ export default function AdminPortal() {
       return;
     }
 
-    const mlbId = extractMLBId(link);
+    const mlbId = extractMercadoLivreId(link);
     
     if (!mlbId) {
       toast.error('Link inválido. Use um link do Mercado Livre.');
@@ -80,13 +74,15 @@ export default function AdminPortal() {
           price: 0,
           original_price: 1, // Ativa a lógica de "oferta" para o robô atualizar
           affiliate_link: link,
+          source_url: link,
           external_id: mlbId, // ESSENCIAL para o robô identificar o produto
           marketplace: 'mercadolivre',
           description: `Importado via Portal Admin - ID ${mlbId}`,
           short_description: 'Aguardando atualização do robô...',
           is_active: true, // Deixamos true para aparecer no Radar, mas com preço 0
           is_on_sale: true,
-          category_id: '86927956-2586-455c-a567-28565f147a46' // ID da sua categoria padrão (Suplementos)
+          category_id: '86927956-2586-455c-a567-28565f147a46', // ID da sua categoria padrão (Suplementos)
+          next_check_at: new Date().toISOString(),
         });
 
       if (error) throw error;
@@ -122,8 +118,6 @@ export default function AdminPortal() {
 
   return (
     <div className="min-h-screen bg-zinc-950">
-      <Navbar />
-      
       <div className="container py-12 px-4">
         <Button
           variant="ghost"

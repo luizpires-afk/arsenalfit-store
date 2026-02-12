@@ -11,9 +11,17 @@ interface Category {
 interface CategoryFilterProps {
   selected: string; // "all" ou o ID da categoria
   onSelect: (id: string) => void;
+  allowedCategories?: string[];
 }
 
-export const CategoryFilter = ({ selected, onSelect }: CategoryFilterProps) => {
+const normalizeLabel = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+export const CategoryFilter = ({ selected, onSelect, allowedCategories }: CategoryFilterProps) => {
   const [categories, setCategories] = useState<Category[]>([]);
 
   useEffect(() => {
@@ -33,8 +41,23 @@ export const CategoryFilter = ({ selected, onSelect }: CategoryFilterProps) => {
     fetchCategories();
   }, []);
 
+  const normalizedAllowed = allowedCategories?.map(normalizeLabel) ?? null;
+  const visibleCategories = normalizedAllowed
+    ? normalizedAllowed
+        .map((label) =>
+          categories.find(
+            (cat) =>
+              normalizeLabel(cat.name) === label ||
+              normalizeLabel(cat.slug) === label ||
+              normalizeLabel(cat.name).includes(label) ||
+              normalizeLabel(cat.slug).includes(label),
+          ),
+        )
+        .filter((cat): cat is Category => Boolean(cat))
+    : categories;
+
   return (
-    <div className="flex flex-wrap gap-3 py-6 overflow-x-auto no-scrollbar">
+    <div className="flex flex-nowrap md:flex-wrap gap-3 py-2 overflow-x-auto no-scrollbar">
       {/* Botão TODOS */}
       <button
         type="button"
@@ -50,7 +73,7 @@ export const CategoryFilter = ({ selected, onSelect }: CategoryFilterProps) => {
       </button>
 
       {/* Botões Dinâmicos */}
-      {categories.map((cat) => (
+      {visibleCategories.map((cat) => (
         <button
           key={cat.id}
           type="button"

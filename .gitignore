@@ -4,3 +4,13 @@ dist
 .env.env.local
 
 MeuSiteLoja_AUDITADO_SUPABASE/
+supabase/.env
+supabase/functions/.env
+supabase/functions/.env.*
+supabase/.temp/
+.vite-dev*.log
+.price-sync*.log
+.env
+.env.*
+.vscode/
+supabase/functions/**/serve*.log
