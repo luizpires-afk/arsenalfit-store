@@ -10,7 +10,7 @@ import {
   enforceRateLimit,
   logEmailAttempt,
   renderRecoveryEmail,
-} from "./_helpers.js";
+} from "./auth-helpers.js";
 
 const isValidEmail = (value = "") => /\S+@\S+\.\S+/.test(value);
 

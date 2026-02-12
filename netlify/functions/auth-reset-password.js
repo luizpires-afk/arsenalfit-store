@@ -6,7 +6,7 @@ import {
   hashToken,
   nowIso,
   logEmailAttempt,
-} from "./_helpers.js";
+} from "./auth-helpers.js";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -15,10 +15,10 @@ export const handler = async (event) => {
 
   const body = parseBody(event);
   const token = body.token || "";
-  const type = body.type || "signup";
+  const password = body.password || "";
 
-  if (!token || type !== "signup") {
-    return jsonResponse(400, { error: "invalid_token" });
+  if (!token || !password || password.length < 8) {
+    return jsonResponse(400, { error: "invalid_request" });
   }
 
   const TOKEN_PEPPER = process.env.TOKEN_PEPPER;
@@ -40,7 +40,7 @@ export const handler = async (event) => {
     .from("auth_email_tokens")
     .select("id, email, user_id, type, expires_at, used_at")
     .eq("token_hash", tokenHash)
-    .eq("type", type)
+    .eq("type", "recovery")
     .is("used_at", null)
     .gt("expires_at", now)
     .maybeSingle();
@@ -62,8 +62,24 @@ export const handler = async (event) => {
     userId = userData?.user?.id ?? null;
   }
 
-  if (userId) {
-    await supabase.auth.admin.updateUserById(userId, { email_confirm: true });
+  if (!userId) {
+    return jsonResponse(400, { error: "user_not_found" });
+  }
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(
+    userId,
+    { password }
+  );
+
+  if (updateError) {
+    await logEmailAttempt(supabase, {
+      email,
+      userId,
+      type: "recovery",
+      status: "error",
+      message: updateError.message,
+    });
+    return jsonResponse(500, { error: "password_update_failed" });
   }
 
   const { data: linkData, error: linkError } =
@@ -76,7 +92,7 @@ export const handler = async (event) => {
     await logEmailAttempt(supabase, {
       email,
       userId,
-      type: "signup",
+      type: "recovery",
       status: "error",
       message: linkError?.message || "magiclink_failed",
     });
@@ -86,9 +102,9 @@ export const handler = async (event) => {
   await logEmailAttempt(supabase, {
     email,
     userId,
-    type: "signup",
-    status: "consumed",
-    message: "token_consumed",
+    type: "recovery",
+    status: "password_reset",
+    message: "password_reset",
   });
 
   return jsonResponse(200, {

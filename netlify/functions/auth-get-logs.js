@@ -2,7 +2,7 @@ import {
   jsonResponse,
   getSupabaseAdmin,
   normalizeEmail,
-} from "./_helpers.js";
+} from "./auth-helpers.js";
 
 const parseAdminEmails = () =>
   (process.env.ADMIN_EMAILS || "")

@@ -362,7 +362,7 @@ export default function Admin() {
   const { data: emailLogs = [], isLoading: loadingEmailLogs } = useQuery({
     queryKey: ['auth-email-logs'],
     queryFn: async () => {
-      const response = await fetch('/api/auth/get-logs?limit=50', {
+      const response = await fetch('/api/auth-get-logs?limit=50', {
         headers: {
           Authorization: `Bearer ${session?.access_token}`,
         },

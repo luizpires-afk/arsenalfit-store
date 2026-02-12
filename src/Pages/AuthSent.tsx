@@ -30,7 +30,7 @@ export default function AuthSent() {
     if (cooldown > 0) return;
     setResending(true);
     try {
-      const response = await fetch("/api/auth/send-verification", {
+      const response = await fetch("/api/auth-send-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),

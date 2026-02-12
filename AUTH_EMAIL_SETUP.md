@@ -40,10 +40,10 @@ Ela cria:
 
 ## Endpoints (Netlify Functions)
 
-- `POST /api/auth/send-verification`
-- `POST /api/auth/send-recovery`
-- `POST /api/auth/consume-token`
-- `POST /api/auth/reset-password`
+- `POST /api/auth-send-verification`
+- `POST /api/auth-send-recovery`
+- `POST /api/auth-consume-token`
+- `POST /api/auth-reset-password`
 
 ## Testes rápidos
 

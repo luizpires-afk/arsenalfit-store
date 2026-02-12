@@ -30,7 +30,7 @@ const Verify = () => {
       }
 
       try {
-        const response = await fetch("/api/auth/consume-token", {
+        const response = await fetch("/api/auth-consume-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token, type: "signup" }),
