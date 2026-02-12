@@ -1263,7 +1263,7 @@ export default function Admin() {
                   {isSyncing ? 'Agendando...' : 'Agendar Sync Agora'}
                 </Button>
                 <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                  Ver relatério completo
+                  Ver relatório completo
                 </Button>
               </div>
             </div>
@@ -1352,7 +1352,7 @@ export default function Admin() {
                 {loadingReports ? (
                   <p className="text-sm text-muted-foreground">Carregando...</p>
                 ) : reports.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Nenhum relatério registrado ainda.</p>
+                  <p className="text-sm text-muted-foreground">Nenhum relatório registrado ainda.</p>
                 ) : (
                   <div className="space-y-3">
                     {reports.map((report) => (
@@ -1677,7 +1677,7 @@ export default function Admin() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="outline" onClick={() => navigate('/admin/price-sync')}>
-                  Ver relatério completo
+                  Ver relatório completo
                 </Button>
                 <Button variant="secondary" onClick={handleCopyBlockedLinks} disabled={!blockedAnomalies.length}>
                   Copiar links bloqueados
