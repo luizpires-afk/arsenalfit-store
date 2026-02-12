@@ -59,6 +59,18 @@ export const getSupabaseAnon = () => {
   });
 };
 
+export const getSiteUrl = () =>
+  process.env.SITE_URL ||
+  process.env.URL ||
+  process.env.DEPLOY_PRIME_URL ||
+  process.env.VITE_SITE_URL ||
+  "";
+
+export const getEmailFrom = () =>
+  process.env.EMAIL_FROM ||
+  process.env.RESEND_FROM ||
+  "ArsenalFit <onboarding@resend.dev>";
+
 export const normalizeEmail = (email = "") => email.trim().toLowerCase();
 
 export const generateToken = () => crypto.randomBytes(32).toString("hex");
@@ -148,11 +160,11 @@ export const renderVerifyEmail = ({ verifyUrl }) => {
                 <td style="font-size:20px;font-weight:700;letter-spacing:0.02em;">ArsenalFit</td>
               </tr>
               <tr>
-                <td style="padding-top:18px;font-size:22px;font-weight:700;">Olá! Falta só um passo para ativar sua conta.</td>
+                <td style="padding-top:18px;font-size:22px;font-weight:700;">Ol&aacute;! Falta s&oacute; um passo para ativar sua conta.</td>
               </tr>
               <tr>
                 <td style="padding-top:12px;font-size:15px;line-height:1.6;color:#444;">
-                  Clique no botão abaixo para confirmar seu e-mail.
+                  Clique no bot&atilde;o abaixo para confirmar seu e-mail.
                 </td>
               </tr>
               <tr>
@@ -169,22 +181,20 @@ export const renderVerifyEmail = ({ verifyUrl }) => {
               </tr>
               <tr>
                 <td style="padding-top:12px;font-size:12px;color:#666;line-height:1.5;">
-                  Se você não criou uma conta, ignore este e-mail.
+                  Se voc&ecirc; n&atilde;o criou uma conta, ignore este e-mail.
                 </td>
               </tr>
               <tr>
                 <td style="padding-top:16px;font-size:12px;color:#666;">
-                  Dúvidas? Fale com a gente: <strong>powershop.bras@gmail.com</strong>
+                  D&uacute;vidas? Fale com a gente: <strong>powershop.bras@gmail.com</strong>
                 </td>
               </tr>
               <tr>
-                <td style="padding-top:16px;font-size:11px;color:#999;">
-                  ArsenalFit
-                </td>
+                <td style="padding-top:16px;font-size:11px;color:#999;">ArsenalFit</td>
               </tr>
             </table>
             <div style="max-width:560px;padding:10px 0;font-size:12px;color:#777;">
-              Se o botão não funcionar, copie e cole este link no navegador:<br/>
+              Se o bot&atilde;o n&atilde;o funcionar, copie e cole este link no navegador:<br/>
               <a href="${verifyUrl}" style="color:#ff6a00;">${verifyUrl}</a>
             </div>
           </td>
@@ -200,7 +210,7 @@ export const renderRecoveryEmail = ({ recoveryUrl }) => {
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Redefinição de senha</title>
+      <title>Redefini&ccedil;&atilde;o de senha</title>
     </head>
     <body style="margin:0;padding:0;background:#f7f7f8;font-family:Arial,sans-serif;color:#111;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f7f8;padding:24px 0;">
@@ -215,7 +225,7 @@ export const renderRecoveryEmail = ({ recoveryUrl }) => {
               </tr>
               <tr>
                 <td style="padding-top:12px;font-size:15px;line-height:1.6;color:#444;">
-                  Clique no botão abaixo para criar uma nova senha.
+                  Clique no bot&atilde;o abaixo para criar uma nova senha.
                 </td>
               </tr>
               <tr>
@@ -232,22 +242,20 @@ export const renderRecoveryEmail = ({ recoveryUrl }) => {
               </tr>
               <tr>
                 <td style="padding-top:12px;font-size:12px;color:#666;line-height:1.5;">
-                  Se não foi você, ignore este e-mail.
+                  Se n&atilde;o foi voc&ecirc;, ignore este e-mail.
                 </td>
               </tr>
               <tr>
                 <td style="padding-top:16px;font-size:12px;color:#666;">
-                  Dúvidas? Fale com a gente: <strong>powershop.bras@gmail.com</strong>
+                  D&uacute;vidas? Fale com a gente: <strong>powershop.bras@gmail.com</strong>
                 </td>
               </tr>
               <tr>
-                <td style="padding-top:16px;font-size:11px;color:#999;">
-                  ArsenalFit
-                </td>
+                <td style="padding-top:16px;font-size:11px;color:#999;">ArsenalFit</td>
               </tr>
             </table>
             <div style="max-width:560px;padding:10px 0;font-size:12px;color:#777;">
-              Se o botão não funcionar, copie e cole este link no navegador:<br/>
+              Se o bot&atilde;o n&atilde;o funcionar, copie e cole este link no navegador:<br/>
               <a href="${recoveryUrl}" style="color:#ff6a00;">${recoveryUrl}</a>
             </div>
           </td>
@@ -256,4 +264,3 @@ export const renderRecoveryEmail = ({ recoveryUrl }) => {
     </body>
   </html>`;
 };
-

@@ -3,6 +3,8 @@ import {
   parseBody,
   getClientInfo,
   getSupabaseAdmin,
+  getSiteUrl,
+  getEmailFrom,
   normalizeEmail,
   generateToken,
   hashToken,
@@ -76,6 +78,7 @@ export const handler = async (event) => {
   }
 
   if (!user) {
+    const message = "Se existir conta, enviamos instruções por e-mail.";
     await logEmailAttempt(supabase, {
       email,
       type: "recovery",
@@ -86,20 +89,34 @@ export const handler = async (event) => {
     });
     return jsonResponse(200, {
       ok: true,
-      message: "Se existir conta, enviamos instruções por e-mail.",
+      message,
     });
   }
 
   const TOKEN_PEPPER = process.env.TOKEN_PEPPER;
-  const SITE_URL = process.env.SITE_URL || process.env.VITE_SITE_URL || "";
+  const SITE_URL = getSiteUrl();
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const EMAIL_FROM =
-    process.env.EMAIL_FROM ||
-    process.env.RESEND_FROM ||
-    "ArsenalFit <no-reply@arsenalfit.com>";
+  const EMAIL_FROM = getEmailFrom();
 
-  if (!TOKEN_PEPPER || !SITE_URL || !RESEND_API_KEY) {
-    return jsonResponse(500, { error: "missing_env" });
+  const missingEnv = [];
+  if (!TOKEN_PEPPER) missingEnv.push("TOKEN_PEPPER");
+  if (!SITE_URL) missingEnv.push("SITE_URL");
+  if (!RESEND_API_KEY) missingEnv.push("RESEND_API_KEY");
+
+  if (missingEnv.length > 0) {
+    await logEmailAttempt(supabase, {
+      email,
+      userId: user.id,
+      type: "recovery",
+      status: "error",
+      message: `missing_env:${missingEnv.join(",")}`,
+      ip,
+      userAgent,
+    });
+    return jsonResponse(500, {
+      error: "missing_env",
+      message: "Configuração de e-mail incompleta.",
+    });
   }
 
   const token = generateToken();
@@ -128,7 +145,8 @@ export const handler = async (event) => {
     return jsonResponse(500, { error: "token_insert_failed" });
   }
 
-  const recoveryUrl = `${SITE_URL}/redefinir-senha?token=${encodeURIComponent(
+  const baseUrl = SITE_URL.replace(/\/+$/, "");
+  const recoveryUrl = `${baseUrl}/redefinir-senha?token=${encodeURIComponent(
     token
   )}&type=recovery`;
   const html = renderRecoveryEmail({ recoveryUrl });
@@ -159,7 +177,10 @@ export const handler = async (event) => {
       ip,
       userAgent,
     });
-    return jsonResponse(500, { error: "email_send_failed" });
+    return jsonResponse(500, {
+      error: "email_send_failed",
+      message: "Falha ao enviar e-mail. Verifique remetente e chave do Resend.",
+    });
   }
 
   await logEmailAttempt(supabase, {
