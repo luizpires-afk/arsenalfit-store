@@ -86,6 +86,8 @@ const CLOTHING_OPTIONS = [
 const DUPLICATE_LINK_MESSAGE = "Este link já foi utilizado";
 const REPORTS_PREVIEW_COUNT = 10;
 
+type DuplicateLinkProduct = { id: string; name: string } | null;
+
 // Tipagem do Formulário
 interface ProductFormData {
   name: string;
@@ -202,6 +204,10 @@ export default function Admin() {
   const [formData, setFormData] = useState<ProductFormData>(initialFormData);
   const [affiliateLinkError, setAffiliateLinkError] = useState<string | null>(null);
   const [externalIdError, setExternalIdError] = useState<string | null>(null);
+  const [sourceUrlDuplicate, setSourceUrlDuplicate] =
+    useState<DuplicateLinkProduct>(null);
+  const [affiliateLinkDuplicate, setAffiliateLinkDuplicate] =
+    useState<DuplicateLinkProduct>(null);
   const [isAutoFetching, setIsAutoFetching] = useState(false);
   const [lastFetchedExternalId, setLastFetchedExternalId] = useState<string | null>(null);
   const [lastNoIdLink, setLastNoIdLink] = useState<string | null>(null);
@@ -773,6 +779,8 @@ export default function Admin() {
       setFormData(initialFormData);
     }
     setAffiliateLinkError(null);
+    setSourceUrlDuplicate(null);
+    setAffiliateLinkDuplicate(null);
     setIsDialogOpen(true);
   };
 
@@ -782,6 +790,8 @@ export default function Admin() {
     setFormData(initialFormData);
     setAffiliateLinkError(null);
     setExternalIdError(null);
+    setSourceUrlDuplicate(null);
+    setAffiliateLinkDuplicate(null);
   };
 
   const normalizeExternalId = (value: string) => {
@@ -795,6 +805,133 @@ export default function Admin() {
     if (!value) return false;
     return /^MLB\d{8,}$/.test(value);
   };
+
+  const getLinkVariants = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+
+    const variants = new Set<string>([trimmed]);
+
+    // Normalize only the most common case (product URLs without query/hash).
+    if (!trimmed.includes("?") && !trimmed.includes("#")) {
+      const withoutTrailing = trimmed.replace(/\/+$/, "");
+      if (withoutTrailing) {
+        variants.add(withoutTrailing);
+        variants.add(`${withoutTrailing}/`);
+      }
+    }
+
+    return Array.from(variants).filter(Boolean);
+  };
+
+  const isValidUrl = (value: string) => {
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const lookupDuplicateProductByLinks = async (
+    links: string[],
+    excludeId?: string,
+  ): Promise<DuplicateLinkProduct> => {
+    if (!links.length) return null;
+
+    const select = "id, name";
+
+    let sourceQuery = supabase
+      .from("products")
+      .select(select)
+      .in("source_url", links)
+      .limit(1);
+
+    let affiliateQuery = supabase
+      .from("products")
+      .select(select)
+      .in("affiliate_link", links)
+      .limit(1);
+
+    if (excludeId) {
+      sourceQuery = sourceQuery.neq("id", excludeId);
+      affiliateQuery = affiliateQuery.neq("id", excludeId);
+    }
+
+    const [sourceRes, affiliateRes] = await Promise.all([
+      sourceQuery,
+      affiliateQuery,
+    ]);
+
+    if (sourceRes.error) throw sourceRes.error;
+    if (affiliateRes.error) throw affiliateRes.error;
+
+    const found = (sourceRes.data?.[0] || affiliateRes.data?.[0]) as any;
+    if (!found?.id || !found?.name) return null;
+    return { id: String(found.id), name: String(found.name) };
+  };
+
+  useEffect(() => {
+    if (!isDialogOpen) return;
+
+    const link = formData.source_url.trim();
+    if (!link || !isValidUrl(link)) {
+      setSourceUrlDuplicate(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const variants = getLinkVariants(link);
+        const existing = await lookupDuplicateProductByLinks(
+          variants,
+          editingProduct?.id,
+        );
+        if (cancelled) return;
+        setSourceUrlDuplicate(existing);
+      } catch {
+        if (cancelled) return;
+        setSourceUrlDuplicate(null);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isDialogOpen, formData.source_url, editingProduct?.id]);
+
+  useEffect(() => {
+    if (!isDialogOpen) return;
+
+    const link = formData.affiliate_link.trim();
+    if (!link || !isValidUrl(link)) {
+      setAffiliateLinkDuplicate(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const variants = getLinkVariants(link);
+        const existing = await lookupDuplicateProductByLinks(
+          variants,
+          editingProduct?.id,
+        );
+        if (cancelled) return;
+        setAffiliateLinkDuplicate(existing);
+      } catch {
+        if (cancelled) return;
+        setAffiliateLinkDuplicate(null);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isDialogOpen, formData.affiliate_link, editingProduct?.id]);
 
   const autoFillFromMercadoLivre = async (externalId: string) => {
     if (!externalId || externalId === lastFetchedExternalId) return;
@@ -860,6 +997,7 @@ export default function Admin() {
   const handleAffiliateLinkChange = (value: string) => {
     setFormData(prev => ({ ...prev, affiliate_link: value }));
     setExternalIdError(null);
+    setAffiliateLinkDuplicate(null);
 
     if (value.trim()) {
       const validation = isValidAffiliateLink(value);
@@ -894,6 +1032,7 @@ export default function Admin() {
     const marketplace = detectMarketplace(value);
     setFormData(prev => ({ ...prev, source_url: value, marketplace }));
     setExternalIdError(null);
+    setSourceUrlDuplicate(null);
 
     if (!value.trim()) {
       return;
@@ -2272,7 +2411,14 @@ export default function Admin() {
                 value={formData.source_url}
                 onChange={(e) => handleSourceUrlChange(e.target.value)}
                 placeholder="https://produto.mercadolivre.com.br/.../MLB1234567890"
+                className={sourceUrlDuplicate ? "border-destructive" : ""}
               />
+              {sourceUrlDuplicate && (
+                <p className="text-xs text-destructive mt-1 flex items-center gap-1" role="alert">
+                  <AlertCircle className="h-3 w-3" />
+                  Já existe um produto com este link: {sourceUrlDuplicate.name}
+                </p>
+              )}
             </div>
 
             {/* Affiliate Link */}
@@ -2289,12 +2435,17 @@ export default function Admin() {
                 value={formData.affiliate_link}
                 onChange={(e) => handleAffiliateLinkChange(e.target.value)}
                 placeholder="https://mercadolivre.com/sec/xxxxx"
-                className={affiliateLinkError ? 'border-destructive' : ''}
+                className={affiliateLinkError || affiliateLinkDuplicate ? "border-destructive" : ""}
               />
               {affiliateLinkError ? (
                 <p className="text-xs text-destructive mt-1 flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" />
                   {affiliateLinkError}
+                </p>
+              ) : affiliateLinkDuplicate ? (
+                <p className="text-xs text-destructive mt-1 flex items-center gap-1" role="alert">
+                  <AlertCircle className="h-3 w-3" />
+                  Já existe um produto com este link: {affiliateLinkDuplicate.name}
                 </p>
               ) : formData.affiliate_link && !affiliateLinkError && (
                 <p className="text-xs text-success mt-1 flex items-center gap-1">
