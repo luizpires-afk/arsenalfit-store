@@ -237,6 +237,7 @@ export default function Category() {
   const { slug } = useParams<{ slug?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const [isCompactGrid, setIsCompactGrid] = useState(false);
 
   const rawCat = (slug || searchParams.get("cat") || "suplementos") as CategoryKey;
   const categoryId: CategoryKey = categoryInfo[rawCat] ? rawCat : "suplementos";
@@ -283,6 +284,16 @@ export default function Category() {
   const pageParam = Number(searchParams.get("page") || 1);
   const limitParam = Number(searchParams.get("limit") || 24);
   const pageSize = [12, 24, 36].includes(limitParam) ? limitParam : 24;
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setIsCompactGrid(window.innerWidth < 768);
+    };
+
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
 
   useEffect(() => {
     setSearchInput(queryParam);
@@ -519,8 +530,15 @@ export default function Category() {
                          <div
                            className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-transform duration-500 group-hover:scale-105"
                            style={{ backgroundImage: `url(${card.image})` }}
-                         />
+                          />
                         <div className="absolute inset-0 bg-gradient-to-br from-black/80 via-black/60 to-black/45" />
+                        <div className="absolute right-4 top-4 z-10 h-11 w-11 rounded-full border border-white/10 bg-black/35 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                          <Shirt
+                            size={18}
+                            className={card.gender === "feminino" ? "text-rose-300" : "text-emerald-300"}
+                            aria-hidden="true"
+                          />
+                        </div>
                         <div className="relative flex h-full min-h-[170px] flex-col justify-between p-5 sm:p-6">
                           <div className="space-y-2">
                             <span className="text-[9px] font-black uppercase tracking-[0.35em] text-white/70">
@@ -544,11 +562,13 @@ export default function Category() {
                     ))}
                   </div>
                 )}
-                <div className="mt-6 flex justify-center">
-                  <div className="h-12 w-12 rounded-full border border-white/10 bg-black/40 flex items-center justify-center shadow-lg">
-                    <Icon size={22} strokeWidth={2.2} className={category.color} />
+                {!showGenderLanding && (
+                  <div className="mt-6 flex justify-center">
+                    <div className="h-12 w-12 rounded-full border border-white/10 bg-black/40 flex items-center justify-center shadow-lg">
+                      <Icon size={22} strokeWidth={2.2} className={category.color} />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -604,7 +624,7 @@ export default function Category() {
                     onChange={setSearchInput}
                     placeholder={`Buscar em ${category.label.toLowerCase()}...`}
                     className="lg:max-w-xl"
-                    inputClassName="h-[54px] bg-white border-[#ff7a00]/55 text-zinc-900 caret-[#ff7a00] placeholder:text-zinc-500 hover:bg-white hover:border-[#ff7a00]/70 focus:border-[#ff7a00] focus:ring-[#ff7a00]/20 disabled:opacity-60 disabled:cursor-not-allowed [&:-webkit-autofill]:[-webkit-text-fill-color:#111] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_white] [&:-webkit-autofill]:caret-[#ff7a00]"
+                    inputClassName="h-[54px] bg-white border-[#ff7a00]/55 text-[#111] caret-[#111] placeholder:text-zinc-500 hover:bg-white hover:border-[#ff7a00]/70 focus:border-[#ff7a00] focus:ring-[#ff7a00]/20 disabled:opacity-60 disabled:cursor-not-allowed [&:-webkit-autofill]:[-webkit-text-fill-color:#111] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_white] [&:-webkit-autofill]:caret-[#111]"
                     iconClassName="text-[#ff7a00]"
                   />
 
@@ -614,8 +634,8 @@ export default function Category() {
                       onChange={(value) => applyParams({ sub: value, page: 1 })}
                       options={SUB_FILTER_OPTIONS}
                       className="sm:w-64"
-                      triggerClassName="h-[54px] bg-white border-[#ff7a00]/55 text-zinc-900 hover:bg-white hover:border-[#ff7a00]/70 focus-visible:ring-2 focus-visible:ring-[#ff7a00]/20"
-                      contentClassName="bg-white border-[#ff7a00]/20 text-zinc-900 [&_[data-radix-collection-item]]:text-zinc-900 [&_[data-radix-collection-item]]:focus:bg-[#ff7a00]/10 [&_[data-radix-collection-item]]:focus:text-zinc-900"
+                      triggerClassName="h-[54px] bg-white border-[#ff7a00]/55 text-[#111] hover:bg-white hover:border-[#ff7a00]/70 focus-visible:ring-2 focus-visible:ring-[#ff7a00]/20"
+                      contentClassName="bg-[#151515] border-white/10"
                       active={subFilter !== "melhores"}
                     />
                   </div>
@@ -627,7 +647,7 @@ export default function Category() {
                   {activeFilters.map((label) => (
                     <span
                       key={label}
-                      className="rounded-full border border-[#ff7a00]/25 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-white/80"
+                      className="rounded-full border border-[#ff7a00]/25 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-[#111] shadow-sm"
                     >
                       {label}
                     </span>
@@ -646,7 +666,7 @@ export default function Category() {
             </div>
 
             {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+              <div className="grid max-[349px]:grid-cols-1 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 min-[480px]:gap-5 lg:gap-10">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                   <div
                     key={i}
@@ -659,7 +679,7 @@ export default function Category() {
                 <motion.div
                   ref={gridRef}
                   layout
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10"
+                  className="grid max-[349px]:grid-cols-1 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 min-[480px]:gap-5 lg:gap-10"
                 >
                   <AnimatePresence mode="popLayout">
                     {paginatedEntries.map((entry) => (
@@ -671,7 +691,10 @@ export default function Category() {
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ duration: 0.3 }}
                       >
-                        <ProductCard product={toCardProduct(entry.item)} />
+                        <ProductCard
+                          product={toCardProduct(entry.item)}
+                          variant={isCompactGrid ? "compact" : "default"}
+                        />
                       </motion.div>
                     ))}
                   </AnimatePresence>

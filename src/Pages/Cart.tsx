@@ -1,4 +1,4 @@
-import { CSSProperties, useMemo, useState } from 'react';
+import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShoppingBag,
@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Zap,
   ChevronRight,
+  ChevronDown,
   Lock,
   ExternalLink,
   Truck,
@@ -25,6 +26,7 @@ import { usePriceMonitoring } from '@/hooks/usePriceMonitoring';
 import { openMonitorInfoDialog } from '@/Components/monitoring/MonitorInfoDialog';
 import { toast } from 'sonner';
 import cartHeroImage from '../assets/cart-hero.png';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/Components/ui/collapsible';
 
 const formatPrice = (value: number) =>
   value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -52,11 +54,19 @@ const cartThemeVars: CSSProperties = {
 
 const Cart = () => {
   const { cartItems, loading, updateQuantity, removeFromCart, isLoggedIn, user, authReady } = useCart();
-  const { isMonitoring, toggleMonitoring } = usePriceMonitoring(user);
+  const { isMonitoring, toggleMonitoring, monitoredList, loading: monitoringLoading } =
+    usePriceMonitoring(user);
 
   const [offerDialogOpen, setOfferDialogOpen] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [heroSrc, setHeroSrc] = useState(cartHeroImage);
+  const [monitoredOpen, setMonitoredOpen] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.("(min-width: 1024px)");
+    if (!mq) return;
+    setMonitoredOpen(mq.matches);
+  }, []);
 
   const handleToggleMonitoring = async (product: { id: string; title: string; imageUrl?: string | null; price: number }) => {
     const enabled = await toggleMonitoring(product);
@@ -77,6 +87,16 @@ const Cart = () => {
       return total + price * item.quantity;
     }, 0);
   }, [cartItems]);
+
+  const monitoredProducts = useMemo(() => {
+    return monitoredList
+      .slice()
+      .sort((a, b) => {
+        const at = new Date(a.updated_at || a.created_at || 0).getTime();
+        const bt = new Date(b.updated_at || b.created_at || 0).getTime();
+        return bt - at;
+      });
+  }, [monitoredList]);
 
   const offerItems = useMemo(() => {
     return cartItems
@@ -203,28 +223,26 @@ const Cart = () => {
 
   return (
     <div className="min-h-screen pb-28 text-[var(--cart-text)]" style={cartThemeVars}>
-      <section className="relative h-[210px] sm:h-[250px] lg:h-[300px] w-full overflow-hidden">
-        <div className="absolute inset-0">
+      <section className="relative h-[240px] sm:h-[250px] lg:h-[300px] w-full">
+        <div className="absolute inset-0 overflow-hidden">
           <div className="absolute inset-0 z-0 pointer-events-none">
             <img
               src={heroSrc}
               alt=""
               aria-hidden="true"
               onError={() => setHeroSrc('/images/cart-hero.png')}
-              className="absolute inset-0 h-full w-full object-cover opacity-[0.58]"
+              className="absolute inset-0 h-full w-full object-cover object-center sm:object-[center_84%] opacity-[0.58]"
               style={{
                 filter: 'blur(3px) grayscale(0.3) saturate(1.18) contrast(1.12)',
-                objectPosition: 'center 84%',
               }}
             />
             <img
               src={heroSrc}
               alt=""
               aria-hidden="true"
-              className="absolute inset-0 h-full w-full object-cover opacity-[0.62] scale-[1.04]"
+              className="absolute inset-0 h-full w-full object-cover object-center sm:object-[center_86%] opacity-[0.62] scale-[1.04]"
               style={{
                 filter: 'blur(14px) grayscale(0.2) saturate(1.12) contrast(1.08)',
-                objectPosition: 'center 86%',
                 maskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.0) 45%, black 100%)',
                 WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.0) 45%, black 100%)',
               }}
@@ -235,7 +253,7 @@ const Cart = () => {
         </div>
 
         <div className="relative z-10 h-full">
-          <div className="container relative h-full px-4 pt-8 sm:pt-10">
+          <div className="container relative h-full px-4 pt-6 sm:pt-10">
             <Link
               to="/"
               className="group inline-flex items-center gap-2 rounded-full border border-[var(--cart-border)] bg-white/90 px-3 py-2 text-[10px] font-black uppercase tracking-[0.35em] text-[var(--cart-muted)] hover:text-[var(--cart-accent)] hover:border-[var(--cart-accent)] transition-all shadow-sm"
@@ -246,13 +264,13 @@ const Cart = () => {
               Voltar ao Arsenal
             </Link>
 
-            <div className="absolute left-1/2 bottom-[-42px] w-full max-w-6xl -translate-x-1/2 px-4 sm:px-0">
-              <div className="rounded-[32px] border-2 border-[rgba(255,106,0,0.55)] bg-white/90 px-6 py-6 sm:px-10 sm:py-8 shadow-[var(--cart-shadow)] backdrop-blur-md">
+            <div className="absolute left-1/2 bottom-[-32px] sm:bottom-[-42px] w-full max-w-6xl -translate-x-1/2">
+              <div className="rounded-[28px] sm:rounded-[32px] border-2 border-[rgba(255,106,0,0.55)] bg-white/90 px-4 py-4 sm:px-10 sm:py-8 shadow-[var(--cart-shadow)] backdrop-blur-md">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <h1 className="text-3xl sm:text-4xl md:text-6xl font-black uppercase italic tracking-tighter leading-none text-[var(--cart-text)]">
+                  <h1 className="text-2xl sm:text-4xl md:text-6xl font-black uppercase italic tracking-tighter leading-none text-[var(--cart-text)]">
                     Meu <span className="text-[var(--cart-accent)]">Carrinho</span>
                   </h1>
-                  <div className="inline-flex items-center rounded-full border border-[var(--cart-border)] bg-[var(--cart-surface-2)] px-5 py-2 text-[10px] sm:text-[11px] font-black uppercase italic tracking-[0.2em] text-[var(--cart-muted)]">
+                  <div className="inline-flex items-center rounded-full border border-[var(--cart-border)] bg-[var(--cart-surface-2)] px-4 py-2 text-[9px] sm:text-[11px] font-black uppercase italic tracking-[0.2em] text-[var(--cart-muted)]">
                     {cartItems.length} Itens Selecionados
                   </div>
                 </div>
@@ -291,9 +309,9 @@ const Cart = () => {
                     exit={{ opacity: 0, scale: 0.95 }}
                   >
                     <Card className="bg-[var(--cart-surface)] border border-[var(--cart-border)] rounded-[28px] overflow-hidden shadow-[var(--cart-shadow)]">
-                      <CardContent className="p-6 md:p-7">
-                        <div className="flex flex-col sm:flex-row gap-6 items-center">
-                          <div className="relative h-24 w-24 flex-shrink-0 bg-white rounded-[20px] p-3 border border-[var(--cart-border)]">
+                      <CardContent className="p-4 sm:p-6 md:p-7">
+                        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center">
+                          <div className="relative h-20 w-20 sm:h-24 sm:w-24 flex-shrink-0 bg-white rounded-[18px] sm:rounded-[20px] p-2 sm:p-3 border border-[var(--cart-border)]">
                             <img
                               src={product.image_url || '/placeholder.svg'}
                               alt={product.name}
@@ -307,7 +325,7 @@ const Cart = () => {
                                 <p className="text-[var(--cart-accent)] text-[9px] font-black uppercase tracking-[0.3em] mb-1">
                                   {product.category_id || 'Elite Performance'}
                                 </p>
-                                <h3 className="text-2xl font-black uppercase italic leading-tight tracking-tighter line-clamp-2">
+                                <h3 className="text-lg sm:text-2xl font-black uppercase italic leading-tight tracking-tighter line-clamp-2">
                                   {product.name}
                                 </h3>
                               </div>
@@ -325,16 +343,16 @@ const Cart = () => {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-[var(--cart-muted)] hover:text-[var(--cart-accent)]"
+                                  className="h-11 w-11 sm:h-8 sm:w-8 text-[var(--cart-muted)] hover:text-[var(--cart-accent)]"
                                   onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))}
                                 >
                                   <Minus size={14} />
                                 </Button>
-                                <span className="w-12 text-center font-black italic text-lg">{item.quantity}</span>
+                                <span className="w-10 sm:w-12 text-center font-black italic text-base sm:text-lg">{item.quantity}</span>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-[var(--cart-muted)] hover:text-[var(--cart-accent)]"
+                                  className="h-11 w-11 sm:h-8 sm:w-8 text-[var(--cart-muted)] hover:text-[var(--cart-accent)]"
                                   onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                 >
                                   <Plus size={14} />
@@ -350,7 +368,7 @@ const Cart = () => {
                                     R$ {formatPrice(originalPrice)}
                                   </p>
                                 )}
-                                <p className="text-2xl font-black italic">
+                                <p className="text-xl sm:text-2xl font-black italic">
                                   R$ {formatPrice(currentPrice)}
                                 </p>
                                 {savings > 0 && (
@@ -394,6 +412,97 @@ const Cart = () => {
                 );
               })}
             </AnimatePresence>
+
+            <Collapsible open={monitoredOpen} onOpenChange={setMonitoredOpen}>
+              <Card className="bg-[var(--cart-surface)] border border-[var(--cart-border)] rounded-[28px] overflow-hidden shadow-[var(--cart-shadow)]">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cart-accent-soft)]"
+                    aria-label="Alternar produtos monitorados"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[var(--cart-muted)]">
+                        Produtos monitorados
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--cart-text)]">
+                        {monitoringLoading
+                          ? "Carregando..."
+                          : `${monitoredProducts.length} ativo(s)`}
+                      </p>
+                    </div>
+                    <ChevronDown
+                      className={`h-5 w-5 text-[var(--cart-muted)] transition-transform ${
+                        monitoredOpen ? "rotate-180" : ""
+                      }`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </CollapsibleTrigger>
+
+                <CollapsibleContent>
+                  <CardContent className="px-5 pb-6 sm:px-6">
+                    {monitoringLoading ? (
+                      <div className="rounded-2xl border border-[var(--cart-border)] bg-white px-4 py-4 text-sm text-[var(--cart-muted)]">
+                        Carregando monitoramentos...
+                      </div>
+                    ) : monitoredProducts.length === 0 ? (
+                      <div className="rounded-2xl border border-[var(--cart-border)] bg-white px-4 py-4 text-sm text-[var(--cart-muted)]">
+                        Nenhum produto monitorado no momento.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {monitoredProducts.map((item) => (
+                          <div
+                            key={item.product_id}
+                            className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--cart-border)] bg-white p-4"
+                          >
+                            <Link
+                              to={resolveProductHref({ id: item.product_id })}
+                              className="flex min-w-0 items-center gap-3"
+                            >
+                              <div className="h-16 w-16 sm:h-14 sm:w-14 rounded-xl border border-[var(--cart-border)] bg-[var(--cart-surface-2)] p-2 overflow-hidden flex items-center justify-center">
+                                <img
+                                  src={item.image_url || "/placeholder.svg"}
+                                  alt={item.product_title || "Produto"}
+                                  className="h-full w-full object-contain"
+                                  loading="lazy"
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-[var(--cart-text)] line-clamp-2">
+                                  {item.product_title || "Produto"}
+                                </p>
+                                <p className="mt-1 text-[11px] text-[var(--cart-muted)]">
+                                  Base:{" "}
+                                  {typeof item.baseline_price === "number"
+                                    ? `R$ ${formatPrice(item.baseline_price)}`
+                                    : "N/D"}
+                                </p>
+                              </div>
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleToggleMonitoring({
+                                  id: item.product_id,
+                                  title: item.product_title || "Produto",
+                                  imageUrl: item.image_url ?? null,
+                                  price: Number(item.baseline_price) || 0,
+                                })
+                              }
+                              className="shrink-0 inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--cart-border)] bg-white px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-[var(--cart-muted)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)] transition-colors"
+                            >
+                              Desativar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
           </div>
 
           {/* RESUMO */}
@@ -440,7 +549,7 @@ const Cart = () => {
                   <Button
                     disabled={isRedirecting}
                     onClick={handlePrimaryOffer}
-                    className="w-full h-16 bg-[var(--cart-accent)] hover:bg-[#e85f00] text-white font-black uppercase italic rounded-[22px] text-lg transition-all duration-200 group shadow-[0_16px_32px_rgba(255,106,0,0.25)] focus-visible:ring-4 focus-visible:ring-[var(--cart-accent-soft)]"
+                    className="hidden sm:inline-flex w-full h-16 bg-[var(--cart-accent)] hover:bg-[#e85f00] text-white font-black uppercase italic rounded-[22px] text-lg transition-all duration-200 group shadow-[0_16px_32px_rgba(255,106,0,0.25)] focus-visible:ring-4 focus-visible:ring-[var(--cart-accent-soft)]"
                   >
                     <span className="relative z-10 flex items-center gap-3">
                       Ver oferta <Zap className="h-5 w-5 fill-current" />
@@ -483,25 +592,27 @@ const Cart = () => {
               return (
                 <div
                   key={offer.item.id}
-                  className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--cart-border)] bg-[var(--cart-surface-2)] p-4"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-2xl border border-[var(--cart-border)] bg-[var(--cart-surface-2)] p-4 min-h-[92px]"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="h-14 w-14 rounded-xl bg-white border border-[var(--cart-border)] p-2">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="h-16 w-16 shrink-0 rounded-xl bg-white border border-[var(--cart-border)] p-2 overflow-hidden flex items-center justify-center">
                       <img
                         src={product.image_url || '/placeholder.svg'}
                         alt={product.name}
                         className="h-full w-full object-contain"
                       />
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-[var(--cart-text)] line-clamp-2">{product.name}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-[var(--cart-text)] line-clamp-2">
+                        {product.name}
+                      </p>
                       <p className="text-xs text-[var(--cart-muted)]">R$ {formatPrice(price)}</p>
                     </div>
                   </div>
                   <Button
                     onClick={() => openOffer(offer.offerLink)}
                     variant="outline"
-                    className="h-10 rounded-full border-[var(--cart-border)] bg-white text-[var(--cart-text)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)]"
+                    className="h-10 min-w-[120px] rounded-full border-[var(--cart-border)] bg-white text-[var(--cart-text)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)]"
                     disabled={!offer.offerLink}
                   >
                     Ver oferta
@@ -513,7 +624,7 @@ const Cart = () => {
         </DialogContent>
       </Dialog>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[var(--cart-border)] shadow-[0_-12px_30px_rgba(0,0,0,0.08)] p-4 sm:hidden">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[var(--cart-border)] shadow-[0_-12px_30px_rgba(0,0,0,0.08)] px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:hidden">
         <Button
           disabled={isRedirecting}
           onClick={handlePrimaryOffer}

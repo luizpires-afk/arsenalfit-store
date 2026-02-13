@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/Components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthResendCooldown } from "@/hooks/useAuthResendCooldown";
+import { safeErrorMessage, safeMessage } from "@/lib/humanText";
 import logoImage from "../assets/arsenalfit-logo.png";
 
 type Status = "loading" | "error" | "success";
@@ -30,7 +31,7 @@ const Verify = () => {
     const consumeToken = async () => {
       if (!token || type !== "signup") {
         setStatus("error");
-        setMessage("Link inv\u00e1lido ou expirado.");
+        setMessage("Link inválido ou expirado.");
         return;
       }
 
@@ -70,7 +71,7 @@ const Verify = () => {
       } catch {
         if (!mounted) return;
         setStatus("error");
-        setMessage("Link inv\u00e1lido ou expirado.");
+        setMessage("Link inválido ou expirado.");
       }
     };
 
@@ -83,7 +84,7 @@ const Verify = () => {
 
   const handleResend = async () => {
     if (!email) {
-      toast.error("E-mail n\u00e3o encontrado no link.");
+      toast.error("E-mail não encontrado no link.");
       return;
     }
     if (cooldown > 0) {
@@ -100,12 +101,12 @@ const Verify = () => {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.message || "Erro ao reenviar.");
+        throw new Error(safeMessage(payload?.message, "Erro ao reenviar."));
       }
       startCooldown(60);
       toast.success("Se existir conta, enviamos um novo link.");
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao reenviar.");
+      toast.error(safeErrorMessage(error, "Erro ao reenviar."));
     } finally {
       setResending(false);
     }
@@ -145,7 +146,7 @@ const Verify = () => {
             {status === "success"
               ? "Conta confirmada"
               : status === "error"
-                ? "Link inv\u00e1lido"
+                ? "Link inválido"
                 : "Confirmando sua conta"}
           </h2>
           <p className="text-muted-foreground text-sm mt-3">{message}</p>
@@ -163,7 +164,7 @@ const Verify = () => {
                   ? "Enviando..."
                   : cooldown > 0
                     ? `Reenviar em ${cooldown}s`
-                    : "Enviar novo link de verifica\u00e7\u00e3o"}
+                    : "Enviar novo link de verificação"}
               </Button>
             )}
             <Link to="/login">

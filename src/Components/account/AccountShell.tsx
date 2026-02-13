@@ -53,7 +53,7 @@ export const BreadcrumbChips = ({
 }) => (
   <div
     className={cn(
-      "flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar text-[10px] font-black uppercase tracking-[0.35em] text-zinc-400 sm:flex-wrap sm:overflow-visible",
+      "flex flex-wrap items-center gap-2 overflow-visible text-[9px] font-black uppercase tracking-[0.28em] text-zinc-400 sm:text-[10px] sm:tracking-[0.35em]",
       className
     )}
   >
@@ -84,7 +84,7 @@ export const SegmentedTabs = ({
 }) => (
   <TabsList
     className={cn(
-      "h-auto w-full justify-start gap-2 overflow-x-auto no-scrollbar rounded-full border border-[rgb(var(--chip-border))] bg-[rgb(var(--chip-bg))] p-2 text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+      "h-auto w-full flex-wrap justify-start gap-2 overflow-visible rounded-full border border-[rgb(var(--chip-border))] bg-[rgb(var(--chip-bg))] p-2 text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:flex-nowrap sm:overflow-x-auto sm:no-scrollbar",
       className
     )}
   >
@@ -92,7 +92,7 @@ export const SegmentedTabs = ({
       <TabsTrigger
         key={tab.value}
         value={tab.value}
-        className="group relative shrink-0 gap-2 rounded-full border border-transparent bg-transparent px-4 py-2 text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400 transition-all duration-200 hover:border-white/20 hover:text-white focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))] focus-visible:ring-offset-2 focus-visible:ring-offset-black data-[state=active]:border-[hsl(var(--accent-orange))]/60 data-[state=active]:bg-[hsl(var(--accent-orange))]/15 data-[state=active]:text-[hsl(var(--accent-orange))] after:absolute after:inset-x-4 after:-bottom-[6px] after:h-[2px] after:rounded-full after:bg-transparent after:transition after:duration-200 data-[state=active]:after:bg-[hsl(var(--accent-orange))]"
+        className="group relative flex-1 justify-center gap-2 rounded-full border border-transparent bg-transparent px-3 py-2 text-[9px] font-black uppercase tracking-[0.22em] text-zinc-400 transition-all duration-200 hover:border-white/20 hover:text-white focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))] focus-visible:ring-offset-2 focus-visible:ring-offset-black data-[state=active]:border-[hsl(var(--accent-orange))]/60 data-[state=active]:bg-[hsl(var(--accent-orange))]/15 data-[state=active]:text-[hsl(var(--accent-orange))] after:absolute after:inset-x-3 after:-bottom-[6px] after:h-[2px] after:rounded-full after:bg-transparent after:transition after:duration-200 data-[state=active]:after:bg-[hsl(var(--accent-orange))] sm:flex-none sm:shrink-0 sm:px-4 sm:text-[10px] sm:tracking-[0.3em] sm:after:inset-x-4"
       >
         <tab.icon className="h-3.5 w-3.5" />
         {tab.label}

@@ -5,7 +5,7 @@ import {
   ChevronLeft,
   ChevronDown,
   ChevronUp,
-  Heart,
+  Search,
   Lock,
   ShieldCheck,
   Star,
@@ -28,6 +28,7 @@ import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/ca
 import { useProduct } from "@/hooks/useProducts";
 import { useCart } from "@/hooks/useCart";
 import { useSyncedHeight } from "@/hooks/useSyncedHeight";
+import { usePriceMonitoring } from "@/hooks/usePriceMonitoring";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ExtendedProduct {
@@ -201,6 +202,9 @@ const BuyBoxSticky = ({
   isBuying,
   isAdding,
   containerRef,
+  monitorActive,
+  onToggleMonitor,
+  monitorDisabled,
 }: {
   price: number;
   originalPrice?: number | null;
@@ -216,19 +220,42 @@ const BuyBoxSticky = ({
   isBuying: boolean;
   isAdding: boolean;
   containerRef?: RefObject<HTMLDivElement>;
+  monitorActive?: boolean;
+  onToggleMonitor?: () => void;
+  monitorDisabled?: boolean;
 }) => (
   <div
     ref={containerRef}
     className="lg:sticky lg:top-[calc(var(--header-height,72px)+24px)]"
   >
     <div className="rounded-[24px] border border-zinc-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.08)] space-y-6">
-      {isFeatured && (
-        <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-zinc-400">
-          <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 font-semibold text-orange-700">
-            Destaque Arsenal
-          </span>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {isFeatured && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-700">
+              Destaque Arsenal
+            </span>
+          )}
         </div>
-      )}
+
+        {onToggleMonitor && (
+          <button
+            type="button"
+            onClick={onToggleMonitor}
+            disabled={monitorDisabled}
+            aria-pressed={Boolean(monitorActive)}
+            aria-label={monitorActive ? "Desativar monitoramento de preço" : "Ativar monitoramento de preço"}
+            className={`inline-flex h-11 items-center gap-2 rounded-full border px-4 text-[12px] font-bold text-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/30 ${
+              monitorActive
+                ? "border-orange-200 bg-orange-50 text-orange-700"
+                : "border-zinc-200 bg-white hover:border-[hsl(var(--accent-orange))]/40 hover:text-[hsl(var(--accent-orange))]"
+            } ${monitorDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+          >
+            <Search size={16} className="text-[hsl(var(--accent-orange))]" />
+            {monitorActive ? "Monitorando" : "Monitorar preço"}
+          </button>
+        )}
+      </div>
 
       <div className="space-y-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-400">
@@ -340,17 +367,18 @@ const CollapsibleDescription = ({ text }: { text: string }) => {
 export default function ProductDetails() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
-  const { addToCart, isLoggedIn } = useCart();
+  const { addToCart, isLoggedIn, user } = useCart();
+  const { isMonitoring, toggleMonitoring, loading: monitoringLoading } = usePriceMonitoring(user);
 
   const { product, loading, error } = useProduct(slug);
   const p = product as ExtendedProduct | null;
 
   const [showStickyCTA, setShowStickyCTA] = useState(false);
-  const [isFavorited, setIsFavorited] = useState(false);
   const [related, setRelated] = useState<ExtendedProduct[]>([]);
   const [activeImage, setActiveImage] = useState(0);
   const [isAdding, setIsAdding] = useState(false);
   const [isBuying, setIsBuying] = useState(false);
+  const [monitorBusy, setMonitorBusy] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [isSticky, setIsSticky] = useState(false);
   const imageCardRef = useRef<HTMLDivElement | null>(null);
@@ -447,6 +475,7 @@ export default function ProductDetails() {
   }, [slug]);
 
   const title = p?.name || p?.title || "Produto";
+  const isMonitored = Boolean(p?.id && isMonitoring(p.id));
 
   const galleryImages = useMemo(() => {
     const images = [p?.image_url, ...(p?.images || [])].filter(Boolean) as string[];
@@ -553,9 +582,22 @@ export default function ProductDetails() {
     fetchRelated();
   }, [p?.brand, p?.id]);
 
-  const handleFavorite = () => {
-    setIsFavorited((s) => !s);
-    toast.success(isFavorited ? "Monitoramento removido" : "Produto monitorado para alertas");
+  const handleToggleMonitoring = async () => {
+    if (!p) return;
+    if (monitorBusy) return;
+
+    setMonitorBusy(true);
+    try {
+      const enabled = await toggleMonitoring({
+        id: p.id,
+        title,
+        imageUrl: p.image_url ?? null,
+        price: Number(p.price) || 0,
+      });
+      toast.success(enabled ? "Produto monitorado para alertas" : "Monitoramento removido");
+    } finally {
+      setMonitorBusy(false);
+    }
   };
 
   const handleBuyNow = () => {
@@ -712,6 +754,9 @@ export default function ProductDetails() {
               isBuying={isBuying}
               isAdding={isAdding}
               containerRef={buyBoxRef}
+              monitorActive={isMonitored}
+              onToggleMonitor={handleToggleMonitoring}
+              monitorDisabled={monitorBusy || monitoringLoading}
             />
 
             {tagline && (
@@ -721,20 +766,6 @@ export default function ProductDetails() {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
-              <button
-                type="button"
-                onClick={handleFavorite}
-                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
-                  isFavorited
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-zinc-200 text-zinc-500 hover:border-primary"
-                }`}
-              >
-                <Heart className={isFavorited ? "fill-current" : ""} size={14} />
-                {isFavorited ? "Monitorando preço" : "Monitorar preço"}
-              </button>
-            </div>
           </motion.div>
         </div>
 

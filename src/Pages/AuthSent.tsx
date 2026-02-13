@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/Components/ui/button";
 import { useAuthResendCooldown } from "@/hooks/useAuthResendCooldown";
 import { startAuthResendCooldown } from "@/lib/authResendCooldown";
+import { safeErrorMessage, safeMessage } from "@/lib/humanText";
 
 const COOLDOWN_SECONDS = 60;
 
@@ -38,7 +39,7 @@ export default function AuthSent() {
 
   const handleResend = async () => {
     if (!email) {
-      toast.error("Digite um e-mail v\u00e1lido.");
+      toast.error("Digite um e-mail válido.");
       return;
     }
     if (cooldown > 0) {
@@ -55,12 +56,12 @@ export default function AuthSent() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.message || "Erro ao reenviar.");
+        throw new Error(safeMessage(payload?.message, "Erro ao reenviar."));
       }
       startCooldown(COOLDOWN_SECONDS);
       toast.success("Se existir conta, enviamos um novo e-mail.");
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao reenviar.");
+      toast.error(safeErrorMessage(error, "Erro ao reenviar."));
     } finally {
       setResending(false);
     }
@@ -73,7 +74,7 @@ export default function AuthSent() {
           <CheckCircle2 className="h-8 w-8 text-primary" />
         </div>
         <h1 className="text-2xl font-black uppercase italic text-foreground">
-          {isReset ? "Link enviado" : "Verifica\u00e7\u00e3o enviada"}
+          {isReset ? "Link enviado" : "Verificação enviada"}
         </h1>
         <p className="text-muted-foreground text-sm mt-3">
           {isReset
@@ -98,8 +99,8 @@ export default function AuthSent() {
               : cooldown > 0
                 ? `Enviar novo link em ${cooldown}s`
                 : isReset
-                  ? "Enviar novo link de recupera\u00e7\u00e3o"
-                  : "Enviar novo link de verifica\u00e7\u00e3o"}
+                  ? "Enviar novo link de recuperação"
+                  : "Enviar novo link de verificação"}
           </Button>
           <Link to="/login">
             <Button className="w-full min-h-[44px] h-12 rounded-2xl font-black uppercase italic">

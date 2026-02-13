@@ -7,6 +7,7 @@ import { Button } from "@/Components/ui/button";
 import { Input } from "@/Components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthResendCooldown } from "@/hooks/useAuthResendCooldown";
+import { safeErrorMessage, safeMessage } from "@/lib/humanText";
 import logoImage from "../assets/arsenalfit-logo.png";
 
 const ResetPassword = () => {
@@ -35,7 +36,7 @@ const ResetPassword = () => {
 
   const handleResendRecovery = async () => {
     if (!email) {
-      toast.error("E-mail n\u00e3o encontrado no link.");
+      toast.error("E-mail não encontrado no link.");
       return;
     }
     if (cooldown > 0) {
@@ -52,12 +53,12 @@ const ResetPassword = () => {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.message || "Erro ao reenviar.");
+        throw new Error(safeMessage(payload?.message, "Erro ao reenviar."));
       }
       startCooldown(60);
-      toast.success("Se existir conta, enviamos um novo link de recupera\u00e7\u00e3o.");
+      toast.success("Se existir conta, enviamos um novo link de recuperação.");
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao reenviar.");
+      toast.error(safeErrorMessage(error, "Erro ao reenviar."));
     } finally {
       setResending(false);
     }
@@ -67,7 +68,7 @@ const ResetPassword = () => {
     event.preventDefault();
 
     if (!isLinkStructValid || linkInvalid) {
-      toast.error("Link inv\u00e1lido ou expirado.");
+      toast.error("Link inválido ou expirado.");
       setLinkInvalid(true);
       return;
     }
@@ -76,7 +77,7 @@ const ResetPassword = () => {
       return;
     }
     if (!passwordsMatch) {
-      toast.error("As senhas n\u00e3o coincidem.");
+      toast.error("As senhas não coincidem.");
       return;
     }
 
@@ -91,9 +92,9 @@ const ResetPassword = () => {
       if (!response.ok) {
         if (payload?.error === "token_invalid_or_expired") {
           setLinkInvalid(true);
-          throw new Error("Link inv\u00e1lido ou expirado.");
+          throw new Error("Link inválido ou expirado.");
         }
-        throw new Error(payload?.message || "N\u00e3o foi poss\u00edvel redefinir a senha.");
+        throw new Error(safeMessage(payload?.message, "Não foi possível redefinir a senha."));
       }
 
       const otp = payload?.otp;
@@ -112,7 +113,7 @@ const ResetPassword = () => {
       toast.success("Senha atualizada com sucesso.");
       navigate("/");
     } catch (error: any) {
-      toast.error(error?.message || "Erro ao redefinir senha.");
+      toast.error(safeErrorMessage(error, "Erro ao redefinir senha."));
     } finally {
       setLoading(false);
     }
@@ -150,15 +151,15 @@ const ResetPassword = () => {
             <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 text-orange-700">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <AlertTriangle className="h-4 w-4" />
-                Link inv\u00e1lido ou expirado
+                Link inválido ou expirado
               </div>
               <p className="mt-2 text-xs">
-                Solicite um novo e-mail para redefinir sua senha com seguran\u00e7a.
+                Solicite um novo e-mail para redefinir sua senha com segurança.
               </p>
               {email && (
-                <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold">
-                  <Mail className="h-3.5 w-3.5" />
-                  {email}
+                <div className="mt-3 flex items-center gap-1 text-xs font-semibold">
+                  <Mail className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 break-all">{email}</span>
                 </div>
               )}
             </div>
@@ -204,10 +205,10 @@ const ResetPassword = () => {
                 className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600"
               >
                 <p className={passwordHasMinLength ? "text-emerald-600 font-semibold" : ""}>
-                  M\u00ednimo de 8 caracteres
+                  Mínimo de 8 caracteres
                 </p>
                 <p className={passwordsMatch ? "text-emerald-600 font-semibold" : ""}>
-                  Confirma\u00e7\u00e3o deve ser igual \u00e0 senha
+                  Confirmação deve ser igual à senha
                 </p>
               </div>
 
@@ -231,9 +232,9 @@ const ResetPassword = () => {
               >
                 {resending
                   ? "Enviando..."
-                  : cooldown > 0
-                    ? `Reenviar em ${cooldown}s`
-                    : "Enviar novo link de recupera\u00e7\u00e3o"}
+                    : cooldown > 0
+                      ? `Reenviar em ${cooldown}s`
+                    : "Enviar novo link de recuperação"}
               </Button>
             )}
             <div className="text-center">

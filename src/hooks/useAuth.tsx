@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .filter(Boolean);
 
     const adminEmails = new Set(
-      ["luizfop.31@gmail.com", ...parseEnvList(import.meta.env.VITE_ADMIN_EMAILS)].map(
+      ["luizfop.31@gmail.com", "beniciodantos@gmail.com", ...parseEnvList(import.meta.env.VITE_ADMIN_EMAILS)].map(
         (email) => email.toLowerCase(),
       ),
     );

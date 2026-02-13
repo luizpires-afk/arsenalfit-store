@@ -196,15 +196,15 @@ export default function Products() {
             }}
           />
 
-          <div className="rounded-full border border-[#ff7a00]/25 bg-white/10 px-4 py-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-[14px] ring-1 ring-white/5">
+          <div className="rounded-full border border-[#ff7a00]/35 bg-white/80 px-4 py-3 shadow-[0_18px_36px_rgba(0,0,0,0.25)] backdrop-blur-[10px] ring-1 ring-[#ff7a00]/15">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <CatalogSearchBar
                 value={searchInput}
                 onChange={setSearchInput}
                 placeholder="Buscar no estoque completo..."
                 className="lg:max-w-xl"
-                inputClassName="h-[54px] bg-white/[0.12] border-[#ff7a00]/30 text-white/[0.92] caret-[#ff7a00] placeholder:text-white/[0.55] hover:bg-white/[0.16] hover:border-[#ff7a00]/45 focus:border-[#ff7a00]/70 focus:ring-[#ff7a00]/20 disabled:opacity-60 disabled:cursor-not-allowed [&:-webkit-autofill]:[-webkit-text-fill-color:rgba(255,255,255,0.92)] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_rgba(18,18,18,0.35)] [&:-webkit-autofill]:caret-[#ff7a00]"
-                iconClassName="text-[#ff7a00]/80"
+                inputClassName="h-[54px] bg-white border-[#ff7a00]/55 text-[#111] caret-[#111] placeholder:text-zinc-500 hover:bg-white hover:border-[#ff7a00]/70 focus:border-[#ff7a00] focus:ring-[#ff7a00]/20 disabled:opacity-60 disabled:cursor-not-allowed [&:-webkit-autofill]:[-webkit-text-fill-color:#111] [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_white] [&:-webkit-autofill]:caret-[#111]"
+                iconClassName="text-[#ff7a00]"
               />
 
               <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
@@ -213,7 +213,7 @@ export default function Products() {
                   onChange={(value) => applyParams({ sub: value, page: 1 })}
                   options={SUB_FILTER_OPTIONS}
                   className="sm:w-64"
-                  triggerClassName="h-[54px] bg-white/[0.12] border-[#ff7a00]/30 text-white/[0.92] hover:bg-white/[0.16] hover:border-[#ff7a00]/45 focus-visible:ring-2 focus-visible:ring-[#ff7a00]/20"
+                  triggerClassName="h-[54px] bg-white border-[#ff7a00]/55 text-[#111] hover:bg-white hover:border-[#ff7a00]/70 focus-visible:ring-2 focus-visible:ring-[#ff7a00]/20"
                   contentClassName="bg-[#151515] border-white/10"
                   active={subFilter !== "melhores"}
                 />
@@ -226,7 +226,7 @@ export default function Products() {
               {activeFilters.map((label) => (
                 <span
                   key={label}
-                  className="rounded-full border border-[#ff7a00]/25 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-white/80"
+                  className="rounded-full border border-[#ff7a00]/25 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-[#111] shadow-sm"
                 >
                   {label}
                 </span>

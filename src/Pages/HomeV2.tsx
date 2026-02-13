@@ -265,14 +265,35 @@ const useCarouselState = (
     const container = ref.current;
     if (!container) return;
 
+    let paddingLeft = 0;
+    let paddingRight = 0;
+
+    const readPadding = () => {
+      if (typeof window === "undefined") return;
+      const style = window.getComputedStyle(container);
+      paddingLeft = Number.parseFloat(style.paddingLeft || "0") || 0;
+      paddingRight = Number.parseFloat(style.paddingRight || "0") || 0;
+    };
+
     const update = () => {
       const { scrollLeft, scrollWidth, clientWidth } = container;
       if (!clientWidth) {
-        setState({
-          canScrollLeft: false,
-          canScrollRight: false,
-          pageIndex: 0,
-          pageCount: 1,
+        setState((prev) => {
+          const next = {
+            canScrollLeft: false,
+            canScrollRight: false,
+            pageIndex: 0,
+            pageCount: 1,
+          };
+          if (
+            prev.canScrollLeft === next.canScrollLeft &&
+            prev.canScrollRight === next.canScrollRight &&
+            prev.pageIndex === next.pageIndex &&
+            prev.pageCount === next.pageCount
+          ) {
+            return prev;
+          }
+          return next;
         });
         return;
       }
@@ -285,30 +306,45 @@ const useCarouselState = (
         Math.round(progress * (pageCount - 1)),
       );
 
-      setState({
-        canScrollLeft: scrollLeft > 6,
-        canScrollRight: scrollLeft < maxScrollLeft - 6,
-        pageIndex,
-        pageCount,
+      const edgeEpsilon = 4;
+      const canScrollLeft = scrollLeft > paddingLeft + edgeEpsilon;
+      const canScrollRight = scrollLeft < maxScrollLeft - paddingRight - edgeEpsilon;
+
+      setState((prev) => {
+        const next = { canScrollLeft, canScrollRight, pageIndex, pageCount };
+        if (
+          prev.canScrollLeft === next.canScrollLeft &&
+          prev.canScrollRight === next.canScrollRight &&
+          prev.pageIndex === next.pageIndex &&
+          prev.pageCount === next.pageCount
+        ) {
+          return prev;
+        }
+        return next;
       });
     };
 
-    const raf = requestAnimationFrame(update);
+    const handleResize = () => {
+      readPadding();
+      update();
+    };
+
+    const raf = requestAnimationFrame(handleResize);
     container.addEventListener("scroll", update, { passive: true });
 
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
-      resizeObserver = new ResizeObserver(update);
+      resizeObserver = new ResizeObserver(handleResize);
       resizeObserver.observe(container);
     } else {
-      window.addEventListener("resize", update);
+      window.addEventListener("resize", handleResize);
     }
 
     return () => {
       cancelAnimationFrame(raf);
       container.removeEventListener("scroll", update);
       if (resizeObserver) resizeObserver.disconnect();
-      else window.removeEventListener("resize", update);
+      else window.removeEventListener("resize", handleResize);
     };
   }, [ref, itemCount]);
 

@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
 export const JSON_HEADERS = {
-  "Content-Type": "application/json",
+  "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
 };
 

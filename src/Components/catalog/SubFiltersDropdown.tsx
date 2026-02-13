@@ -6,6 +6,7 @@ import {
   SelectValue,
 } from "@/Components/ui/select";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 type SubFiltersDropdownProps = {
   value: string;
@@ -31,9 +32,17 @@ export function SubFiltersDropdown({
   contentClassName,
   active,
 }: SubFiltersDropdownProps) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={onChange} open={open} onOpenChange={setOpen}>
       <ST
+        onPointerDown={(event: any) => {
+          if (!open) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+        }}
         className={cn(
           "w-full h-12 rounded-full border border-white/10 bg-black/40 text-[10px] font-black uppercase tracking-[0.3em] text-zinc-300 hover:border-white/25 transition-all",
           active &&

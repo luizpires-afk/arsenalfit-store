@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/Components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/bodyScrollLock";
 
 type SuggestionItem = {
   id: string;
@@ -148,6 +149,7 @@ export default function SearchBarSticky() {
   const [isFocused, setIsFocused] = useState(false);
   const [isExpandedMobile, setIsExpandedMobile] = useState(false);
   const [isCompact, setIsCompact] = useState(false);
+  const [isAtTop, setIsAtTop] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -673,10 +675,34 @@ export default function SearchBarSticky() {
   };
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsCompact(window.scrollY > 24);
+    const TOP_OFF = 4;
+    const TOP_ON = 1;
+    const COMPACT_ON = 24;
+    const COMPACT_OFF = 8;
+    let ticking = false;
+
+    const update = () => {
+      ticking = false;
+      const y = window.scrollY || 0;
+      setIsAtTop((prev) => {
+        if (prev && y >= TOP_OFF) return false;
+        if (!prev && y <= TOP_ON) return true;
+        return prev;
+      });
+      setIsCompact((prev) => {
+        if (!prev && y >= COMPACT_ON) return true;
+        if (prev && y <= COMPACT_OFF) return false;
+        return prev;
+      });
     };
-    handleScroll();
+
+    const handleScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+
+    update();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -695,6 +721,13 @@ export default function SearchBarSticky() {
       }),
     );
   }, [isExpandedMobile]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (!(isOpen && isExpandedMobile)) return;
+    lockBodyScroll();
+    return () => unlockBodyScroll();
+  }, [isMobile, isOpen, isExpandedMobile]);
 
   useEffect(() => {
     const handleExternalToggle = () => {
@@ -836,8 +869,19 @@ export default function SearchBarSticky() {
     "h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 rounded-lg bg-zinc-50 border border-zinc-200 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] overflow-hidden flex items-center justify-center p-1";
   const miniCardImageClass = "h-full w-full object-contain";
   const showClearOrClose = Boolean(query.trim().length) || (isMobile && isExpandedMobile);
+  const shouldHideFloatingBar =
+    isMobile && !isAtTop && !isExpandedMobile && !isFocused && !isOpen;
   return (
-    <div id="sticky-search" ref={containerRef} className="sticky top-20 md:top-16 z-40">
+    <div
+      id="sticky-search"
+      ref={containerRef}
+      aria-hidden={shouldHideFloatingBar}
+      className={`sticky top-20 md:top-16 z-40 transition-all duration-200 ${
+        shouldHideFloatingBar
+          ? "opacity-0 pointer-events-none -translate-y-2"
+          : "opacity-100 translate-y-0"
+      }`}
+    >
       <div
         className={`mx-auto max-w-6xl px-4 sm:px-6 transition-all duration-200 ${
           isCompact ? "py-2" : "py-3 sm:py-4"
@@ -858,12 +902,12 @@ export default function SearchBarSticky() {
 
           <div
             id="sticky-search-field"
-            className={`relative w-full transition-all duration-200 ${
+            className={`relative z-30 w-full transition-all duration-200 ${
               isExpandedMobile ? "block" : "hidden sm:block"
             }`}
           >
             <div
-              className={`flex items-center gap-2 w-full rounded-full border bg-white/95 backdrop-blur transition-all duration-200 ${
+              className={`flex items-center gap-2 w-full rounded-full border bg-white transition-all duration-200 sm:bg-white/95 sm:backdrop-blur ${
                 isCompact
                   ? "h-11 sm:h-12 shadow-[0_18px_40px_rgba(15,23,42,0.16)] border-zinc-200"
                   : "h-11 sm:h-14 shadow-[0_10px_28px_rgba(15,23,42,0.12)] border-zinc-200"
@@ -903,7 +947,7 @@ export default function SearchBarSticky() {
                 <button
                   type="button"
                   onClick={handleClearOrClose}
-                  className="mr-1 h-10 w-10 rounded-full text-zinc-400 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="mr-1 h-11 w-11 sm:h-10 sm:w-10 rounded-full text-zinc-400 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   aria-label={query.trim().length > 0 ? "Limpar busca" : "Fechar busca"}
                 >
                   <X className="h-4 w-4 mx-auto" />
@@ -916,7 +960,7 @@ export default function SearchBarSticky() {
         {isOpen && isMobile && isExpandedMobile && (
           <button
             type="button"
-            className="fixed inset-0 z-20 bg-zinc-950/35 backdrop-blur-[1px]"
+            className="fixed inset-0 z-10 bg-zinc-950/35 backdrop-blur-[1px]"
             onClick={collapseMobileSearch}
             aria-label="Fechar busca"
           />

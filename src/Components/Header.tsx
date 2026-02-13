@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Home, LayoutGrid, Menu, Package, Search, ShoppingCart, X } from "lucide-react";
 import { Button } from "@/Components/ui/button";
 import { Badge } from "@/Components/ui/badge";
@@ -7,6 +8,7 @@ import { useCart } from "@/hooks/useCart";
 import { UserMenu } from "@/Components/auth/UserMenu";
 import { useAuth } from "@/hooks/useAuth";
 import { getFirstName } from "@/utils";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/bodyScrollLock";
 
 const NAV_ITEMS = [
   {
@@ -125,8 +127,27 @@ export const Header = () => {
   const isHomeRoute = location.pathname === "/" || location.pathname === "/home";
 
   useEffect(() => {
-    const onScroll = () => setIsScrolled(window.scrollY > 8);
-    onScroll();
+    const SCROLL_ON = 32;
+    const SCROLL_OFF = 8;
+    let ticking = false;
+
+    const update = () => {
+      ticking = false;
+      const y = window.scrollY || 0;
+      setIsScrolled((prev) => {
+        if (!prev && y >= SCROLL_ON) return true;
+        if (prev && y <= SCROLL_OFF) return false;
+        return prev;
+      });
+    };
+
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+
+    update();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -145,10 +166,9 @@ export const Header = () => {
   }, [mobileOpen]);
 
   useEffect(() => {
-    document.body.style.overflow = mobileOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
+    if (!mobileOpen) return;
+    lockBodyScroll();
+    return () => unlockBodyScroll();
   }, [mobileOpen]);
 
   useEffect(() => {
@@ -203,9 +223,92 @@ export const Header = () => {
     window.dispatchEvent(new CustomEvent("arsenalfit:toggle-search"));
   };
 
+  const menuTopOffset = isScrolled
+    ? "top-[var(--header-height-scrolled)]"
+    : "top-[var(--header-height)]";
+
+  const mobileMenu = mobileOpen ? (
+    <div className="fixed inset-0 z-[59] lg:hidden" role="dialog" aria-modal="true">
+      <button
+        className={`absolute inset-x-0 bottom-0 ${menuTopOffset} bg-zinc-950/60 backdrop-blur-[2px]`}
+        aria-label="Fechar menu"
+        onClick={() => setMobileOpen(false)}
+      />
+      <div
+        id="mobile-menu"
+        className={`absolute right-0 bottom-0 ${menuTopOffset} w-[86%] max-w-[360px] bg-white shadow-[0_24px_56px_rgba(15,23,42,0.35)] border-l border-zinc-200/70 flex flex-col`}
+      >
+        <div className="flex items-center px-5 py-4 border-b border-zinc-200/70">
+          <span className="text-[11px] font-black uppercase tracking-[0.28em] text-zinc-400">
+            Menu
+          </span>
+        </div>
+        <nav className="flex flex-col gap-1 p-4" aria-label="Menu mobile">
+          {NAV_ITEMS.map((item, index) => {
+            const active = getIsActive(location.pathname, item.isActive);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                ref={index === 0 ? firstMobileLinkRef : undefined}
+                aria-current={active ? "page" : undefined}
+                className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-[0.2em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "text-zinc-700 hover:bg-zinc-100"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="mt-auto border-t border-zinc-200/70 p-4 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-zinc-400">
+            Conta
+          </p>
+          {user ? (
+            <>
+              <div className="text-xs font-semibold text-zinc-500 px-1">
+                {mobileGreeting}
+              </div>
+              <Link
+                to="/perfil"
+                className="flex min-h-[44px] items-center justify-between rounded-xl border border-zinc-200/70 px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
+              >
+                Minha conta
+                {isAdmin && (
+                  <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary">
+                    ADMIN
+                  </span>
+                )}
+              </Link>
+              <button
+                type="button"
+                onClick={handleMobileLogout}
+                className="w-full min-h-[44px] rounded-xl border border-red-200/70 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
+              >
+                Sair
+              </button>
+            </>
+          ) : (
+            <Link
+              to="/login"
+              className="flex min-h-[44px] items-center justify-center rounded-xl bg-primary text-black font-black uppercase tracking-[0.18em] py-3"
+            >
+              Entrar
+            </Link>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <header
-      className={`sticky top-0 z-[60] w-full border-b border-zinc-200/80 bg-white/95 backdrop-blur-xl supports-[backdrop-filter]:bg-white/90 transition-all duration-300 ${headerHeight} ${
+      className={`sticky top-0 z-[60] w-full border-b border-zinc-200/80 bg-white md:bg-white/95 md:backdrop-blur-xl md:supports-[backdrop-filter]:bg-white/90 transition-none md:transition-all duration-300 ${headerHeight} ${
         isScrolled ? "shadow-[var(--header-shadow)]" : ""
       }`}
     >
@@ -306,93 +409,9 @@ export const Header = () => {
           </button>
         </div>
       </div>
-
-      {mobileOpen && (
-        <div className="fixed inset-0 z-[70] lg:hidden" role="dialog" aria-modal="true">
-          <button
-            className="absolute inset-0 bg-zinc-950/60 backdrop-blur-[2px]"
-            aria-label="Fechar menu"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div
-            id="mobile-menu"
-            className="absolute right-0 top-0 h-full w-[86%] max-w-[360px] bg-white shadow-[0_24px_56px_rgba(15,23,42,0.35)] border-l border-zinc-200/70 flex flex-col"
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/70">
-              <span className="text-[11px] font-black uppercase tracking-[0.28em] text-zinc-400">
-                Menu
-              </span>
-              <button
-                type="button"
-                className="h-11 w-11 rounded-lg border border-zinc-200/70 text-zinc-600 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                aria-label="Fechar menu"
-                onClick={() => setMobileOpen(false)}
-              >
-                <X className="h-5 w-5 mx-auto" />
-              </button>
-            </div>
-            <nav className="flex flex-col gap-1 p-4" aria-label="Menu mobile">
-              {NAV_ITEMS.map((item, index) => {
-                const active = getIsActive(location.pathname, item.isActive);
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    to={item.href}
-                    ref={index === 0 ? firstMobileLinkRef : undefined}
-                    aria-current={active ? "page" : undefined}
-                    className={`flex min-h-[44px] items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold uppercase tracking-[0.2em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
-                      active
-                        ? "bg-primary/10 text-primary"
-                        : "text-zinc-700 hover:bg-zinc-100"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-            <div className="mt-auto border-t border-zinc-200/70 p-4 space-y-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-zinc-400">
-                Conta
-              </p>
-              {user ? (
-                <>
-                  <div className="text-xs font-semibold text-zinc-500 px-1">
-                    {mobileGreeting}
-                  </div>
-                  <Link
-                    to="/perfil"
-                    className="flex min-h-[44px] items-center justify-between rounded-xl border border-zinc-200/70 px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-100"
-                  >
-                    Minha conta
-                    {isAdmin && (
-                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary">
-                        ADMIN
-                      </span>
-                    )}
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={handleMobileLogout}
-                    className="w-full min-h-[44px] rounded-xl border border-red-200/70 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
-                  >
-                    Sair
-                  </button>
-                </>
-              ) : (
-                <Link
-                  to="/login"
-                  className="flex min-h-[44px] items-center justify-center rounded-xl bg-primary text-black font-black uppercase tracking-[0.18em] py-3"
-                >
-                  Entrar
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {mobileMenu && typeof document !== "undefined"
+        ? createPortal(mobileMenu, document.body)
+        : null}
     </header>
   );
 };

@@ -83,6 +83,9 @@ const CLOTHING_OPTIONS = [
   },
 ];
 
+const DUPLICATE_LINK_MESSAGE = "Este link já foi utilizado";
+const REPORTS_PREVIEW_COUNT = 10;
+
 // Tipagem do Formulário
 interface ProductFormData {
   name: string;
@@ -209,6 +212,7 @@ export default function Admin() {
   const [productTab, setProductTab] = useState<'all' | 'valid' | 'blocked'>('all');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncAlertShown, setSyncAlertShown] = useState(false);
+  const [reportsExpanded, setReportsExpanded] = useState(false);
 
   // Redirecionamento de segurança
   useEffect(() => {
@@ -352,13 +356,16 @@ export default function Admin() {
         .from('price_sync_reports')
         .select('*')
         .order('sent_at', { ascending: false })
-        .limit(6);
+        .limit(30);
 
       if (error) throw error;
       return (data as unknown as PriceSyncReport[]) || [];
     },
     enabled: !!isAdmin,
   });
+
+  const visibleReports = reportsExpanded ? reports : reports.slice(0, REPORTS_PREVIEW_COUNT);
+  const hasMoreReports = reports.length > REPORTS_PREVIEW_COUNT;
 
   const { data: emailLogs = [], isLoading: loadingEmailLogs } = useQuery({
     queryKey: ['auth-email-logs'],
@@ -646,6 +653,26 @@ export default function Admin() {
 
       if (data.id) {
         // Update
+        const candidateLinks = Array.from(
+          new Set([data.source_url?.trim() || '', data.affiliate_link?.trim() || ''].filter(Boolean)),
+        );
+
+        const isLinkAlreadyUsedByAnotherProduct = async (link: string) => {
+          const [sourceRes, affiliateRes] = await Promise.all([
+            supabase.from('products').select('id').eq('source_url', link).neq('id', data.id).limit(1),
+            supabase.from('products').select('id').eq('affiliate_link', link).neq('id', data.id).limit(1),
+          ]);
+          if (sourceRes.error) throw sourceRes.error;
+          if (affiliateRes.error) throw affiliateRes.error;
+          return Boolean((sourceRes.data || []).length || (affiliateRes.data || []).length);
+        };
+
+        for (const link of candidateLinks) {
+          if (await isLinkAlreadyUsedByAnotherProduct(link)) {
+            throw new Error(DUPLICATE_LINK_MESSAGE);
+          }
+        }
+
         const { error } = await supabase
           .from('products')
           .update(productData)
@@ -654,6 +681,26 @@ export default function Admin() {
         if (error) throw error;
       } else {
         // Create
+        const candidateLinks = Array.from(
+          new Set([data.source_url?.trim() || '', data.affiliate_link?.trim() || ''].filter(Boolean)),
+        );
+
+        const isLinkAlreadyUsed = async (link: string) => {
+          const [sourceRes, affiliateRes] = await Promise.all([
+            supabase.from('products').select('id').eq('source_url', link).limit(1),
+            supabase.from('products').select('id').eq('affiliate_link', link).limit(1),
+          ]);
+          if (sourceRes.error) throw sourceRes.error;
+          if (affiliateRes.error) throw affiliateRes.error;
+          return Boolean((sourceRes.data || []).length || (affiliateRes.data || []).length);
+        };
+
+        for (const link of candidateLinks) {
+          if (await isLinkAlreadyUsed(link)) {
+            throw new Error(DUPLICATE_LINK_MESSAGE);
+          }
+        }
+
         const { error } = await supabase
           .from('products')
           .insert({ ...productData, slug, next_check_at: new Date().toISOString() });
@@ -667,6 +714,10 @@ export default function Admin() {
       handleCloseDialog();
     },
     onError: (error: Error) => {
+      if (error.message === DUPLICATE_LINK_MESSAGE) {
+        toast.error(DUPLICATE_LINK_MESSAGE);
+        return;
+      }
       toast.error('Erro ao salvar produto', {
         description: error.message,
       });
@@ -1355,7 +1406,7 @@ export default function Admin() {
                   <p className="text-sm text-muted-foreground">Nenhum relatório registrado ainda.</p>
                 ) : (
                   <div className="space-y-3">
-                    {reports.map((report) => (
+                    {visibleReports.map((report) => (
                       <div key={report.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
                         <div>
                           <p className="font-medium text-foreground">{formatDateTime(report.sent_at)}</p>
@@ -1377,6 +1428,19 @@ export default function Admin() {
                         </span>
                       </div>
                     ))}
+                    {hasMoreReports && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-center"
+                        onClick={() => setReportsExpanded((current) => !current)}
+                      >
+                        {reportsExpanded
+                          ? 'Ver menos'
+                          : `Ver mais (${reports.length - REPORTS_PREVIEW_COUNT})`}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
