@@ -2287,7 +2287,18 @@ Deno.serve(async (req: Request) => {
         typeof (result as any)?.pix_price === "number" ? (result as any).pix_price : null;
       const incomingPixSource =
         incomingPix !== null ? ((result as any)?.pix_source ?? "api") : null;
-      const resolvedPix = incomingPix !== null ? incomingPix : existingPix;
+      const minRatio = Number.isFinite(PIX_MIN_RATIO_VS_STANDARD)
+        ? Math.min(0.95, Math.max(0, PIX_MIN_RATIO_VS_STANDARD))
+        : 0.2;
+      const existingPixLooksValid =
+        existingPix !== null &&
+        existingPix > 0 &&
+        existingPix < result.price &&
+        existingPix >= result.price * minRatio;
+      const shouldKeepExistingPix =
+        existingPix !== null &&
+        (existingPixSource === "manual" || existingPixLooksValid);
+      const resolvedPix = incomingPix !== null ? incomingPix : shouldKeepExistingPix ? existingPix : null;
       const resolvedPixSource =
         resolvedPix !== null
           ? incomingPix !== null
