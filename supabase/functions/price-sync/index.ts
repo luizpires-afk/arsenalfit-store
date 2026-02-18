@@ -50,6 +50,12 @@ const MAX_PIX_SCRAPES_PER_RUN = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_PIX_SCRA
 const PIX_MIN_RATIO_VS_STANDARD = Number(
   Deno?.env?.get?.("PIX_MIN_RATIO_VS_STANDARD") ?? "0.2",
 );
+const PIX_SCRAPER_MIN_RATIO_VS_STANDARD = Number(
+  Deno?.env?.get?.("PIX_SCRAPER_MIN_RATIO_VS_STANDARD") ?? "0.75",
+);
+const PIX_TEXT_REFERENCE_GAP_MAX = Number(
+  Deno?.env?.get?.("PIX_TEXT_REFERENCE_GAP_MAX") ?? "0.15",
+);
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -231,6 +237,7 @@ const parseMoney = (value: string): number | null => {
 const pickBestPixCandidate = (
   values: Array<number | null>,
   referencePrice?: number | null,
+  options?: { minRatio?: number },
 ): number | null => {
   const filtered = values.filter(
     (value): value is number =>
@@ -243,9 +250,11 @@ const pickBestPixCandidate = (
     Number.isFinite(referencePrice) &&
     referencePrice > 0
   ) {
-    const minRatio = Number.isFinite(PIX_MIN_RATIO_VS_STANDARD)
-      ? Math.min(0.95, Math.max(0, PIX_MIN_RATIO_VS_STANDARD))
-      : 0.2;
+    const minRatioRaw =
+      typeof options?.minRatio === "number" && Number.isFinite(options.minRatio)
+        ? options.minRatio
+        : PIX_MIN_RATIO_VS_STANDARD;
+    const minRatio = Math.min(0.95, Math.max(0, minRatioRaw));
     const minAllowed = referencePrice * minRatio;
     const comparable = filtered.filter(
       (value) => value < referencePrice && value >= minAllowed,
@@ -311,36 +320,59 @@ const extractPixPriceFromHtml = (
     }
   }
 
+  const normalizedReference =
+    typeof referencePrice === "number" && Number.isFinite(referencePrice) && referencePrice > 0
+      ? referencePrice
+      : null;
+  const maxReferenceGap = Math.min(
+    0.5,
+    Math.max(0.05, Number.isFinite(PIX_TEXT_REFERENCE_GAP_MAX) ? PIX_TEXT_REFERENCE_GAP_MAX : 0.15),
+  );
+
+  // Highest confidence: explicit phrase that includes both pix and regular price.
+  const pairPatterns: Array<{ re: RegExp; pixGroup: number; standardGroup: number }> = [
+    {
+      re: /r\$\s*([0-9][0-9\s\.,]{0,16})[^<>{}\n]{0,80}?no\s*pix[^<>{}\n]{0,80}?ou\s*r\$\s*([0-9][0-9\s\.,]{0,16})\s*em\s*outros\s*meios/gi,
+      pixGroup: 1,
+      standardGroup: 2,
+    },
+    {
+      re: /no\s*pix[^<>{}\n]{0,40}?r\$\s*([0-9][0-9\s\.,]{0,16})[^<>{}\n]{0,80}?ou\s*r\$\s*([0-9][0-9\s\.,]{0,16})\s*em\s*outros\s*meios/gi,
+      pixGroup: 1,
+      standardGroup: 2,
+    },
+  ];
+
+  const pairCandidates: number[] = [];
+  for (const { re, pixGroup, standardGroup } of pairPatterns) {
+    re.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(html))) {
+      const pixRaw = match[pixGroup] ?? "";
+      const standardRaw = match[standardGroup] ?? "";
+      const pix = parseMoney(pixRaw);
+      const standard = parseMoney(standardRaw);
+      if (pix === null || standard === null) continue;
+      if (!(pix > 0 && standard > 0 && pix < standard)) continue;
+      if (
+        normalizedReference !== null &&
+        Math.abs(standard - normalizedReference) / normalizedReference > maxReferenceGap
+      ) {
+        continue;
+      }
+      pairCandidates.push(pix);
+    }
+  }
+
+  const fromPair = pickBestPixCandidate(pairCandidates, normalizedReference, {
+    minRatio: PIX_SCRAPER_MIN_RATIO_VS_STANDARD,
+  });
+  if (fromPair !== null) return fromPair;
+
   const pixNearPriceRegexes = [
     /(?:no|via|com|pagamento(?:\s+no)?|a\s+vista(?:\s+no)?)\s*pix[^0-9r$]{0,40}r\$\s*([0-9][0-9\s\.,]{0,16})/gi,
     /r\$\s*([0-9][0-9\s\.,]{0,16})[^0-9]{0,40}(?:no|via|com|pagamento(?:\s+no)?|a\s+vista(?:\s+no)?)\s*pix/gi,
   ];
-
-  const collectMoneyCandidates = (source: string) => {
-    const moneyRegex =
-      /r\$\s*([0-9]{1,3}(?:[\s\.,][0-9]{3})*|[0-9]+)(?:\s*[.,]\s*([0-9]{1,2}))?/gi;
-    let match: RegExpExecArray | null;
-    while ((match = moneyRegex.exec(source))) {
-      const integerPart = (match[1] || "").trim();
-      if (!integerPart) continue;
-      const centsPart = (match[2] || "").trim();
-      const rawAmount = centsPart ? `${integerPart},${centsPart}` : integerPart;
-      const parsed = parseMoney(rawAmount);
-      if (parsed !== null) candidates.push(parsed);
-    }
-  };
-
-  const scanForPix = (source: string) => {
-    const lower = source.toLowerCase();
-    let idx = 0;
-    while ((idx = lower.indexOf("pix", idx)) !== -1) {
-      const start = Math.max(0, idx - 140);
-      const end = Math.min(source.length, idx + 140);
-      const slice = source.slice(start, end);
-      collectMoneyCandidates(slice);
-      idx += 3;
-    }
-  };
 
   const collectByRegex = (source: string) => {
     for (const pattern of pixNearPriceRegexes) {
@@ -359,10 +391,10 @@ const extractPixPriceFromHtml = (
 
   collectByRegex(compactHtml);
   collectByRegex(plainText);
-  scanForPix(compactHtml);
-  scanForPix(plainText);
 
-  return pickBestPixCandidate(candidates, referencePrice);
+  return pickBestPixCandidate(candidates, referencePrice, {
+    minRatio: PIX_SCRAPER_MIN_RATIO_VS_STANDARD,
+  });
 };
 
 const collectPriceCandidates = (value: unknown, out: number[]) => {
@@ -2282,14 +2314,29 @@ Deno.serve(async (req: Request) => {
       const existingPix =
         typeof product?.pix_price === "number" ? product.pix_price : null;
       const existingPixSource =
-        (product as any)?.pix_price_source ?? (existingPix !== null ? "manual" : null);
+        (product as any)?.pix_price_source ?? null;
       const incomingPix =
         typeof (result as any)?.pix_price === "number" ? (result as any).pix_price : null;
       const incomingPixSource =
         incomingPix !== null ? ((result as any)?.pix_source ?? "api") : null;
-      const minRatio = Number.isFinite(PIX_MIN_RATIO_VS_STANDARD)
-        ? Math.min(0.95, Math.max(0, PIX_MIN_RATIO_VS_STANDARD))
-        : 0.2;
+      const minRatio =
+        existingPixSource === "scraper"
+          ? Math.min(
+              0.95,
+              Math.max(
+                0,
+                Number.isFinite(PIX_SCRAPER_MIN_RATIO_VS_STANDARD)
+                  ? PIX_SCRAPER_MIN_RATIO_VS_STANDARD
+                  : 0.75,
+              ),
+            )
+          : Math.min(
+              0.95,
+              Math.max(
+                0,
+                Number.isFinite(PIX_MIN_RATIO_VS_STANDARD) ? PIX_MIN_RATIO_VS_STANDARD : 0.2,
+              ),
+            );
       const existingPixLooksValid =
         existingPix !== null &&
         existingPix > 0 &&
