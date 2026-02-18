@@ -7,6 +7,7 @@ import { useCart } from '@/hooks/useCart';
 import { toast } from 'sonner';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from '@/lib/cartFeedback';
+import { hasMeaningfulPixDiscount } from '@/lib/catalog';
 import { useRef } from 'react';
 
 // Definindo a Interface localmente para resolver o erro de módulo
@@ -101,7 +102,11 @@ export const OfferCard = ({ product }: OfferCardProps) => {
     typeof product.pix_price === "number" && Number.isFinite(product.pix_price)
       ? product.pix_price
       : null;
-  const showPix = pixPrice !== null && pixPrice > 0 && pixPrice < product.price;
+  const showPix =
+    pixPrice !== null &&
+    pixPrice > 0 &&
+    pixPrice < product.price &&
+    hasMeaningfulPixDiscount(product.price, pixPrice);
 
   const productLink = product.slug ? `/produto/${product.slug}` : "#";
 

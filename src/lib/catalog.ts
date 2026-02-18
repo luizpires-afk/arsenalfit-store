@@ -4,6 +4,9 @@ export type CatalogCategory =
   | "ACESSORIOS"
   | "ROUPAS";
 
+const MIN_PIX_DIFF_ABS = 0.5;
+const MIN_PIX_DIFF_RATIO = 0.005;
+
 export type SubFilterValue =
   | "melhores"
   | "novas"
@@ -118,7 +121,16 @@ export const getPixPrice = (product: CatalogProduct) => {
       : null;
   if (!pix || pix <= 0) return null;
   if (price && pix >= price) return null;
+  if (price && !hasMeaningfulPixDiscount(price, pix)) return null;
   return pix;
+};
+
+export const hasMeaningfulPixDiscount = (price: number, pix: number) => {
+  if (!(Number.isFinite(price) && Number.isFinite(pix))) return false;
+  if (!(price > 0 && pix > 0 && pix < price)) return false;
+  const diff = price - pix;
+  const ratio = diff / price;
+  return diff >= MIN_PIX_DIFF_ABS || ratio >= MIN_PIX_DIFF_RATIO;
 };
 
 export const getEffectivePrice = (product: CatalogProduct) => {

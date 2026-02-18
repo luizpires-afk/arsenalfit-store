@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { PriceDisclaimer } from "@/Components/PriceDisclaimer";
 import { useCart } from "@/hooks/useCart";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
+import { hasMeaningfulPixDiscount } from "@/lib/catalog";
 
 interface ProductProps {
   product: {
@@ -117,7 +118,8 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
     typeof product.pix_price === "number" &&
     Number.isFinite(product.pix_price) &&
     product.pix_price > 0 &&
-    product.pix_price < product.price
+    product.pix_price < product.price &&
+    hasMeaningfulPixDiscount(product.price, product.pix_price)
       ? product.pix_price
       : null;
   const showPix = pixPrice !== null;

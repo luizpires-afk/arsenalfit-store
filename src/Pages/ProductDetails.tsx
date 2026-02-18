@@ -25,6 +25,7 @@ import { StickyMobileCTA } from "@/Components/product/StickyMobileCTA";
 import { normalizeMarketplaceProduct } from "@/lib/productNormalizer";
 import { formatPrice } from "@/lib/validators";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
+import { hasMeaningfulPixDiscount } from "@/lib/catalog";
 import { useProduct } from "@/hooks/useProducts";
 import { useCart } from "@/hooks/useCart";
 import { useSyncedHeight } from "@/hooks/useSyncedHeight";
@@ -500,7 +501,11 @@ export default function ProductDetails() {
 
   const pixPriceCandidate = p?.pix_price ?? normalized?.pixPrice ?? null;
   const pixPrice =
-    pixPriceCandidate && p && pixPriceCandidate > 0 && pixPriceCandidate < p.price
+    pixPriceCandidate &&
+    p &&
+    pixPriceCandidate > 0 &&
+    pixPriceCandidate < p.price &&
+    hasMeaningfulPixDiscount(p.price, pixPriceCandidate)
       ? pixPriceCandidate
       : undefined;
   const lastUpdated = p?.updated_at

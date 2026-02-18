@@ -56,6 +56,12 @@ const PIX_SCRAPER_MIN_RATIO_VS_STANDARD = Number(
 const PIX_TEXT_REFERENCE_GAP_MAX = Number(
   Deno?.env?.get?.("PIX_TEXT_REFERENCE_GAP_MAX") ?? "0.15",
 );
+const PIX_SCRAPER_MIN_DISCOUNT_ABS = Number(
+  Deno?.env?.get?.("PIX_SCRAPER_MIN_DISCOUNT_ABS") ?? "0.5",
+);
+const PIX_SCRAPER_MIN_DISCOUNT_PERCENT = Number(
+  Deno?.env?.get?.("PIX_SCRAPER_MIN_DISCOUNT_PERCENT") ?? "0.005",
+);
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -237,7 +243,7 @@ const parseMoney = (value: string): number | null => {
 const pickBestPixCandidate = (
   values: Array<number | null>,
   referencePrice?: number | null,
-  options?: { minRatio?: number },
+  options?: { minRatio?: number; requireMeaningfulDiscount?: boolean },
 ): number | null => {
   const filtered = values.filter(
     (value): value is number =>
@@ -256,14 +262,52 @@ const pickBestPixCandidate = (
         : PIX_MIN_RATIO_VS_STANDARD;
     const minRatio = Math.min(0.95, Math.max(0, minRatioRaw));
     const minAllowed = referencePrice * minRatio;
-    const comparable = filtered.filter(
-      (value) => value < referencePrice && value >= minAllowed,
-    );
+    const comparable = filtered.filter((value) => {
+      if (!(value < referencePrice && value >= minAllowed)) return false;
+      if (!options?.requireMeaningfulDiscount) return true;
+      return hasMeaningfulScraperPixDiscount(value, referencePrice);
+    });
     if (!comparable.length) return null;
     return Math.max(...comparable);
   }
 
   return Math.min(...filtered);
+};
+
+const hasMeaningfulScraperPixDiscount = (
+  pix: number,
+  standard: number,
+) => {
+  if (!(Number.isFinite(pix) && Number.isFinite(standard))) return false;
+  if (!(pix > 0 && standard > 0 && pix < standard)) return false;
+  const absDiff = standard - pix;
+  const pctDiff = absDiff / standard;
+  const minAbs = Math.max(0, Number.isFinite(PIX_SCRAPER_MIN_DISCOUNT_ABS) ? PIX_SCRAPER_MIN_DISCOUNT_ABS : 0.5);
+  const minPct = Math.max(
+    0,
+    Math.min(0.5, Number.isFinite(PIX_SCRAPER_MIN_DISCOUNT_PERCENT) ? PIX_SCRAPER_MIN_DISCOUNT_PERCENT : 0.005),
+  );
+  return absDiff >= minAbs || pctDiff >= minPct;
+};
+
+const resolvePixMinRatioForSource = (source: string | null | undefined) => {
+  const configured =
+    source === "scraper"
+      ? PIX_SCRAPER_MIN_RATIO_VS_STANDARD
+      : PIX_MIN_RATIO_VS_STANDARD;
+  return Math.min(0.95, Math.max(0, Number.isFinite(configured) ? configured : 0.2));
+};
+
+const shouldKeepStoredPixForPrice = (
+  pix: number | null,
+  source: string | null | undefined,
+  standard: number,
+) => {
+  if (!(typeof standard === "number" && Number.isFinite(standard) && standard > 0)) return false;
+  if (!(typeof pix === "number" && Number.isFinite(pix) && pix > 0 && pix < standard)) return false;
+  if (source === "manual" || source === "api") return true;
+  const minRatio = resolvePixMinRatioForSource(source);
+  return pix >= standard * minRatio && hasMeaningfulScraperPixDiscount(pix, standard);
 };
 
 const stripHtml = (html: string): string => {
@@ -366,6 +410,7 @@ const extractPixPriceFromHtml = (
 
   const fromPair = pickBestPixCandidate(pairCandidates, normalizedReference, {
     minRatio: PIX_SCRAPER_MIN_RATIO_VS_STANDARD,
+    requireMeaningfulDiscount: true,
   });
   if (fromPair !== null) return fromPair;
 
@@ -394,6 +439,7 @@ const extractPixPriceFromHtml = (
 
   return pickBestPixCandidate(candidates, referencePrice, {
     minRatio: PIX_SCRAPER_MIN_RATIO_VS_STANDARD,
+    requireMeaningfulDiscount: true,
   });
 };
 
@@ -1176,7 +1222,11 @@ Deno.serve(async (req: Request) => {
           scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml, resolvedPrice) : null;
         }
 
-        if (scrapedPix && scrapedPix > 0 && scrapedPix < resolvedPrice) {
+        if (
+          typeof scrapedPix === "number" &&
+          Number.isFinite(scrapedPix) &&
+          hasMeaningfulScraperPixDiscount(scrapedPix, resolvedPrice)
+        ) {
           resolvedPix = scrapedPix;
           pixSource = "scraper";
           usedScraperPix = true;
@@ -2087,8 +2137,7 @@ Deno.serve(async (req: Request) => {
               if (
                 typeof scrapedPix === "number" &&
                 Number.isFinite(scrapedPix) &&
-                scrapedPix > 0 &&
-                scrapedPix < scrapedPrice
+                hasMeaningfulScraperPixDiscount(scrapedPix, scrapedPrice)
               ) {
                 resolvedPix = scrapedPix;
               }
@@ -2164,7 +2213,11 @@ Deno.serve(async (req: Request) => {
               scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml, resolvedPrice) : null;
             }
 
-            if (scrapedPix && scrapedPix > 0 && scrapedPix < resolvedPrice) {
+            if (
+              typeof scrapedPix === "number" &&
+              Number.isFinite(scrapedPix) &&
+              hasMeaningfulScraperPixDiscount(scrapedPix, resolvedPrice)
+            ) {
               result.pix_price = scrapedPix;
               (result as any).pix_source = "scraper";
               console.log(
@@ -2218,12 +2271,24 @@ Deno.serve(async (req: Request) => {
             ? "public"
             : "auth";
       nextCheckAt = addMs(now, wasAutoBlocked ? HOURS_2_MS : HOURS_6_MS).toISOString();
+      const existingPix304 =
+        typeof product?.pix_price === "number" ? product.pix_price : null;
+      const existingPixSource304 =
+        (product as any)?.pix_price_source ?? null;
+      const canKeepPix304 = shouldKeepStoredPixForPrice(
+        existingPix304,
+        existingPixSource304,
+        Number(product?.price ?? 0),
+      );
       update = {
         last_sync: now.toISOString(),
         last_price_source: source,
         last_price_verified_at: now.toISOString(),
         next_check_at: nextCheckAt,
         etag: result?.etag ?? product?.etag ?? null,
+        pix_price: canKeepPix304 ? existingPix304 : null,
+        pix_price_source: canKeepPix304 ? existingPixSource304 : null,
+        pix_price_checked_at: canKeepPix304 ? (product as any)?.pix_price_checked_at ?? null : null,
         ...(wasAutoBlocked
           ? { is_active: false, auto_disabled_reason: "blocked", auto_disabled_at: product?.auto_disabled_at ?? now.toISOString() }
           : {}),
@@ -2319,41 +2384,32 @@ Deno.serve(async (req: Request) => {
         typeof (result as any)?.pix_price === "number" ? (result as any).pix_price : null;
       const incomingPixSource =
         incomingPix !== null ? ((result as any)?.pix_source ?? "api") : null;
-      const minRatio =
-        existingPixSource === "scraper"
-          ? Math.min(
-              0.95,
-              Math.max(
-                0,
-                Number.isFinite(PIX_SCRAPER_MIN_RATIO_VS_STANDARD)
-                  ? PIX_SCRAPER_MIN_RATIO_VS_STANDARD
-                  : 0.75,
-              ),
-            )
-          : Math.min(
-              0.95,
-              Math.max(
-                0,
-                Number.isFinite(PIX_MIN_RATIO_VS_STANDARD) ? PIX_MIN_RATIO_VS_STANDARD : 0.2,
-              ),
-            );
-      const existingPixLooksValid =
-        existingPix !== null &&
-        existingPix > 0 &&
-        existingPix < result.price &&
-        existingPix >= result.price * minRatio;
-      const shouldKeepExistingPix =
-        existingPix !== null &&
-        (existingPixSource === "manual" || existingPixLooksValid);
-      const resolvedPix = incomingPix !== null ? incomingPix : shouldKeepExistingPix ? existingPix : null;
+      const normalizedIncomingPix =
+        incomingPix !== null
+          ? incomingPixSource === "scraper"
+            ? hasMeaningfulScraperPixDiscount(incomingPix, result.price)
+              ? incomingPix
+              : null
+            : incomingPix > 0 && incomingPix < result.price
+              ? incomingPix
+              : null
+          : null;
+      const existingPixLooksValid = shouldKeepStoredPixForPrice(
+        existingPix,
+        existingPixSource,
+        result.price,
+      );
+      const shouldKeepExistingPix = existingPixLooksValid;
+      const resolvedPix =
+        normalizedIncomingPix !== null ? normalizedIncomingPix : shouldKeepExistingPix ? existingPix : null;
       const resolvedPixSource =
         resolvedPix !== null
-          ? incomingPix !== null
+          ? normalizedIncomingPix !== null
             ? incomingPixSource
             : existingPixSource
           : null;
       const resolvedPixCheckedAt =
-        incomingPix !== null ? now.toISOString() : (product as any)?.pix_price_checked_at ?? null;
+        normalizedIncomingPix !== null ? now.toISOString() : (product as any)?.pix_price_checked_at ?? null;
 
       update = {
         previous_price: product?.price ?? null,
