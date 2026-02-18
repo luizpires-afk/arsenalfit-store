@@ -47,6 +47,9 @@ const MAX_SCRAPER_FALLBACKS_PER_RUN = Number(
   Deno?.env?.get?.("PRICE_SYNC_MAX_SCRAPER_FALLBACKS") ?? "8",
 );
 const MAX_PIX_SCRAPES_PER_RUN = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_PIX_SCRAPES") ?? "8");
+const PIX_MIN_RATIO_VS_STANDARD = Number(
+  Deno?.env?.get?.("PIX_MIN_RATIO_VS_STANDARD") ?? "0.2",
+);
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -182,19 +185,76 @@ const toNumber = (value: unknown): number | null => {
 
 const parseMoney = (value: string): number | null => {
   if (!value) return null;
-  let cleaned = value.replace(/[^0-9,\.]/g, "");
-  if (!cleaned) return null;
-  const lastComma = cleaned.lastIndexOf(",");
-  const lastDot = cleaned.lastIndexOf(".");
-  if (lastComma > lastDot) {
-    cleaned = cleaned.replace(/\./g, "").replace(",", ".");
-  } else if (lastDot > lastComma) {
-    cleaned = cleaned.replace(/,/g, "");
-  } else {
-    cleaned = cleaned.replace(",", ".");
+
+  let raw = value.replace(/[^0-9,\.\s]/g, "").trim();
+  if (!raw) return null;
+
+  // Handle formats like "83 75" or "1 299 00" where decimals are split by space.
+  if (!/[,.]/.test(raw) && /^\d+(?:\s\d{3})*\s\d{2}$/.test(raw)) {
+    raw = raw.replace(/\s(\d{2})$/, ",$1");
   }
+
+  let cleaned = raw.replace(/\s+/g, "");
+  if (!cleaned) return null;
+
+  const commaCount = (cleaned.match(/,/g) ?? []).length;
+  const dotCount = (cleaned.match(/\./g) ?? []).length;
+
+  const normalizeSingleSeparator = (input: string, separator: "," | ".") => {
+    const parts = input.split(separator);
+    if (parts.length <= 1) return input;
+    const decimal = parts[parts.length - 1] ?? "";
+    const integer = parts.slice(0, -1).join("");
+    if (decimal.length > 0 && decimal.length <= 2) {
+      return `${integer}.${decimal}`;
+    }
+    return parts.join("");
+  };
+
+  if (commaCount > 0 && dotCount > 0) {
+    const decimalSeparator = cleaned.lastIndexOf(",") > cleaned.lastIndexOf(".") ? "," : ".";
+    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+    cleaned = cleaned.replace(new RegExp(`\\${thousandsSeparator}`, "g"), "");
+    if (decimalSeparator === ",") {
+      cleaned = cleaned.replace(",", ".");
+    }
+  } else if (commaCount > 0) {
+    cleaned = normalizeSingleSeparator(cleaned, ",");
+  } else if (dotCount > 0) {
+    cleaned = normalizeSingleSeparator(cleaned, ".");
+  }
+
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const pickBestPixCandidate = (
+  values: Array<number | null>,
+  referencePrice?: number | null,
+): number | null => {
+  const filtered = values.filter(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value > 0,
+  );
+  if (!filtered.length) return null;
+
+  if (
+    typeof referencePrice === "number" &&
+    Number.isFinite(referencePrice) &&
+    referencePrice > 0
+  ) {
+    const minRatio = Number.isFinite(PIX_MIN_RATIO_VS_STANDARD)
+      ? Math.min(0.95, Math.max(0, PIX_MIN_RATIO_VS_STANDARD))
+      : 0.2;
+    const minAllowed = referencePrice * minRatio;
+    const comparable = filtered.filter(
+      (value) => value < referencePrice && value >= minAllowed,
+    );
+    if (!comparable.length) return null;
+    return Math.max(...comparable);
+  }
+
+  return Math.min(...filtered);
 };
 
 const stripHtml = (html: string): string => {
@@ -227,9 +287,13 @@ const buildScraperUrl = (targetUrl: string) => {
   return url.toString();
 };
 
-const extractPixPriceFromHtml = (html: string): number | null => {
+const extractPixPriceFromHtml = (
+  html: string,
+  referencePrice?: number | null,
+): number | null => {
   if (!html) return null;
 
+  const candidates: Array<number | null> = [];
   const jsonPatterns = [
     /"payment_method_id"\s*:\s*"pix"[^}]{0,500}?(?:"amount"|"price"|"value"|"regular_amount")\s*:\s*([0-9]+(?:\.[0-9]+)?)/i,
     /"payment_method"\s*:\s*"pix"[^}]{0,500}?(?:"amount"|"price"|"value"|"regular_amount")\s*:\s*([0-9]+(?:\.[0-9]+)?)/i,
@@ -238,58 +302,67 @@ const extractPixPriceFromHtml = (html: string): number | null => {
   ];
 
   for (const pattern of jsonPatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      const numeric = toNumber(match[1]);
-      if (numeric !== null) return numeric;
+    const regex = new RegExp(pattern.source, `${pattern.flags.replace(/g/g, "")}g`);
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(html))) {
+      if (!match[1]) continue;
+      const numeric = parseMoney(match[1]) ?? toNumber(match[1]);
+      if (numeric !== null) candidates.push(numeric);
     }
   }
 
-  const candidates: number[] = [];
-  const moneyRegex =
-    /r\$\s*([0-9]{1,3}(?:[\s\.,][0-9]{3})*|[0-9]+)(?:\s*[.,]\s*([0-9]{2}))?/i;
+  const pixNearPriceRegexes = [
+    /(?:no|via|com|pagamento(?:\s+no)?|a\s+vista(?:\s+no)?)\s*pix[^0-9r$]{0,40}r\$\s*([0-9][0-9\s\.,]{0,16})/gi,
+    /r\$\s*([0-9][0-9\s\.,]{0,16})[^0-9]{0,40}(?:no|via|com|pagamento(?:\s+no)?|a\s+vista(?:\s+no)?)\s*pix/gi,
+  ];
+
+  const collectMoneyCandidates = (source: string) => {
+    const moneyRegex =
+      /r\$\s*([0-9]{1,3}(?:[\s\.,][0-9]{3})*|[0-9]+)(?:\s*[.,]\s*([0-9]{1,2}))?/gi;
+    let match: RegExpExecArray | null;
+    while ((match = moneyRegex.exec(source))) {
+      const integerPart = (match[1] || "").trim();
+      if (!integerPart) continue;
+      const centsPart = (match[2] || "").trim();
+      const rawAmount = centsPart ? `${integerPart},${centsPart}` : integerPart;
+      const parsed = parseMoney(rawAmount);
+      if (parsed !== null) candidates.push(parsed);
+    }
+  };
 
   const scanForPix = (source: string) => {
     const lower = source.toLowerCase();
     let idx = 0;
     while ((idx = lower.indexOf("pix", idx)) !== -1) {
-      const start = Math.max(0, idx - 200);
-      const slice = source.slice(start, idx);
-      const sliceLower = slice.toLowerCase();
-      const rIdx = sliceLower.lastIndexOf("r$");
-      if (rIdx >= 0) {
-        const token = slice.slice(rIdx);
-        const match = token.match(moneyRegex);
-        if (match) {
-          const rawToken = match[1] || "";
-          const cents = match[2] || "";
-          let raw = rawToken;
-
-          if (cents) {
-            const intPart = rawToken.replace(/[\s\.,]/g, "");
-            raw = `${intPart}.${cents}`;
-          } else {
-            const spaceCents = rawToken.match(/\s(\d{2})\s*$/);
-            if (spaceCents) {
-              const intPart = rawToken
-                .replace(/\s\d{2}\s*$/, "")
-                .replace(/[\s\.,]/g, "");
-              raw = `${intPart}.${spaceCents[1]}`;
-            }
-          }
-
-          const parsed = parseMoney(raw);
-          if (parsed !== null) candidates.push(parsed);
-        }
-      }
+      const start = Math.max(0, idx - 140);
+      const end = Math.min(source.length, idx + 140);
+      const slice = source.slice(start, end);
+      collectMoneyCandidates(slice);
       idx += 3;
     }
   };
 
-  scanForPix(html.replace(/\s+/g, " "));
-  scanForPix(stripHtml(html));
+  const collectByRegex = (source: string) => {
+    for (const pattern of pixNearPriceRegexes) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(source))) {
+        if (!match[1]) continue;
+        const parsed = parseMoney(match[1]);
+        if (parsed !== null) candidates.push(parsed);
+      }
+    }
+  };
 
-  return candidates.length ? Math.min(...candidates) : null;
+  const compactHtml = html.replace(/\s+/g, " ");
+  const plainText = stripHtml(html);
+
+  collectByRegex(compactHtml);
+  collectByRegex(plainText);
+  scanForPix(compactHtml);
+  scanForPix(plainText);
+
+  return pickBestPixCandidate(candidates, referencePrice);
 };
 
 const collectPriceCandidates = (value: unknown, out: number[]) => {
@@ -516,7 +589,7 @@ const extractPriceSignals = (data: any) => {
   );
 
   return {
-    pix: pickMin(pixCandidates),
+    pix: pickBestPixCandidate(pixCandidates, standard),
     standard,
   };
 };
@@ -1041,10 +1114,7 @@ Deno.serve(async (req: Request) => {
       : null;
 
     let resolvedPrice = standardPrice ?? basePrice ?? null;
-    let resolvedPix =
-      typeof pixCandidate === "number" && Number.isFinite(pixCandidate) && pixCandidate > 0
-        ? pixCandidate
-        : null;
+    let resolvedPix = pickBestPixCandidate([pixCandidate], resolvedPrice);
     let pixSource: "api" | "scraper" | null = resolvedPix ? "api" : null;
     let usedScraperPix = false;
 
@@ -1062,16 +1132,16 @@ Deno.serve(async (req: Request) => {
       if (scrapeUrl) {
         let scrapedPix: number | null = null;
         const html = await fetchScrapedHtml(scrapeUrl);
-        scrapedPix = html ? extractPixPriceFromHtml(html) : null;
+        scrapedPix = html ? extractPixPriceFromHtml(html, resolvedPrice) : null;
 
         if (!scrapedPix) {
           const directHtml = await fetchScrapedHtml(scrapeUrl, undefined, true);
-          scrapedPix = directHtml ? extractPixPriceFromHtml(directHtml) : null;
+          scrapedPix = directHtml ? extractPixPriceFromHtml(directHtml, resolvedPrice) : null;
         }
 
         if (!scrapedPix) {
           const jinaHtml = await fetchJinaHtml(scrapeUrl);
-          scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml) : null;
+          scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml, resolvedPrice) : null;
         }
 
         if (scrapedPix && scrapedPix > 0 && scrapedPix < resolvedPrice) {
@@ -1977,7 +2047,9 @@ Deno.serve(async (req: Request) => {
           const extractFromHtml = (html: string | null) => {
             if (!html) return null;
             const scrapedPrice = extractStandardPriceFromHtml(html);
-            const scrapedPix = ENABLE_PIX_PRICE ? extractPixPriceFromHtml(html) : null;
+            const scrapedPix = ENABLE_PIX_PRICE
+              ? extractPixPriceFromHtml(html, scrapedPrice)
+              : null;
             if (typeof scrapedPrice === "number" && Number.isFinite(scrapedPrice) && scrapedPrice > 0) {
               let resolvedPix: number | null = null;
               if (
@@ -2019,10 +2091,7 @@ Deno.serve(async (req: Request) => {
           ? priceSignalsFromItem.pix ?? priceSignalsFromPrices.pix ?? null
           : null;
         const resolvedPrice = standardPrice ?? basePrice;
-        let resolvedPix =
-          typeof pixCandidate === "number" && Number.isFinite(pixCandidate) && pixCandidate > 0
-            ? pixCandidate
-            : null;
+        let resolvedPix = pickBestPixCandidate([pixCandidate], resolvedPrice);
         let pixSource: "api" | "scraper" | null = resolvedPix !== null ? "api" : null;
 
         if (resolvedPix !== null && typeof resolvedPrice === "number" && resolvedPix >= resolvedPrice) {
@@ -2051,16 +2120,16 @@ Deno.serve(async (req: Request) => {
             pixScrapesUsed += 1;
             let scrapedPix: number | null = null;
             const html = await fetchScrapedHtml(scrapeUrl, controller.signal);
-            scrapedPix = html ? extractPixPriceFromHtml(html) : null;
+            scrapedPix = html ? extractPixPriceFromHtml(html, resolvedPrice) : null;
 
             if (!scrapedPix) {
               const directHtml = await fetchScrapedHtml(scrapeUrl, controller.signal, true);
-              scrapedPix = directHtml ? extractPixPriceFromHtml(directHtml) : null;
+              scrapedPix = directHtml ? extractPixPriceFromHtml(directHtml, resolvedPrice) : null;
             }
 
             if (!scrapedPix) {
               const jinaHtml = await fetchJinaHtml(scrapeUrl, controller.signal);
-              scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml) : null;
+              scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml, resolvedPrice) : null;
             }
 
             if (scrapedPix && scrapedPix > 0 && scrapedPix < resolvedPrice) {

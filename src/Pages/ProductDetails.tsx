@@ -523,16 +523,20 @@ export default function ProductDetails() {
       : p?.original_price && p.original_price > p.price
         ? Math.round(((p.original_price - p.price) / p.original_price) * 100)
         : null;
-  const pixDiscountPercent =
-    pixPrice && p?.price && pixPrice < p.price
-      ? Math.round(((p.price - pixPrice) / p.price) * 100)
-      : null;
-  const effectiveDiscountPercent = discountPercent ?? pixDiscountPercent;
-  const savings =
+  const savingsBase =
     p?.original_price && p.original_price > p.price
-      ? p.original_price - p.price
-      : pixPrice && pixPrice < p.price
-        ? p.price - pixPrice
+      ? p.original_price
+      : p?.price ?? null;
+  const pixDiscountPercent =
+    pixPrice && savingsBase && savingsBase > pixPrice
+      ? Math.round(((savingsBase - pixPrice) / savingsBase) * 100)
+      : null;
+  const effectiveDiscountPercent = pixDiscountPercent ?? discountPercent;
+  const savings =
+    pixPrice && savingsBase && savingsBase > pixPrice
+      ? savingsBase - pixPrice
+      : p?.original_price && p.original_price > p.price
+        ? p.original_price - p.price
         : null;
 
   const lastUpdatedLabel = lastUpdated

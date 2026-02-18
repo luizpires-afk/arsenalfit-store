@@ -114,13 +114,20 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
   const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
   const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
   const pixPrice =
-    typeof product.pix_price === "number" && Number.isFinite(product.pix_price)
+    typeof product.pix_price === "number" &&
+    Number.isFinite(product.pix_price) &&
+    product.pix_price > 0 &&
+    product.pix_price < product.price
       ? product.pix_price
       : null;
-  const showPix = pixPrice !== null && pixPrice > 0;
+  const showPix = pixPrice !== null;
+  const savingsBase =
+    product.original_price && product.original_price > product.price
+      ? product.original_price
+      : product.price;
   const pixSaving =
-    showPix && pixPrice !== null && product.price > pixPrice
-      ? product.price - pixPrice
+    showPix && pixPrice !== null && savingsBase > pixPrice
+      ? savingsBase - pixPrice
       : null;
 
   const fixedBadge = product.free_shipping

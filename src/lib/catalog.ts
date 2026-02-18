@@ -112,7 +112,13 @@ export const getPixPrice = (product: CatalogProduct) => {
     typeof product.pix_price === "number" && Number.isFinite(product.pix_price)
       ? product.pix_price
       : null;
-  return pix && pix > 0 ? pix : null;
+  const price =
+    typeof product.price === "number" && Number.isFinite(product.price)
+      ? product.price
+      : null;
+  if (!pix || pix <= 0) return null;
+  if (price && pix >= price) return null;
+  return pix;
 };
 
 export const getEffectivePrice = (product: CatalogProduct) => {
