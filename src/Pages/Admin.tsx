@@ -86,6 +86,94 @@ const CLOTHING_OPTIONS = [
 const DUPLICATE_LINK_MESSAGE = "Este link já foi utilizado";
 const REPORTS_PREVIEW_COUNT = 10;
 
+const isMercadoLivreSecLink = (value?: string | null) => {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    const host = url.host.toLowerCase();
+    const isMlHost = host === "mercadolivre.com" || host === "www.mercadolivre.com";
+    return isMlHost && url.pathname.startsWith("/sec/");
+  } catch {
+    return false;
+  }
+};
+
+const extractMlCatalogProductIdFromUrl = (value?: string | null) => {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const fromPath = url.pathname.match(/\/p\/(MLB\d{6,12})/i);
+    if (fromPath?.[1]) return fromPath[1].toUpperCase();
+
+    for (const key of ["item_id", "wid", "id"]) {
+      const raw = url.searchParams.get(key);
+      const match = raw?.match(/MLB(\d{6,12})/i);
+      if (match?.[1]) return `MLB${match[1]}`;
+    }
+
+    const encodedItemId = value.match(/item_id%3AMLB(\d{6,12})/i);
+    if (encodedItemId?.[1]) return `MLB${encodedItemId[1]}`;
+    return null;
+  } catch {
+    const encodedItemId = String(value).match(/item_id%3AMLB(\d{6,12})/i);
+    if (encodedItemId?.[1]) return `MLB${encodedItemId[1]}`;
+    return null;
+  }
+};
+
+const normalizeCanonicalText = (value?: string | null) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildAffiliateCanonicalKey = (product: Product) => {
+  const catalogProductId =
+    extractMlCatalogProductIdFromUrl(product.source_url) ??
+    extractMlCatalogProductIdFromUrl(product.affiliate_link);
+  if (catalogProductId) return `catalog:${catalogProductId}`;
+
+  const normalizedSlug = normalizeCanonicalText(product.slug);
+  if (normalizedSlug) return `slug:${normalizedSlug}`;
+
+  const normalizedName = normalizeCanonicalText(product.name);
+  const categoryId = product.category_id ?? "no-category";
+  if (normalizedName) return `name:${categoryId}:${normalizedName.slice(0, 140)}`;
+
+  const externalId = String(product.external_id ?? "").trim().toUpperCase();
+  if (externalId) return `external:${externalId}`;
+  return `id:${product.id}`;
+};
+
+const compareAffiliateRepresentativePriority = (a: Product, b: Product) => {
+  const aSec = isMercadoLivreSecLink(a.affiliate_link);
+  const bSec = isMercadoLivreSecLink(b.affiliate_link);
+  if (aSec !== bSec) return aSec ? -1 : 1;
+
+  const aActive = Boolean(a.is_active || a.status === "active");
+  const bActive = Boolean(b.is_active || b.status === "active");
+  if (aActive !== bActive) return aActive ? -1 : 1;
+
+  const aHasLink = Boolean(a.affiliate_link && a.affiliate_link.trim());
+  const bHasLink = Boolean(b.affiliate_link && b.affiliate_link.trim());
+  if (aHasLink !== bHasLink) return aHasLink ? -1 : 1;
+
+  const aLastSync = a.last_sync ? Date.parse(a.last_sync) : 0;
+  const bLastSync = b.last_sync ? Date.parse(b.last_sync) : 0;
+  const normalizedALastSync = Number.isFinite(aLastSync) ? aLastSync : 0;
+  const normalizedBLastSync = Number.isFinite(bLastSync) ? bLastSync : 0;
+  if (normalizedALastSync !== normalizedBLastSync) {
+    return normalizedBLastSync - normalizedALastSync;
+  }
+
+  const byName = a.name.localeCompare(b.name, "pt-BR");
+  if (byName !== 0) return byName;
+  return a.id.localeCompare(b.id);
+};
+
 type DuplicateLinkProduct = { id: string; name: string } | null;
 
 // Tipagem do Formulário
@@ -215,7 +303,9 @@ export default function Admin() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [changesWindow, setChangesWindow] = useState<'24h' | '7d' | '30d'>('24h');
   const [anomaliesWindow, setAnomaliesWindow] = useState<'24h' | '7d' | '30d'>('7d');
-  const [productTab, setProductTab] = useState<'all' | 'valid' | 'blocked'>('all');
+  const [productTab, setProductTab] = useState<'all' | 'valid' | 'blocked' | 'affiliate'>('all');
+  const [affiliateDrafts, setAffiliateDrafts] = useState<Record<string, string>>({});
+  const [savingAffiliateProductId, setSavingAffiliateProductId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncAlertShown, setSyncAlertShown] = useState(false);
   const [reportsExpanded, setReportsExpanded] = useState(false);
@@ -1248,6 +1338,79 @@ export default function Admin() {
     }
   };
 
+  const getAffiliateDraftValue = (product: Product) =>
+    affiliateDrafts[product.id] ?? product.affiliate_link ?? '';
+
+  const handleAffiliateDraftChange = (productId: string, value: string) => {
+    setAffiliateDrafts((prev) => ({ ...prev, [productId]: value }));
+  };
+
+  const handleSaveAffiliateLink = async (product: Product) => {
+    const link = getAffiliateDraftValue(product).trim();
+    if (!link) {
+      toast.error('Informe o link de afiliado.');
+      return;
+    }
+
+    const validation = isValidAffiliateLink(link);
+    if (!validation.valid) {
+      toast.error(validation.error || 'Link de afiliado inválido.');
+      return;
+    }
+
+    if (validation.marketplace && validation.marketplace !== 'mercadolivre') {
+      toast.error('Esta aba aceita apenas links de afiliado do Mercado Livre.');
+      return;
+    }
+    if (!isMercadoLivreSecLink(link)) {
+      toast.error('Use o link curto de afiliado do Mercado Livre (mercadolivre.com/sec/...).');
+      return;
+    }
+
+    try {
+      setSavingAffiliateProductId(product.id);
+
+      const duplicate = await lookupDuplicateProductByLinks(
+        getLinkVariants(link),
+        product.id,
+      );
+      if (duplicate) {
+        toast.error(`Este link já está em uso por: ${duplicate.name}`);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const parsedExternalId = extractMercadoLivreId(link);
+      const updates: Record<string, unknown> = {
+        affiliate_link: link,
+        affiliate_verified: isMercadoLivreSecLink(link),
+        affiliate_generated_at: nowIso,
+        is_active: true,
+        status: 'active',
+        auto_disabled_reason: null,
+        auto_disabled_at: null,
+        next_check_at: nowIso,
+      };
+
+      if (!product.external_id && parsedExternalId) {
+        updates.external_id = parsedExternalId;
+      }
+
+      const { error } = await supabase
+        .from('products')
+        .update(updates)
+        .eq('id', product.id);
+      if (error) throw error;
+
+      toast.success('Link salvo. Produto ativado e reagendado para sincronização.');
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] });
+    } catch (error: any) {
+      toast.error('Falha ao salvar link de afiliado.', { description: error.message });
+    } finally {
+      setSavingAffiliateProductId(null);
+    }
+  };
+
   const getSourceLabel = (source?: string | null) => {
     if (source === 'catalog') return 'Catálogo';
     if (source === 'public') return 'Público';
@@ -1364,8 +1527,79 @@ export default function Admin() {
     [filteredAllProducts, blockedProductIds],
   );
 
+  const affiliateGrouped = useMemo(() => {
+    const mercadoProducts = [...filteredAllProducts].filter((product) =>
+      String(product.marketplace || '').toLowerCase().includes('mercado'),
+    );
+
+    const grouped = new Map<string, Product[]>();
+    for (const product of mercadoProducts) {
+      const key = buildAffiliateCanonicalKey(product);
+      const current = grouped.get(key);
+      if (current) current.push(product);
+      else grouped.set(key, [product]);
+    }
+
+    const products: Product[] = [];
+    const duplicateCountByProductId: Record<string, number> = {};
+    let hiddenDuplicates = 0;
+
+    for (const groupProducts of grouped.values()) {
+      const ordered = [...groupProducts].sort(compareAffiliateRepresentativePriority);
+      const representative = ordered[0];
+      if (!representative) continue;
+
+      products.push(representative);
+      const duplicates = Math.max(0, groupProducts.length - 1);
+      if (duplicates > 0) {
+        duplicateCountByProductId[representative.id] = duplicates;
+        hiddenDuplicates += duplicates;
+      }
+    }
+
+    products.sort((a, b) => {
+      const aPending = isMercadoLivreSecLink(a.affiliate_link) ? 0 : 1;
+      const bPending = isMercadoLivreSecLink(b.affiliate_link) ? 0 : 1;
+      if (aPending !== bPending) return bPending - aPending;
+
+      const aHasLink = Boolean(a.affiliate_link && a.affiliate_link.trim());
+      const bHasLink = Boolean(b.affiliate_link && b.affiliate_link.trim());
+      if (aHasLink !== bHasLink) return Number(aHasLink) - Number(bHasLink);
+
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
+
+    return {
+      products,
+      duplicateCountByProductId,
+      hiddenDuplicates,
+      totalRaw: mercadoProducts.length,
+    };
+  }, [filteredAllProducts]);
+
+  const filteredAffiliateProducts = affiliateGrouped.products;
+  const affiliateDuplicateCountByProductId = affiliateGrouped.duplicateCountByProductId;
+
+  const affiliateStatusStats = useMemo(() => {
+    let ok = 0;
+    let pending = 0;
+    for (const product of filteredAffiliateProducts) {
+      if (isMercadoLivreSecLink(product.affiliate_link)) ok += 1;
+      else pending += 1;
+    }
+    return {
+      ok,
+      pending,
+      total: filteredAffiliateProducts.length,
+      hiddenDuplicates: affiliateGrouped.hiddenDuplicates,
+      totalRaw: affiliateGrouped.totalRaw,
+    };
+  }, [filteredAffiliateProducts, affiliateGrouped.hiddenDuplicates, affiliateGrouped.totalRaw]);
+
   const activeProductsList =
-    productTab === 'blocked'
+    productTab === 'affiliate'
+      ? filteredAffiliateProducts
+      : productTab === 'blocked'
       ? filteredBlockedProducts
       : productTab === 'valid'
         ? filteredValidProducts
@@ -1738,12 +1972,17 @@ export default function Admin() {
               </div>
               <Tabs
                 value={productTab}
-                onValueChange={(value) => setProductTab(value as 'all' | 'valid' | 'blocked')}
+                onValueChange={(value) =>
+                  setProductTab(value as 'all' | 'valid' | 'blocked' | 'affiliate')
+                }
               >
                 <TabsList className="w-full sm:w-auto">
                   <TabsTrigger value="all">Todos ({filteredAllProducts.length})</TabsTrigger>
                   <TabsTrigger value="valid">Validação ok ({filteredValidProducts.length})</TabsTrigger>
                   <TabsTrigger value="blocked">Bloqueados ({filteredBlockedProducts.length})</TabsTrigger>
+                  <TabsTrigger value="affiliate">
+                    Afiliado ({filteredAffiliateProducts.length})
+                  </TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>
@@ -1982,6 +2221,8 @@ export default function Admin() {
               <p className="text-muted-foreground mb-4">
                 {searchQuery
                   ? 'Tente outro termo de busca'
+                  : productTab === 'affiliate'
+                    ? 'Nenhum produto do Mercado Livre encontrado para vincular afiliado.'
                   : productTab === 'blocked'
                     ? 'Nenhum produto bloqueado até o momento.'
                     : productTab === 'valid'
@@ -1994,6 +2235,109 @@ export default function Admin() {
                   Adicionar Produto
                 </Button>
               )}
+            </div>
+          ) : productTab === 'affiliate' ? (
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="p-4 border-b border-border bg-secondary/40 text-sm text-muted-foreground space-y-3">
+                <p>
+                  Aba de afiliados: somente link curto <code>mercadolivre.com/sec/...</code> é
+                  considerado validado para vitrine.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="rounded-md bg-background border border-border px-3 py-2">
+                    <p className="text-[11px] uppercase text-muted-foreground">Total ML</p>
+                    <p className="text-base font-semibold text-foreground">{affiliateStatusStats.total}</p>
+                  </div>
+                  <div className="rounded-md bg-success/10 border border-success/20 px-3 py-2">
+                    <p className="text-[11px] uppercase text-success">Afiliado OK</p>
+                    <p className="text-base font-semibold text-foreground">{affiliateStatusStats.ok}</p>
+                  </div>
+                  <div className="rounded-md bg-warning/10 border border-warning/20 px-3 py-2">
+                    <p className="text-[11px] uppercase text-warning">Pendentes</p>
+                    <p className="text-base font-semibold text-foreground">{affiliateStatusStats.pending}</p>
+                  </div>
+                </div>
+                {affiliateStatusStats.hiddenDuplicates > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Duplicados ocultos automaticamente: {affiliateStatusStats.hiddenDuplicates}
+                    {" "}
+                    (de {affiliateStatusStats.totalRaw} registros).
+                  </p>
+                )}
+              </div>
+              <div className="divide-y divide-border">
+                {filteredAffiliateProducts.map((product) => {
+                  const draftValue = getAffiliateDraftValue(product);
+                  const validation =
+                    draftValue.trim().length > 0
+                      ? isValidAffiliateLink(draftValue)
+                      : { valid: false, error: null as string | null, marketplace: null as string | null };
+                  const isSecLink = isMercadoLivreSecLink(draftValue);
+                  const isSaving = savingAffiliateProductId === product.id;
+                  return (
+                    <div key={product.id} className="p-4 space-y-3">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground line-clamp-1">{product.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {product.external_id || "Sem MLB"} . {product.status || (product.is_active ? "active" : "inativo")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {(affiliateDuplicateCountByProductId[product.id] ?? 0) > 0 && (
+                            <span className="inline-flex items-center rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-muted-foreground">
+                              +{affiliateDuplicateCountByProductId[product.id]} duplicado(s)
+                            </span>
+                          )}
+                          {product.is_active ? (
+                            <span className="inline-flex items-center rounded-full bg-success/10 px-2 py-1 text-xs font-semibold text-success">
+                              Ativo
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+                              Inativo
+                            </span>
+                          )}
+                          {isMercadoLivreSecLink(product.affiliate_link) ? (
+                            <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                              Afiliado OK
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-1 text-xs font-semibold text-warning">
+                              Pendente
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+                        <Input
+                          value={draftValue}
+                          onChange={(e) => handleAffiliateDraftChange(product.id, e.target.value)}
+                          placeholder="https://mercadolivre.com/sec/xxxxx"
+                        />
+                        <Button
+                          type="button"
+                          onClick={() => handleSaveAffiliateLink(product)}
+                          disabled={isSaving || !draftValue.trim() || !validation.valid || !isSecLink}
+                        >
+                          {isSaving ? "Salvando..." : "Salvar e ativar"}
+                        </Button>
+                      </div>
+                      {draftValue.trim().length > 0 && !validation.valid && (
+                        <p className="text-xs text-destructive">
+                          {validation.error || "Link de afiliado inválido."}
+                        </p>
+                      )}
+                      {draftValue.trim().length > 0 && validation.valid && !isSecLink && (
+                        <p className="text-xs text-warning">
+                          Cole o link curto <code>/sec/</code> para validar sua vitrine.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : viewMode === 'list' ? (
             <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -2235,7 +2579,7 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="short_description">descrição Curta</Label>
+                <Label htmlFor="short_description">Descrição curta</Label>
                 <Input
                   id="short_description"
                   value={formData.short_description}
@@ -2245,12 +2589,12 @@ export default function Admin() {
               </div>
 
               <div>
-                <Label htmlFor="description">descrição Completa</Label>
+                <Label htmlFor="description">Descrição completa</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="descrição detalhada do produto..."
+                  placeholder="Descrição detalhada do produto..."
                   rows={4}
                 />
               </div>
