@@ -28,17 +28,29 @@ export interface Product {
   is_active: boolean;
   is_on_sale: boolean;
   status?: string | null;
+  quality_issues?: string[] | null;
+  curation_badges?: string[] | null;
 
   image_url: string | null;
+  image_url_original?: string | null;
+  image_url_cached?: string | null;
   images: string[] | null;
 
   // Fonte original para scraping (ex: link completo do ML)
   source_url?: string | null;
 
   affiliate_link: string | null;
+  affiliate_verified?: boolean | null;
+  affiliate_generated_at?: string | null;
+  validated_at?: string | null;
+  validated_by?: string | null;
+  affiliate_url_used?: string | null;
   instructions: string | null;
   usage_instructions: string | null;
   specifications: Record<string, unknown> | null;
+  last_ml_description_hash?: string | null;
+  description_last_synced_at?: string | null;
+  description_manual_override?: boolean | null;
 
   sku: string | null;
   stock_quantity: number;
@@ -63,6 +75,9 @@ export interface Product {
   auto_disabled_reason?: string | null;
   auto_disabled_at?: string | null;
   is_blocked?: boolean | null;
+  data_health_status?: string | null;
+  deactivation_reason?: string | null;
+  last_health_check_at?: string | null;
 
   created_at: string | null;
   updated_at: string | null;

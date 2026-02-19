@@ -1,6 +1,7 @@
 ﻿import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { compareBySubFilter, dedupeCatalogProducts } from '@/lib/catalog';
 
 export interface Product {
   id: string;
@@ -8,13 +9,17 @@ export interface Product {
   slug: string;
   price: number;
   pix_price?: number | null;
+  pix_price_source?: string | null;
   original_price?: number | null;
   previous_price?: number | null;
   detected_at?: string | null;
   short_description?: string | null;
   description?: string | null;
   image_url?: string | null;
+  image_url_original?: string | null;
+  image_url_cached?: string | null;
   affiliate_link?: string | null;
+  affiliate_verified?: boolean | null;
   source_url?: string | null;
   external_id?: string | null;
   category_id?: string | null;
@@ -25,6 +30,9 @@ export interface Product {
   is_active: boolean;
   is_featured: boolean;
   is_on_sale: boolean;
+  curation_badges?: string[] | null;
+  specifications?: Record<string, unknown> | null;
+  quality_issues?: string[] | null;
   is_blocked?: boolean | null;
   free_shipping?: boolean;
   marketplace?: string;
@@ -52,7 +60,11 @@ export const useProducts = () => {
     },
   });
 
-  const products = productsQuery.data || [];
+  const products = useMemo(() => {
+    const raw = (productsQuery.data || []) as Product[];
+    const deduped = dedupeCatalogProducts(raw as any[]) as Product[];
+    return [...deduped].sort((a, b) => compareBySubFilter(a as any, b as any, 'melhores'));
+  }, [productsQuery.data]);
 
   const getFeaturedProducts = useMemo(
     () => () => products.filter(p => p.is_featured),
