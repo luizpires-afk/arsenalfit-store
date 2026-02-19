@@ -27,15 +27,17 @@ import { openMonitorInfoDialog } from '@/Components/monitoring/MonitorInfoDialog
 import { toast } from 'sonner';
 import cartHeroImage from '../assets/cart-hero.png';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/Components/ui/collapsible';
+import {
+  buildOutProductPath,
+  getOfferUnavailableMessage,
+  resolveOfferUrl,
+} from '@/lib/offer.js';
 
 const formatPrice = (value: number) =>
   value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const resolveProductHref = (product: { slug?: string | null; id: string }) =>
   product.slug ? `/produto/${product.slug}` : `/produto/${product.id}`;
-
-const resolveOfferLink = (product: { affiliate_link?: string | null; source_url?: string | null }) =>
-  product.affiliate_link || product.source_url || null;
 
 const cartThemeVars: CSSProperties = {
   '--cart-bg': '#FFFFFF',
@@ -103,21 +105,31 @@ const Cart = () => {
       .map((item) => {
         const product = item.products as any;
         if (!product) return null;
-        const offerLink = resolveOfferLink(product);
-        return { item, product, offerLink };
+        const resolution = resolveOfferUrl(product);
+        const outPath = resolution.canRedirect ? buildOutProductPath(product.id, 'cart') : null;
+        const unavailableMessage = getOfferUnavailableMessage(
+          resolution,
+          product.marketplace || '',
+        );
+        return { item, product, outPath, unavailableMessage };
       })
-      .filter(Boolean) as Array<{ item: any; product: any; offerLink: string | null }>;
+      .filter(Boolean) as Array<{
+        item: any;
+        product: any;
+        outPath: string | null;
+        unavailableMessage: string;
+      }>;
   }, [cartItems]);
 
-  const availableOffers = offerItems.filter((offer) => Boolean(offer.offerLink));
+  const availableOffers = offerItems.filter((offer) => Boolean(offer.outPath));
 
-  const openOffer = (link: string | null) => {
-    if (!link) {
-      toast.error('Oferta indisponível no momento.');
+  const openOffer = (offer: { outPath: string | null; unavailableMessage: string }) => {
+    if (!offer.outPath) {
+      toast.error(offer.unavailableMessage || 'Oferta indisponivel no momento.');
       return;
     }
     setIsRedirecting(true);
-    window.open(link, '_blank', 'noopener,noreferrer');
+    window.open(offer.outPath, '_blank', 'noopener,noreferrer');
     setTimeout(() => setIsRedirecting(false), 600);
   };
 
@@ -128,7 +140,7 @@ const Cart = () => {
     }
 
     if (availableOffers.length === 1) {
-      openOffer(availableOffers[0].offerLink);
+      openOffer(availableOffers[0]);
       return;
     }
 
@@ -610,12 +622,12 @@ const Cart = () => {
                     </div>
                   </div>
                   <Button
-                    onClick={() => openOffer(offer.offerLink)}
+                    onClick={() => openOffer(offer)}
                     variant="outline"
                     className="h-10 min-w-[120px] rounded-full border-[var(--cart-border)] bg-white text-[var(--cart-text)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)]"
-                    disabled={!offer.offerLink}
+                    disabled={!offer.outPath}
                   >
-                    Ver oferta
+                    {offer.outPath ? 'Ver oferta' : 'Aguardando validacao'}
                   </Button>
                 </div>
               );
@@ -638,3 +650,4 @@ const Cart = () => {
 };
 
 export default Cart;
+

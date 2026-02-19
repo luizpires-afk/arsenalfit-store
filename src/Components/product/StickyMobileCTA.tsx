@@ -5,9 +5,10 @@ interface StickyMobileCTAProps {
   visible: boolean;
   price: number;
   onBuyNow: () => void;
+  disabled?: boolean;
 }
 
-export function StickyMobileCTA({ visible, price, onBuyNow }: StickyMobileCTAProps) {
+export function StickyMobileCTA({ visible, price, onBuyNow, disabled = false }: StickyMobileCTAProps) {
   return (
     <div
       className={`fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-200 bg-white px-4 py-3 shadow-md transition-transform md:hidden ${
@@ -22,12 +23,14 @@ export function StickyMobileCTA({ visible, price, onBuyNow }: StickyMobileCTAPro
         <button
           type="button"
           onClick={onBuyNow}
-          className="h-11 rounded-2xl bg-primary text-black font-semibold px-4 flex items-center gap-2 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          disabled={disabled}
+          className={`h-11 rounded-2xl bg-primary text-black font-semibold px-4 flex items-center gap-2 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+            disabled ? "opacity-60 cursor-not-allowed" : ""
+          }`}
         >
-          Comprar agora <ArrowRight size={16} />
+          {disabled ? "Aguardando validacao" : "Comprar agora"} <ArrowRight size={16} />
         </button>
       </div>
     </div>
   );
 }
-

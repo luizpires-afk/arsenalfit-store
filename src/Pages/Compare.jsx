@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 
 import SEOHead from '@/Components/SEOHead';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
+import { buildOutProductPath } from '@/lib/offer.js';
 
 const categoryLabels = {
   suplementos: "Suplementos",
@@ -317,7 +318,7 @@ export default function Compare() {
                     {compareProducts.map((product) => (
                       <td key={product.id} className="p-6 text-center">
                         <a
-                          href={product.affiliate_link}
+                          href={buildOutProductPath(product.id, 'compare')}
                           target="_blank"
                           rel="noopener noreferrer"
                         >

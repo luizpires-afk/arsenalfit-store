@@ -18,6 +18,11 @@
   status = 200
 
 [[redirects]]
+  from = "/out/product/:id"
+  to = "/.netlify/functions/out-product?id=:id"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

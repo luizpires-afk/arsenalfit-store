@@ -1126,7 +1126,7 @@ export default function SearchBarSticky() {
                         {(isMobile ? results?.hot.slice(0, 6) : results?.hot).map((item) => (
                           <a
                             key={`hot-${item.id}`}
-                            href={item.slug ? `/produto/${item.slug}` : item.affiliate_link || "#"}
+                            href={item.slug ? `/produto/${item.slug}` : item.id ? `/out/product/${item.id}?src=search_sticky` : "#"}
                             onClick={() => handleSuggestionClick(item)}
                             className="min-w-[170px] sm:min-w-[190px] rounded-xl border border-zinc-200 bg-white px-3 py-2.5 flex items-center gap-2 hover:border-zinc-300 snap-start"
                           >
@@ -1235,7 +1235,7 @@ export default function SearchBarSticky() {
                               {(isMobile ? items.slice(0, 8) : items).map((item) => (
                                 <a
                                   key={`most-${key}-${item.id}`}
-                                  href={item.slug ? `/produto/${item.slug}` : item.affiliate_link || "#"}
+                                  href={item.slug ? `/produto/${item.slug}` : item.id ? `/out/product/${item.id}?src=search_sticky` : "#"}
                                   onClick={() => handleSuggestionClick(item)}
                                   className="min-w-[170px] sm:min-w-[190px] rounded-xl border border-zinc-200 bg-white px-3 py-2.5 flex items-center gap-2 hover:border-zinc-300 snap-start"
                                 >
@@ -1296,7 +1296,7 @@ export default function SearchBarSticky() {
                   {results?.suggestions.map((item) => (
                     <a
                       key={item.id}
-                      href={item.slug ? `/produto/${item.slug}` : item.affiliate_link || "#"}
+                      href={item.slug ? `/produto/${item.slug}` : item.id ? `/out/product/${item.id}?src=search_sticky` : "#"}
                       onClick={() => handleSuggestionClick(item)}
                       className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition"
                     >
@@ -1364,7 +1364,7 @@ export default function SearchBarSticky() {
                     {results?.similar.map((item) => (
                       <a
                         key={item.id}
-                        href={item.slug ? `/produto/${item.slug}` : item.affiliate_link || "#"}
+                        href={item.slug ? `/produto/${item.slug}` : item.id ? `/out/product/${item.id}?src=search_sticky` : "#"}
                         onClick={() => handleSuggestionClick(item)}
                         className="flex items-center gap-2 text-sm text-zinc-700 hover:text-zinc-900"
                       >

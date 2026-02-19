@@ -3,15 +3,26 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Zap, TrendingDown, Timer } from 'lucide-react';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
+import {
+  buildOutProductPath,
+  resolveOfferUrl,
+} from '@/lib/offer.js';
+import { resolveFinalPriceInfo } from '@/lib/pricing.js';
 
 // Interface para remover o erro de "any"
 interface Product {
   id: string;
   name: string;
   price: number;
-  original_price: number;
+  original_price: number | null;
+  pix_price?: number | null;
+  pix_price_source?: string | null;
   image_url: string;
-  affiliate_link: string;
+  affiliate_link: string | null;
+  source_url?: string | null;
+  marketplace?: string | null;
+  status?: string | null;
+  is_active?: boolean | null;
   updated_at: string;
   ultima_verificacao?: string | null;
 }
@@ -59,9 +70,12 @@ export default function MelhoresOfertas() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {products?.map((product: Product) => {
-              const discount = product.original_price > 0 
-                ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
-                : 0;
+              const pricing = resolveFinalPriceInfo(product);
+              const finalPrice = pricing.finalPrice;
+              const listPrice = pricing.listPrice;
+              const discount = pricing.discountPercent ?? 0;
+              const offerResolution = resolveOfferUrl(product);
+              const canOpen = Boolean(offerResolution.canRedirect && product.id);
               const lastUpdated = product.updated_at
                 ? new Date(product.updated_at)
                 : product.ultima_verificacao
@@ -83,17 +97,23 @@ export default function MelhoresOfertas() {
                   <h3 className="font-black italic uppercase text-xl mb-2 line-clamp-2">{product.name}</h3>
                   
                   <div className="flex items-end gap-3 mb-6">
-                    <span className="text-3xl font-black text-zinc-900 italic">R$ {product.price}</span>
-                    <span className="text-zinc-400 line-through font-bold mb-1">R$ {product.original_price}</span>
+                    <span className="text-3xl font-black text-zinc-900 italic">R$ {finalPrice.toFixed(2).replace('.', ',')}</span>
+                    {listPrice && listPrice > finalPrice && (
+                      <span className="text-zinc-400 line-through font-bold mb-1">R$ {listPrice.toFixed(2).replace('.', ',')}</span>
+                    )}
                   </div>
 
                   <a 
-                    href={product.affiliate_link}
+                    href={canOpen ? buildOutProductPath(product.id, 'melhores_ofertas') : '#'}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block w-full bg-zinc-900 text-white text-center py-5 rounded-2xl font-black uppercase italic hover:bg-[#a3e635] hover:text-black transition-colors"
+                    className={`block w-full text-center py-5 rounded-2xl font-black uppercase italic transition-colors ${
+                      canOpen
+                        ? 'bg-zinc-900 text-white hover:bg-[#a3e635] hover:text-black'
+                        : 'bg-zinc-300 text-zinc-500 cursor-not-allowed pointer-events-none'
+                    }`}
                   >
-                    Aproveitar Agora
+                    {canOpen ? 'Aproveitar Agora' : 'Aguardando validacao'}
                   </a>
 
                   <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-zinc-400 font-semibold">

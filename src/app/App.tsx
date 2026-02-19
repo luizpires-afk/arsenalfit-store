@@ -38,6 +38,7 @@ import Privacy from "@/Pages/Privacy";
 import Affiliates from "@/Pages/Affiliates";
 import Verify from "@/Pages/Verify";
 import ResetPassword from "@/Pages/ResetPassword";
+import OutProduct from "@/Pages/OutProduct";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +78,7 @@ const AppRoutes = () => {
         <Route path="/afiliados" element={<Affiliates />} />
         <Route path="/verificar" element={<Verify />} />
         <Route path="/redefinir-senha" element={<ResetPassword />} />
+        <Route path="/out/product/:id" element={<OutProduct />} />
         <Route path="/ofertas" element={<Navigate to="/" replace />} />
         <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />
         <Route path="/carrinho" element={<Cart />} />

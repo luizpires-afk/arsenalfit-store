@@ -6,6 +6,14 @@ import {
   evaluateFitnessGate,
   normalizeFitnessText,
 } from "./fitness_gate.ts";
+import {
+  resolveDailyQuotaRange,
+  resolveDailyQuotaValue,
+} from "./daily_growth_policy.js";
+import {
+  resolveExistingProductActivation,
+  resolveNewProductActivation,
+} from "./status_policy.js";
 
 const Deno = (globalThis as unknown as {
   Deno: {
@@ -166,6 +174,47 @@ const rawPostSyncTimeoutMs = Number(
 const POST_SYNC_TIMEOUT_MS = Number.isFinite(rawPostSyncTimeoutMs)
   ? Math.max(3000, Math.min(60000, Math.floor(rawPostSyncTimeoutMs)))
   : 25000;
+const PRESERVE_EXISTING_ACTIVE = !["0", "false", "no", "off"].includes(
+  String(Deno?.env?.get?.("CATALOG_INGEST_PRESERVE_EXISTING_ACTIVE") ?? "true")
+    .trim()
+    .toLowerCase(),
+);
+const DAILY_GROWTH_DEFAULT_SUPPLEMENTS_MIN = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_SUPPLEMENTS_MIN") ?? "3",
+);
+const DAILY_GROWTH_DEFAULT_SUPPLEMENTS_MAX = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_SUPPLEMENTS_MAX") ?? "5",
+);
+const DAILY_GROWTH_DEFAULT_ACCESSORIES_MIN = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_ACCESSORIES_MIN") ?? "4",
+);
+const DAILY_GROWTH_DEFAULT_ACCESSORIES_MAX = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_ACCESSORIES_MAX") ?? "4",
+);
+const DAILY_GROWTH_DEFAULT_MEN_CLOTHING_MIN = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_MEN_CLOTHING_MIN") ?? "2",
+);
+const DAILY_GROWTH_DEFAULT_MEN_CLOTHING_MAX = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_MEN_CLOTHING_MAX") ?? "2",
+);
+const DAILY_GROWTH_DEFAULT_WOMEN_CLOTHING_MIN = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_WOMEN_CLOTHING_MIN") ?? "2",
+);
+const DAILY_GROWTH_DEFAULT_WOMEN_CLOTHING_MAX = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_WOMEN_CLOTHING_MAX") ?? "2",
+);
+const DAILY_GROWTH_DEFAULT_EQUIPMENT_MIN = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_EQUIPMENT_MIN") ?? "1",
+);
+const DAILY_GROWTH_DEFAULT_EQUIPMENT_MAX = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_EQUIPMENT_MAX") ?? "2",
+);
+const DAILY_GROWTH_DEFAULT_MAX_PER_BRAND = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_MAX_PER_BRAND") ?? "2",
+);
+const DAILY_GROWTH_DEFAULT_CANDIDATE_POOL = Number(
+  Deno?.env?.get?.("CATALOG_DAILY_CANDIDATE_POOL_SIZE") ?? "50",
+);
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -212,7 +261,7 @@ type OfferCandidate = {
   title: string;
   brand: string | null;
   permalink: string;
-  affiliateLink: string;
+  affiliateLink: string | null;
   thumbnailUrl: string | null;
   price: number;
   originalPrice: number | null;
@@ -257,6 +306,9 @@ type ExistingProductRow = {
   affiliate_link: string | null;
   affiliate_verified: boolean | null;
   affiliate_generated_at: string | null;
+  validated_at: string | null;
+  validated_by: string | null;
+  affiliate_url_used: string | null;
   source_url: string | null;
   pix_price: number | null;
   pix_price_source: string | null;
@@ -332,6 +384,13 @@ type CategoryRuntimeLimits = {
   maxStandby: number;
   maxNewPerDay: number;
   minDeltaScoreToReplace: number;
+};
+
+type DailyBrandUsageRow = {
+  day_date: string;
+  site_category: string;
+  brand_key: string;
+  usage_count: number;
 };
 
 type CandidateContent = {
@@ -707,6 +766,249 @@ const normalizeSiteCategory = (value: unknown): string | null => {
   if (!normalized) return null;
   if (SITE_CATEGORY_SET.has(normalized)) return normalized;
   return null;
+};
+
+const resolveSiteCategoryFromAlias = (value: unknown): string | null => {
+  const normalized = normalizeFitnessText(String(value ?? ""));
+  if (!normalized) return null;
+  if (SITE_CATEGORY_SET.has(normalized)) return normalized;
+
+  if (["suplemento", "suplementos", "supplement", "supplements"].includes(normalized)) {
+    return SITE_CATEGORIES.SUPLEMENTOS;
+  }
+  if (["acessorio", "acessorios", "accessory", "accessories"].includes(normalized)) {
+    return SITE_CATEGORIES.ACESSORIOS;
+  }
+  if (["equipamento", "equipamentos", "equipment"].includes(normalized)) {
+    return SITE_CATEGORIES.EQUIPAMENTOS;
+  }
+  if (
+    [
+      "roupas masc",
+      "roupa masc",
+      "roupas masculino",
+      "roupa masculino",
+      "men clothing",
+      "male clothing",
+      "men",
+      "masculino",
+      "mens",
+    ].includes(normalized)
+  ) {
+    return SITE_CATEGORIES.ROUPAS_MASC;
+  }
+  if (
+    [
+      "roupas fem",
+      "roupa fem",
+      "roupas feminino",
+      "roupa feminino",
+      "women clothing",
+      "female clothing",
+      "women",
+      "feminino",
+      "womens",
+    ].includes(normalized)
+  ) {
+    return SITE_CATEGORIES.ROUPAS_FEM;
+  }
+  return null;
+};
+
+const parseSiteCategoryList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const out = new Set<string>();
+  for (const raw of value) {
+    const resolved = resolveSiteCategoryFromAlias(raw);
+    if (resolved) out.add(resolved);
+  }
+  return Array.from(out);
+};
+
+const parseBulkTargets = (payload: Record<string, unknown>) => {
+  const out = new Map<string, number>();
+  const put = (siteCategory: string | null, rawValue: unknown) => {
+    if (!siteCategory) return;
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    out.set(siteCategory, Math.floor(parsed));
+  };
+
+  const root = payload ?? {};
+  const nestedRaw = (root as any).targets_by_site_category ?? (root as any).targetsBySiteCategory;
+  if (nestedRaw && typeof nestedRaw === "object") {
+    for (const [key, value] of Object.entries(nestedRaw as Record<string, unknown>)) {
+      put(resolveSiteCategoryFromAlias(key), value);
+    }
+  }
+
+  put(SITE_CATEGORIES.SUPLEMENTOS, (root as any).supplements ?? (root as any).suplementos);
+  put(SITE_CATEGORIES.ACESSORIOS, (root as any).accessories ?? (root as any).acessorios);
+  put(SITE_CATEGORIES.EQUIPAMENTOS, (root as any).equipment ?? (root as any).equipamentos);
+  put(SITE_CATEGORIES.ROUPAS_MASC, (root as any).men_clothing ?? (root as any).roupas_masc);
+  put(SITE_CATEGORIES.ROUPAS_FEM, (root as any).women_clothing ?? (root as any).roupas_fem);
+
+  return out;
+};
+
+const DAILY_GROWTH_SITE_CATEGORY_ORDER = [
+  SITE_CATEGORIES.SUPLEMENTOS,
+  SITE_CATEGORIES.ACESSORIOS,
+  SITE_CATEGORIES.ROUPAS_MASC,
+  SITE_CATEGORIES.ROUPAS_FEM,
+  SITE_CATEGORIES.EQUIPAMENTOS,
+];
+
+const dayOfYear = (date: Date) => {
+  const utcStart = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const utcCurrent = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  return Math.max(1, Math.floor((utcCurrent - utcStart) / 86400000) + 1);
+};
+
+const readDailyQuotaInput = (payload: Record<string, unknown>, siteCategory: string): unknown => {
+  const root = payload ?? {};
+  const dailyQuotas = ((root as any).daily_quotas ?? (root as any).dailyQuotas ?? null) as
+    | Record<string, unknown>
+    | null;
+  if (dailyQuotas && typeof dailyQuotas === "object") {
+    const bySiteCategory =
+      dailyQuotas[siteCategory] ??
+      dailyQuotas[siteCategory.replace("_", "-")] ??
+      dailyQuotas[siteCategory.replace("_", "")];
+    if (bySiteCategory !== undefined) return bySiteCategory;
+  }
+
+  if (siteCategory === SITE_CATEGORIES.SUPLEMENTOS) {
+    return (root as any).supplements ?? (root as any).suplementos;
+  }
+  if (siteCategory === SITE_CATEGORIES.ACESSORIOS) {
+    return (root as any).accessories ?? (root as any).acessorios;
+  }
+  if (siteCategory === SITE_CATEGORIES.EQUIPAMENTOS) {
+    return (root as any).equipment ?? (root as any).equipamentos;
+  }
+  if (siteCategory === SITE_CATEGORIES.ROUPAS_MASC) {
+    return (root as any).men_clothing ?? (root as any).roupas_masc;
+  }
+  if (siteCategory === SITE_CATEGORIES.ROUPAS_FEM) {
+    return (root as any).women_clothing ?? (root as any).roupas_fem;
+  }
+  return undefined;
+};
+
+const resolveDailyGrowthTargets = (payload: Record<string, unknown>, now: Date) => {
+  const fallbackRanges = new Map<string, { min: number; max: number }>([
+    [
+      SITE_CATEGORIES.SUPLEMENTOS,
+      {
+        min: DAILY_GROWTH_DEFAULT_SUPPLEMENTS_MIN,
+        max: DAILY_GROWTH_DEFAULT_SUPPLEMENTS_MAX,
+      },
+    ],
+    [
+      SITE_CATEGORIES.ACESSORIOS,
+      {
+        min: DAILY_GROWTH_DEFAULT_ACCESSORIES_MIN,
+        max: DAILY_GROWTH_DEFAULT_ACCESSORIES_MAX,
+      },
+    ],
+    [
+      SITE_CATEGORIES.ROUPAS_MASC,
+      {
+        min: DAILY_GROWTH_DEFAULT_MEN_CLOTHING_MIN,
+        max: DAILY_GROWTH_DEFAULT_MEN_CLOTHING_MAX,
+      },
+    ],
+    [
+      SITE_CATEGORIES.ROUPAS_FEM,
+      {
+        min: DAILY_GROWTH_DEFAULT_WOMEN_CLOTHING_MIN,
+        max: DAILY_GROWTH_DEFAULT_WOMEN_CLOTHING_MAX,
+      },
+    ],
+    [
+      SITE_CATEGORIES.EQUIPAMENTOS,
+      {
+        min: DAILY_GROWTH_DEFAULT_EQUIPMENT_MIN,
+        max: DAILY_GROWTH_DEFAULT_EQUIPMENT_MAX,
+      },
+    ],
+  ]);
+
+  const targets = new Map<string, number>();
+  const minTargets = new Map<string, number>();
+  const maxTargets = new Map<string, number>();
+  const seedBase = dayOfYear(now) + now.getUTCFullYear() * 1000;
+
+  for (const [index, siteCategory] of DAILY_GROWTH_SITE_CATEGORY_ORDER.entries()) {
+    const fallback = fallbackRanges.get(siteCategory) ?? { min: 0, max: 0 };
+    const input = readDailyQuotaInput(payload, siteCategory);
+    const range = resolveDailyQuotaRange(input, fallback.min, fallback.max);
+    const value = resolveDailyQuotaValue(range, seedBase + index * 37);
+    if (value <= 0 && range.max <= 0) continue;
+    targets.set(siteCategory, value);
+    minTargets.set(siteCategory, range.min);
+    maxTargets.set(siteCategory, range.max);
+  }
+
+  return {
+    targets,
+    minTargets,
+    maxTargets,
+  };
+};
+
+const toSaoPauloDateKey = (date: Date) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+  }).format(date);
+
+const normalizeBrandKey = (brand: string | null | undefined) => {
+  const normalized = normalizeText(String(brand ?? ""));
+  return normalized || null;
+};
+
+const loadDailyBrandUsage = async (
+  supabase: ReturnType<typeof createClient>,
+  dayDate: string,
+) => {
+  const out = new Map<string, number>();
+  const { data, error } = await supabase
+    .from("daily_catalog_brand_usage")
+    .select("day_date, site_category, brand_key, usage_count")
+    .eq("day_date", dayDate);
+  if (error) throw new Error(error.message);
+
+  for (const row of ((data as DailyBrandUsageRow[] | null) ?? [])) {
+    const siteCategory = normalizeSiteCategory(row.site_category) ?? row.site_category;
+    const brandKey = normalizeBrandKey(row.brand_key);
+    if (!siteCategory || !brandKey) continue;
+    const key = `${siteCategory}::${brandKey}`;
+    out.set(key, Math.max(0, Math.floor(Number(row.usage_count) || 0)));
+  }
+  return out;
+};
+
+const priorityForSiteCategory = (siteCategory: string) => {
+  if (siteCategory === SITE_CATEGORIES.SUPLEMENTOS) return "HIGH";
+  if (siteCategory === SITE_CATEGORIES.ROUPAS_MASC || siteCategory === SITE_CATEGORIES.ROUPAS_FEM) {
+    return "LOW";
+  }
+  return "MED";
+};
+
+const buildCatalogTags = (candidate: OfferCandidate) => {
+  const tags = new Set<string>();
+  tags.add("mercadolivre");
+  tags.add(String(candidate.siteCategory || "").toLowerCase());
+  tags.add(priorityForSiteCategory(candidate.siteCategory).toLowerCase());
+  if (candidate.freeShipping) tags.add("frete_gratis");
+  if (candidate.isElite) tags.add("elite");
+  if (candidate.brand) {
+    const normalizedBrand = normalizeText(candidate.brand);
+    if (normalizedBrand) tags.add(`brand:${normalizedBrand.replace(/\s+/g, "_")}`);
+  }
+  return Array.from(tags);
 };
 
 const inferSiteCategoryFromText = (value: string): string | null => {
@@ -1274,20 +1576,6 @@ const extractOriginalPrice = (payload: Record<string, unknown>, referencePrice: 
   return Math.max(...filtered);
 };
 
-const buildAffiliateLink = (permalink: string) => {
-  if (!AFFILIATE_QUERY) return permalink;
-  try {
-    const url = new URL(permalink);
-    const params = new URLSearchParams(AFFILIATE_QUERY);
-    for (const [key, value] of params.entries()) {
-      if (!url.searchParams.has(key)) url.searchParams.set(key, value);
-    }
-    return url.toString();
-  } catch {
-    return permalink;
-  }
-};
-
 const normalizeUrl = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1729,7 +2017,7 @@ const buildCandidateFromResult = (
   if (price === null || !(price > 0)) return null;
 
   const permalink = normalizeUrl(result.permalink) ?? `https://www.mercadolivre.com.br/p/${externalId}`;
-  const affiliateLink = buildAffiliateLink(permalink);
+  const affiliateLink = null;
   const thumbnailUrl = extractPrimaryImageFromResult(result);
 
   const originalPrice = extractOriginalPrice(result, price);
@@ -1865,7 +2153,7 @@ const buildCandidateFromProductItem = (
     (productId
       ? `https://www.mercadolivre.com.br/p/${productId}`
       : `https://www.mercadolivre.com.br/p/${externalId}`);
-  const affiliateLink = buildAffiliateLink(permalink);
+  const affiliateLink = null;
   const thumbnailUrl = extractPrimaryImageFromResult(item) ??
     extractPrimaryImageFromResult(product) ??
     extractProductThumbnailUrl(product);
@@ -2285,6 +2573,7 @@ const fetchMappings = async (
     mappingIds: string[];
     categoryId: string | null;
     maxMappings: number;
+    siteCategories: string[];
   },
 ) => {
   let query = supabase
@@ -2306,7 +2595,11 @@ const fetchMappings = async (
 
   const { data, error } = await query.order("updated_at", { ascending: false }).limit(options.maxMappings);
   if (error) throw new Error(error.message);
-  return (data as MappingRow[] | null) ?? [];
+  const rows = (data as MappingRow[] | null) ?? [];
+  if (!options.siteCategories.length) return rows;
+
+  const allowed = new Set(options.siteCategories);
+  return rows.filter((row) => allowed.has(resolveMappingSiteCategory(row)));
 };
 
 const collectMappingCandidates = async (
@@ -2573,7 +2866,7 @@ const loadExistingProductsByExternalId = async (
     const { data, error } = await supabase
       .from("products")
       .select(
-        "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
+        "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
       )
       .eq("marketplace", "mercadolivre")
       .in("external_id", chunk);
@@ -2638,7 +2931,7 @@ const loadExistingCategoryProducts = async (
     const { data, error } = await supabase
       .from("products")
       .select(
-        "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
+        "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
       )
       .eq("marketplace", "mercadolivre")
       .in("category_id", chunk);
@@ -2720,7 +3013,7 @@ const resolveCategoryRuntimeLimits = (
       ? Math.max(...mappedMaxNewPerDay)
       : Math.max(DEFAULT_MAX_NEW_PER_DAY, toNonNegativeInt(config.min_daily_new, BASE_MIN_DAILY_NEW)),
     0,
-    50,
+    250,
   );
 
   const mappedMinDelta = numeric(mappings.map((mapping) => mapping.min_delta_score_to_replace));
@@ -2939,6 +3232,55 @@ Deno.serve(async (req) => {
       Deno.env.get("CATALOG_INGEST_USE_AUTH_SELLER_FALLBACK"),
     false,
   );
+  const bulkImportMode = toBoolean(
+    (payload as any)?.bulk_import ?? (payload as any)?.bulkImport,
+    false,
+  );
+  const dailyGrowthRequested =
+    (payload as any)?.daily_growth ?? (payload as any)?.dailyGrowth;
+  const dailyGrowthMode = toBoolean(
+    dailyGrowthRequested ??
+      (source === "daily_catalog_growth" || source === "daily_import"),
+    false,
+  );
+  const quotaImportMode = bulkImportMode || dailyGrowthMode;
+  const payloadSiteCategories = parseSiteCategoryList(
+    (payload as any)?.site_categories ?? (payload as any)?.siteCategories,
+  );
+  const parsedTargetsBySiteCategory = parseBulkTargets(payload as Record<string, unknown>);
+  const dailyGrowthTargets = dailyGrowthMode
+    ? resolveDailyGrowthTargets(payload as Record<string, unknown>, new Date())
+    : null;
+  const bulkTargetsBySiteCategory = dailyGrowthTargets?.targets ?? parsedTargetsBySiteCategory;
+  const dailyMinTargetsBySiteCategory = dailyGrowthTargets?.minTargets ?? new Map<string, number>();
+  const maxBrandPerDay = clamp(
+    toPositiveInt(
+      (payload as any)?.max_brand_per_day ??
+        (payload as any)?.maxBrandPerDay ??
+        DAILY_GROWTH_DEFAULT_MAX_PER_BRAND,
+      DAILY_GROWTH_DEFAULT_MAX_PER_BRAND,
+    ),
+    1,
+    20,
+  );
+  const dailyCandidatePoolSize = clamp(
+    toPositiveInt(
+      (payload as any)?.candidate_pool_size ??
+        (payload as any)?.candidatePoolSize ??
+        DAILY_GROWTH_DEFAULT_CANDIDATE_POOL,
+      DAILY_GROWTH_DEFAULT_CANDIDATE_POOL,
+    ),
+    10,
+    MAX_ITEMS_HARD_CAP,
+  );
+  const effectiveMaxItemsOverride = dailyGrowthMode && maxItemsOverride === null
+    ? dailyCandidatePoolSize
+    : maxItemsOverride;
+  const siteCategoriesFilter = payloadSiteCategories.length
+    ? payloadSiteCategories
+    : quotaImportMode
+      ? Array.from(bulkTargetsBySiteCategory.keys())
+      : [];
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
@@ -3067,6 +3409,11 @@ Deno.serve(async (req) => {
     status: "running",
     dry_run: dryRun,
     started_at: runStartedAt,
+    note: dailyGrowthMode
+      ? "daily_catalog_growth"
+      : bulkImportMode
+        ? "bulk_import"
+        : null,
   });
 
   const { data: lockData, error: lockError } = await supabase.rpc("acquire_price_sync_lock", {
@@ -3132,6 +3479,7 @@ Deno.serve(async (req) => {
     rejected_by_negative_terms: 0,
     rejected_ambiguous_without_gym_context: 0,
     rejected_low_score: 0,
+    rejected_by_brand_limit: 0,
     inserted_active: 0,
     inserted_standby: 0,
     standby_products: 0,
@@ -3145,6 +3493,7 @@ Deno.serve(async (req) => {
       mappingIds,
       categoryId,
       maxMappings,
+      siteCategories: siteCategoriesFilter,
     });
     const mappingById = new Map<string, MappingRow>();
     for (const mapping of mappings) {
@@ -3193,7 +3542,7 @@ Deno.serve(async (req) => {
       try {
         const mappingCandidates = await collectMappingCandidates(
           mapping,
-          maxItemsOverride,
+          effectiveMaxItemsOverride,
           runDeadlineMs,
           {
             sellerProfileCache,
@@ -3254,6 +3603,30 @@ Deno.serve(async (req) => {
     const categoryIds = Array.from(new Set(candidates.map((item) => item.categoryId)));
     const configMap = await loadCategoryConfigs(supabase, categoryIds);
     const runtimeLimitsMap = getCategoryRuntimeLimitsMap(categoryIds, mappings, configMap);
+    const siteCategoryByCategoryIdFromMappings = new Map<string, string>();
+    for (const mapping of mappings) {
+      if (!mapping.category_id) continue;
+      if (siteCategoryByCategoryIdFromMappings.has(mapping.category_id)) continue;
+      siteCategoryByCategoryIdFromMappings.set(
+        mapping.category_id,
+        resolveMappingSiteCategory(mapping),
+      );
+    }
+    if (quotaImportMode && bulkTargetsBySiteCategory.size) {
+      for (const categoryId of categoryIds) {
+        const runtime = runtimeLimitsMap.get(categoryId);
+        if (!runtime) continue;
+        const siteCategory = siteCategoryByCategoryIdFromMappings.get(categoryId) ?? null;
+        const target = siteCategory ? bulkTargetsBySiteCategory.get(siteCategory) ?? null : null;
+        if (!(typeof target === "number" && target > 0)) continue;
+
+        runtimeLimitsMap.set(categoryId, {
+          ...runtime,
+          maxNewPerDay: Math.max(runtime.maxNewPerDay, target),
+          maxStandby: Math.max(runtime.maxStandby, target * 3, runtime.maxActive),
+        });
+      }
+    }
 
     const candidatesByCategory = new Map<string, OfferCandidate[]>();
     for (const candidate of candidates) {
@@ -3349,6 +3722,7 @@ Deno.serve(async (req) => {
             fitness_decision: item.fitnessDecision,
           })),
           mapping_errors: mappingErrorSamples.slice(0, 20),
+          bulk_targets: Object.fromEntries(bulkTargetsBySiteCategory.entries()),
         }),
         { status: 200, headers: JSON_HEADERS },
       );
@@ -3381,6 +3755,7 @@ Deno.serve(async (req) => {
           run_id: runId,
           stats,
           mapping_errors: mappingErrorSamples.slice(0, 20),
+          bulk_targets: Object.fromEntries(bulkTargetsBySiteCategory.entries()),
         }),
         { status: 200, headers: JSON_HEADERS },
       );
@@ -3400,6 +3775,11 @@ Deno.serve(async (req) => {
       if (siteCategoryByCategoryId.has(mapping.category_id)) continue;
       siteCategoryByCategoryId.set(mapping.category_id, resolveMappingSiteCategory(mapping));
     }
+    const dailyDateKey = toSaoPauloDateKey(new Date());
+    const persistedDailyBrandUsage = dailyGrowthMode
+      ? await loadDailyBrandUsage(supabase, dailyDateKey)
+      : new Map<string, number>();
+    const runDailyBrandUsageDelta = new Map<string, number>();
 
     const existingFitnessBlockedIds = new Set<string>();
     for (const existing of existingCategoryProducts) {
@@ -3475,12 +3855,89 @@ Deno.serve(async (req) => {
 
     const acceptedCandidates: OfferCandidate[] = [];
     const standbyCandidatesPool = new Map<string, OfferCandidate[]>();
+    const addStandbyPoolCandidate = (categoryKey: string, candidate: OfferCandidate) => {
+      if (!standbyCandidatesPool.has(categoryKey)) {
+        standbyCandidatesPool.set(categoryKey, []);
+      }
+      standbyCandidatesPool.get(categoryKey)?.push(candidate);
+    };
+    const acceptedNewBySiteCategory = new Map<string, Set<string>>();
+    const getAcceptedNewCountBySiteCategory = (siteCategory: string) =>
+      acceptedNewBySiteCategory.get(siteCategory)?.size ?? 0;
+    const canAcceptNewForSiteCategory = (
+      siteCategory: string,
+      externalId: string,
+      isExistingRow: boolean,
+    ) => {
+      if (!quotaImportMode || isExistingRow) return true;
+      const target = bulkTargetsBySiteCategory.get(siteCategory);
+      if (!(typeof target === "number" && target > 0)) return true;
+      const set = acceptedNewBySiteCategory.get(siteCategory);
+      if (set?.has(externalId)) return true;
+      return (set?.size ?? 0) < target;
+    };
+    const markAcceptedNewForSiteCategory = (
+      siteCategory: string,
+      externalId: string,
+      isExistingRow: boolean,
+    ) => {
+      if (!quotaImportMode || isExistingRow) return;
+      const target = bulkTargetsBySiteCategory.get(siteCategory);
+      if (!(typeof target === "number" && target > 0)) return;
+      if (!acceptedNewBySiteCategory.has(siteCategory)) {
+        acceptedNewBySiteCategory.set(siteCategory, new Set<string>());
+      }
+      acceptedNewBySiteCategory.get(siteCategory)?.add(externalId);
+    };
+    const getBrandUsageKey = (siteCategory: string, brand: string | null | undefined) => {
+      const normalizedSiteCategory = normalizeSiteCategory(siteCategory);
+      const brandKey = normalizeBrandKey(brand);
+      if (!normalizedSiteCategory || !brandKey) return null;
+      return `${normalizedSiteCategory}::${brandKey}`;
+    };
+    const getBrandUsageCount = (brandUsageKey: string | null) => {
+      if (!brandUsageKey) return 0;
+      const persisted = persistedDailyBrandUsage.get(brandUsageKey) ?? 0;
+      const runtime = runDailyBrandUsageDelta.get(brandUsageKey) ?? 0;
+      return persisted + runtime;
+    };
+    const getDailyMinTargetForSiteCategory = (siteCategory: string) =>
+      dailyMinTargetsBySiteCategory.get(siteCategory) ?? 0;
+    const canAcceptBrandForCandidate = (
+      candidate: OfferCandidate,
+      isExistingRow: boolean,
+    ) => {
+      if (!dailyGrowthMode || isExistingRow) return true;
+      if (!(maxBrandPerDay > 0)) return true;
+      const usageKey = getBrandUsageKey(candidate.siteCategory, candidate.brand);
+      if (!usageKey) return true;
+      const currentUsage = getBrandUsageCount(usageKey);
+      if (currentUsage < maxBrandPerDay) return true;
+
+      // Fallback: if category is still below daily minimum target, allow temporary overflow.
+      const minTarget = getDailyMinTargetForSiteCategory(candidate.siteCategory);
+      const acceptedNewCount = getAcceptedNewCountBySiteCategory(candidate.siteCategory);
+      if (minTarget > 0 && acceptedNewCount < minTarget) return true;
+      return false;
+    };
+    const markAcceptedBrandForCandidate = (
+      candidate: OfferCandidate,
+      isExistingRow: boolean,
+    ) => {
+      if (!dailyGrowthMode || isExistingRow) return;
+      if (!(maxBrandPerDay > 0)) return;
+      const usageKey = getBrandUsageKey(candidate.siteCategory, candidate.brand);
+      if (!usageKey) return;
+      runDailyBrandUsageDelta.set(usageKey, (runDailyBrandUsageDelta.get(usageKey) ?? 0) + 1);
+    };
     const deactivatedProducts: ExistingProductRow[] = [];
     const deactivatedProductIds = new Set<string>();
-    for (const existing of existingCategoryProducts) {
-      if (!existingFitnessBlockedIds.has(existing.id)) continue;
-      deactivatedProducts.push(existing);
-      deactivatedProductIds.add(existing.id);
+    if (!PRESERVE_EXISTING_ACTIVE) {
+      for (const existing of existingCategoryProducts) {
+        if (!existingFitnessBlockedIds.has(existing.id)) continue;
+        deactivatedProducts.push(existing);
+        deactivatedProductIds.add(existing.id);
+      }
     }
     const curatedPinnedExternalIds = new Set<string>();
     for (const existing of existingCategoryProductsForSelection) {
@@ -3497,7 +3954,7 @@ Deno.serve(async (req) => {
       const activeCandidates = categoryCandidates.filter((candidate) => candidate.fitnessDecision === "allow");
       const standbyCandidates = categoryCandidates.filter((candidate) => candidate.fitnessDecision === "standby");
       if (standbyCandidates.length) {
-        standbyCandidatesPool.set(categoryKey, standbyCandidates);
+        for (const candidate of standbyCandidates) addStandbyPoolCandidate(categoryKey, candidate);
       }
 
       const existingByExternal = new Map(state.existingByExternal);
@@ -3522,6 +3979,23 @@ Deno.serve(async (req) => {
           acceptedCandidates.push(candidate);
           continue;
         }
+        if (!canAcceptBrandForCandidate(candidate, Boolean(current))) {
+          stats.rejected_by_brand_limit += 1;
+          stats.rejected_low_score += 1;
+          stats.discarded_low_score += 1;
+          continue;
+        }
+        if (
+          !canAcceptNewForSiteCategory(
+            candidate.siteCategory,
+            candidate.externalId,
+            Boolean(current),
+          )
+        ) {
+          stats.rejected_low_score += 1;
+          stats.discarded_low_score += 1;
+          continue;
+        }
 
         if (newAcceptedInCategory >= state.maxNewPerDay) {
           stats.rejected_low_score += 1;
@@ -3533,12 +4007,22 @@ Deno.serve(async (req) => {
           acceptedCandidates.push(candidate);
           activeCount += 1;
           newAcceptedInCategory += 1;
+          markAcceptedNewForSiteCategory(
+            candidate.siteCategory,
+            candidate.externalId,
+            Boolean(current),
+          );
+          markAcceptedBrandForCandidate(candidate, Boolean(current));
           continue;
         }
 
-        if (!ENABLE_REPLACEMENTS) {
-          stats.rejected_low_score += 1;
-          stats.discarded_low_score += 1;
+        if (PRESERVE_EXISTING_ACTIVE || !ENABLE_REPLACEMENTS) {
+          if (quotaImportMode) {
+            addStandbyPoolCandidate(categoryKey, candidate);
+          } else {
+            stats.rejected_low_score += 1;
+            stats.discarded_low_score += 1;
+          }
           continue;
         }
 
@@ -3572,6 +4056,12 @@ Deno.serve(async (req) => {
           stats.replacements += 1;
           stats.replaced_active += 1;
           newAcceptedInCategory += 1;
+          markAcceptedNewForSiteCategory(
+            candidate.siteCategory,
+            candidate.externalId,
+            Boolean(current),
+          );
+          markAcceptedBrandForCandidate(candidate, Boolean(current));
         } else {
           stats.rejected_low_score += 1;
           stats.discarded_low_score += 1;
@@ -3632,6 +4122,13 @@ Deno.serve(async (req) => {
         const existing = state.existingByExternal.get(candidate.externalId) ?? null;
         const isExistingRow = Boolean(existing);
         const isExistingStandby = Boolean(existing && existing.is_active !== true);
+        if (!canAcceptNewForSiteCategory(candidate.siteCategory, candidate.externalId, isExistingRow)) {
+          continue;
+        }
+        if (!canAcceptBrandForCandidate(candidate, isExistingRow)) {
+          stats.rejected_by_brand_limit += 1;
+          continue;
+        }
         if (!isExistingRow && newStandbyAdded >= state.maxNewPerDay) break;
         if (!isExistingRow && newStandbyAdded >= availableStandbySlots) break;
 
@@ -3640,7 +4137,15 @@ Deno.serve(async (req) => {
         const current = standbyByCanonical.get(canonicalKey);
         if (!current) {
           standbyByCanonical.set(canonicalKey, candidate);
-          if (!isExistingStandby && !isExistingRow) newStandbyAdded += 1;
+          if (!isExistingStandby && !isExistingRow) {
+            newStandbyAdded += 1;
+            markAcceptedNewForSiteCategory(
+              candidate.siteCategory,
+              candidate.externalId,
+              isExistingRow,
+            );
+            markAcceptedBrandForCandidate(candidate, isExistingRow);
+          }
           continue;
         }
         standbyByCanonical.set(
@@ -3651,17 +4156,19 @@ Deno.serve(async (req) => {
     }
     const standbyCandidates = Array.from(standbyByCanonical.values()).sort(sortCandidatesByPriority);
 
-    for (const existing of existingCategoryProductsForSelection) {
-      if (!existing.is_active) continue;
-      if (deactivatedProductIds.has(existing.id)) continue;
-      const normalizedExistingExternalId = normalizeExternalId(existing.external_id);
-      if (normalizedExistingExternalId && curatedExternalIds.has(normalizedExistingExternalId)) continue;
-      const existingCanonicalKey = buildExistingCanonicalKey(existing);
-      const selectedExternalId = curatedCanonicalKeys.get(existingCanonicalKey);
-      if (!selectedExternalId) continue;
-      if (isCuratedPinnedProduct(existing)) continue;
-      deactivatedProducts.push(existing);
-      deactivatedProductIds.add(existing.id);
+    if (!PRESERVE_EXISTING_ACTIVE) {
+      for (const existing of existingCategoryProductsForSelection) {
+        if (!existing.is_active) continue;
+        if (deactivatedProductIds.has(existing.id)) continue;
+        const normalizedExistingExternalId = normalizeExternalId(existing.external_id);
+        if (normalizedExistingExternalId && curatedExternalIds.has(normalizedExistingExternalId)) continue;
+        const existingCanonicalKey = buildExistingCanonicalKey(existing);
+        const selectedExternalId = curatedCanonicalKeys.get(existingCanonicalKey);
+        if (!selectedExternalId) continue;
+        if (isCuratedPinnedProduct(existing)) continue;
+        deactivatedProducts.push(existing);
+        deactivatedProductIds.add(existing.id);
+      }
     }
 
     stats.total_processed = curatedCandidates.length + standbyCandidates.length;
@@ -3715,6 +4222,14 @@ Deno.serve(async (req) => {
     const productUpdates: Array<Record<string, unknown>> = [];
     const candidateContentCache = new Map<string, CandidateContent>();
     const descriptionFetchBudget = { used: 0 };
+    const persistedCandidates = [...curatedCandidates, ...standbyCandidates];
+    const candidateByExternalId = new Map<string, OfferCandidate>();
+    for (const candidate of persistedCandidates) {
+      if (!candidateByExternalId.has(candidate.externalId)) {
+        candidateByExternalId.set(candidate.externalId, candidate);
+      }
+    }
+    const discoveryRows: Array<Record<string, unknown>> = [];
     const scoreRowsByExternal = new Map<
       string,
       {
@@ -3727,8 +4242,6 @@ Deno.serve(async (req) => {
         is_elite: boolean;
       }
     >();
-
-    const persistedCandidates = [...curatedCandidates, ...standbyCandidates];
 
     for (const candidate of persistedCandidates) {
       const candidateCanonicalKey = buildCandidateCanonicalKey(candidate);
@@ -3763,6 +4276,8 @@ Deno.serve(async (req) => {
       });
 
       const curationBadges = buildCurationBadges(candidate);
+      const selectionPriority = priorityForSiteCategory(candidate.siteCategory);
+      const catalogTags = buildCatalogTags(candidate);
       const curationSpecs = {
         catalog_curation: {
           score_popularidade: normalizeScore(candidate.scorePopularidade),
@@ -3771,6 +4286,9 @@ Deno.serve(async (req) => {
           sold_quantity: Math.max(0, Math.floor(candidate.soldQuantity)),
           popularity_rank: Math.max(1, Math.floor(candidate.popularityRank)),
           is_elite: Boolean(candidate.isElite),
+          priority: selectionPriority,
+          site_category: candidate.siteCategory,
+          tags: catalogTags,
           badges: curationBadges,
           evaluated_at: nowIso,
         },
@@ -3803,9 +4321,9 @@ Deno.serve(async (req) => {
           resolvedAffiliateLink,
           existing.source_url ?? candidate.permalink,
         );
-        const resolvedAffiliateGeneratedAt = existingAffiliateVerified
+        const resolvedAffiliateGeneratedAt = resolvedAffiliateVerified
           ? (existing.affiliate_generated_at ?? nowIso)
-          : nowIso;
+          : null;
 
         const resolvedImageOriginal = existing.image_url_original ?? content.imageUrlOriginal;
         const resolvedImageMain =
@@ -3857,24 +4375,17 @@ Deno.serve(async (req) => {
           : quality.badges;
         if (!quality.publishable) stats.standby_products += 1;
         if (forceStandby) stats.standby_products += 1;
-        const keepPaused = existing.status === "paused" && !isCuratedPinnedProduct(existing);
-        const keepPinnedActive = forceStandby && isCuratedPinnedProduct(existing) && existing.is_active === true;
-        const nextStatus = keepPaused
-          ? "paused"
-          : keepPinnedActive
-            ? "active"
-            : forceStandby
-              ? "standby"
-              : quality.publishable
-                ? "active"
-                : "standby";
-        const nextIsActive = keepPaused
-          ? false
-          : keepPinnedActive
-            ? true
-            : forceStandby
-              ? false
-              : quality.publishable;
+        const activationDecision = resolveExistingProductActivation({
+          existingStatus: existing.status,
+          existingIsActive: existing.is_active === true,
+          affiliateVerified: resolvedAffiliateVerified,
+          qualityPublishable: quality.publishable,
+          forceStandby,
+          isPinned: isCuratedPinnedProduct(existing),
+          preserveExistingActive: PRESERVE_EXISTING_ACTIVE,
+        });
+        const nextStatus = activationDecision.status;
+        const nextIsActive = activationDecision.isActive;
 
         const previousScore = existingScoresByProductId.get(existing.id);
         if (candidate.isElite && !previousScore?.is_elite) {
@@ -3960,7 +4471,12 @@ Deno.serve(async (req) => {
           ? Array.from(new Set([...(quality.badges ?? []), "STANDBY_REVIEW"]))
           : quality.badges;
         if (!quality.publishable || forceStandby) stats.standby_products += 1;
-        const shouldActivate = !forceStandby && quality.publishable;
+        const affiliateVerified = verifyAffiliateLink(candidate.affiliateLink, candidate.permalink);
+        const activationDecision = resolveNewProductActivation({
+          affiliateVerified,
+          qualityPublishable: quality.publishable,
+          forceStandby: true,
+        });
         productInserts.push({
           name: candidate.title,
           slug,
@@ -3986,15 +4502,15 @@ Deno.serve(async (req) => {
           images: content.imageUrlOriginal ? [content.imageUrlOriginal] : [],
           source_url: candidate.permalink,
           affiliate_link: candidate.affiliateLink,
-          affiliate_verified: verifyAffiliateLink(candidate.affiliateLink, candidate.permalink),
-          affiliate_generated_at: nowIso,
+          affiliate_verified: affiliateVerified,
+          affiliate_generated_at: affiliateVerified ? nowIso : null,
           marketplace: "mercadolivre",
           external_id: candidate.externalId,
           free_shipping: candidate.freeShipping,
           quality_issues: qualityIssues,
           curation_badges: qualityBadges,
-          status: shouldActivate ? "active" : "standby",
-          is_active: shouldActivate,
+          status: activationDecision.status,
+          is_active: activationDecision.isActive,
           last_sync: nowIso,
           last_price_source: "catalog_ingest",
           last_price_verified_at: nowIso,
@@ -4008,12 +4524,13 @@ Deno.serve(async (req) => {
           .from("products")
           .insert(chunk)
           .select(
-            "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
+            "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
           );
         if (error) throw new Error(error.message);
         for (const row of (data as ExistingProductRow[] | null) ?? []) {
           const normalized = normalizeExternalId(row.external_id);
           if (!normalized) continue;
+          const candidate = candidateByExternalId.get(normalized);
           existingProductsByExternalId.set(normalized, row);
           const canonicalKey = buildExistingCanonicalKey(row);
           const currentCanonical = existingProductsByCanonicalKey.get(canonicalKey);
@@ -4030,6 +4547,21 @@ Deno.serve(async (req) => {
             stats.inserted_active += 1;
           } else {
             stats.inserted_standby += 1;
+          }
+          if (candidate) {
+            discoveryRows.push({
+              run_id: runId,
+              product_id: row.id,
+              external_id: normalized,
+              site_category: candidate.siteCategory,
+              category_id: row.category_id ?? candidate.categoryId,
+              brand: candidate.brand,
+              score_custo_beneficio: normalizeScore(candidate.scoreCustoBeneficio),
+              score_popularidade: normalizeScore(candidate.scorePopularidade),
+              source: source,
+              discovered_at: nowIso,
+              status: row.status ?? (row.is_active ? "active" : "standby"),
+            });
           }
         }
       }
@@ -4048,6 +4580,56 @@ Deno.serve(async (req) => {
             .eq("id", id);
           if (error) throw new Error(error.message);
           stats.updated_products += 1;
+        }
+      }
+    }
+
+    if (discoveryRows.length) {
+      for (const chunk of chunkArray(discoveryRows, 200)) {
+        const { error } = await supabase
+          .from("daily_catalog_discoveries")
+          .insert(chunk);
+        if (error) throw new Error(error.message);
+      }
+    }
+    if (dailyGrowthMode && discoveryRows.length) {
+      const discoveredBrandUsageDelta = new Map<string, { siteCategory: string; brandKey: string; count: number }>();
+      for (const row of discoveryRows) {
+        const siteCategory = normalizeSiteCategory((row.site_category as string) ?? "");
+        const brandKey = normalizeBrandKey((row.brand as string | null | undefined) ?? null);
+        if (!siteCategory || !brandKey) continue;
+        const key = `${siteCategory}::${brandKey}`;
+        const current = discoveredBrandUsageDelta.get(key);
+        if (!current) {
+          discoveredBrandUsageDelta.set(key, {
+            siteCategory,
+            brandKey,
+            count: 1,
+          });
+        } else {
+          current.count += 1;
+        }
+      }
+
+      if (discoveredBrandUsageDelta.size) {
+        const usageRows = Array.from(discoveredBrandUsageDelta.values()).map((entry) => {
+          const key = `${entry.siteCategory}::${entry.brandKey}`;
+          const persisted = persistedDailyBrandUsage.get(key) ?? 0;
+          return {
+            day_date: dailyDateKey,
+            site_category: entry.siteCategory,
+            brand_key: entry.brandKey,
+            usage_count: persisted + entry.count,
+            last_run_id: runId,
+            updated_at: nowIso,
+          };
+        });
+
+        for (const chunk of chunkArray(usageRows, 200)) {
+          const { error } = await supabase
+            .from("daily_catalog_brand_usage")
+            .upsert(chunk, { onConflict: "day_date,site_category,brand_key" });
+          if (error) throw new Error(error.message);
         }
       }
     }
@@ -4179,6 +4761,16 @@ Deno.serve(async (req) => {
       stats.rejected_by_allowlist +
       stats.rejected_by_negative_terms +
       stats.rejected_ambiguous_without_gym_context;
+    const bulkTargetsSummary = Object.fromEntries(
+      Array.from(bulkTargetsBySiteCategory.entries()).map(([siteCategory, target]) => [
+        siteCategory,
+        {
+          target,
+          accepted_new: getAcceptedNewCountBySiteCategory(siteCategory),
+        },
+      ]),
+    );
+    const dailyTargetsSummary = dailyGrowthMode ? bulkTargetsSummary : null;
 
     const hasCatalogChanges =
       stats.inserted_products > 0 ||
@@ -4217,7 +4809,13 @@ Deno.serve(async (req) => {
       rejected_low_score: stats.rejected_low_score,
       api_errors: stats.api_errors,
       errors: stats.errors,
-      note: stoppedByRuntime ? "runtime_budget_reached" : null,
+      note: stoppedByRuntime
+        ? "runtime_budget_reached"
+        : dailyGrowthMode
+          ? "daily_catalog_growth"
+          : bulkImportMode
+            ? "bulk_import"
+            : null,
     });
 
     const postSyncTrigger = await triggerPriceSyncAfterIngest({
@@ -4235,6 +4833,8 @@ Deno.serve(async (req) => {
         message: "catalog_ingest_run",
         run_id: runId,
         stats,
+        bulk_targets: bulkTargetsSummary,
+        daily_targets: dailyTargetsSummary,
         post_sync: postSyncTrigger,
       }),
     );
@@ -4244,6 +4844,8 @@ Deno.serve(async (req) => {
         ok: true,
         run_id: runId,
         stats,
+        bulk_targets: bulkTargetsSummary,
+        daily_targets: dailyTargetsSummary,
         post_sync: postSyncTrigger,
         note: stoppedByRuntime ? "runtime_budget_reached" : null,
       }),

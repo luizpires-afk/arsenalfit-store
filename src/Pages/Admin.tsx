@@ -60,6 +60,10 @@ import {
 
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  MAX_AFFILIATE_BATCH_SIZE,
+  parseAffiliateLinksInput,
+} from "@/lib/affiliateBatch.js";
 
 const isClothingCategory = (name?: string | null, slug?: string | null) => {
   const target = `${name || ""} ${slug || ""}`.toLowerCase();
@@ -85,7 +89,7 @@ const CLOTHING_OPTIONS = [
 
 const DUPLICATE_LINK_MESSAGE = "Este link já foi utilizado";
 const REPORTS_PREVIEW_COUNT = 10;
-const MAX_BULK_AFFILIATE_LINKS = 30;
+const MAX_BULK_AFFILIATE_LINKS = MAX_AFFILIATE_BATCH_SIZE;
 
 const isMercadoLivreSecLink = (value?: string | null) => {
   if (!value) return false;
@@ -157,6 +161,9 @@ const buildAffiliateCanonicalKey = (product: Product) => {
   if (externalId) return `external:${externalId}`;
   return `id:${product.id}`;
 };
+
+const areSameAffiliateCanonicalProduct = (a: Product, b: Product) =>
+  buildAffiliateCanonicalKey(a) === buildAffiliateCanonicalKey(b);
 
 const compareAffiliateRepresentativePriority = (a: Product, b: Product) => {
   const aSec = isMercadoLivreSecLink(a.affiliate_link);
@@ -271,6 +278,15 @@ interface PriceSyncAnomaly {
   } | null;
 }
 
+interface AffiliateBatchExportRow {
+  batch_id: string;
+  position: number;
+  product_id: string;
+  product_name: string;
+  external_id: string | null;
+  source_url: string | null;
+}
+
 const initialFormData: ProductFormData = {
   name: '',
   description: '',
@@ -318,6 +334,9 @@ export default function Admin() {
   const [savingAffiliateProductId, setSavingAffiliateProductId] = useState<string | null>(null);
   const [bulkAffiliateLinksInput, setBulkAffiliateLinksInput] = useState('');
   const [isApplyingBulkAffiliateLinks, setIsApplyingBulkAffiliateLinks] = useState(false);
+  const [isCreatingAffiliateBatch, setIsCreatingAffiliateBatch] = useState(false);
+  const [affiliateBatchId, setAffiliateBatchId] = useState<string | null>(null);
+  const [affiliateBatchCount, setAffiliateBatchCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncAlertShown, setSyncAlertShown] = useState(false);
   const [reportsExpanded, setReportsExpanded] = useState(false);
@@ -523,7 +542,7 @@ export default function Admin() {
   });
 
   const blockedNotes = useMemo(
-    () => new Set(['policy_blocked', 'catalog_lookup_failed', 'preferred_item_missing_in_catalog']),
+    () => new Set(['policy_blocked']),
     [],
   );
 
@@ -552,19 +571,12 @@ export default function Admin() {
   const blockedProductIds = useMemo(() => {
     const ids = new Set<string>();
     for (const product of products) {
-      const normalizedExternalId = normalizeMlExternalId(product.external_id);
-      const blockedByAnomalyExternalId =
-        normalizedExternalId !== null && blockedAnomalyExternalIds.has(normalizedExternalId);
-      if (
-        product.auto_disabled_reason === 'blocked' ||
-        blockedAnomalyIds.has(product.id) ||
-        blockedByAnomalyExternalId
-      ) {
+      if (product.auto_disabled_reason === 'blocked') {
         ids.add(product.id);
       }
     }
     return ids;
-  }, [products, blockedAnomalyIds, blockedAnomalyExternalIds]);
+  }, [products]);
 
   const anomalyStats = useMemo(() => {
     const total = anomalies.length;
@@ -1272,43 +1284,8 @@ export default function Admin() {
     }
   }, [isSyncStale, syncAlertShown]);
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    if (!blockedAnomalyIds.size && !blockedAnomalyExternalIds.size) return;
-    const blockedIdsToFlag = products
-      .filter((product) => {
-        const normalizedExternalId = normalizeMlExternalId(product.external_id);
-        const blockedByExternalId =
-          normalizedExternalId !== null &&
-          blockedAnomalyExternalIds.has(normalizedExternalId);
-        return (
-          (blockedAnomalyIds.has(product.id) || blockedByExternalId) &&
-          product.auto_disabled_reason !== 'blocked'
-        );
-      })
-      .map((product) => product.id);
-    if (!blockedIdsToFlag.length) return;
-
-    const deactivate = async () => {
-      try {
-        const { error } = await supabase
-          .from('products')
-          .update({
-            is_active: false,
-            auto_disabled_reason: 'blocked',
-            auto_disabled_at: new Date().toISOString(),
-          })
-          .in('id', blockedIdsToFlag);
-        if (error) throw error;
-        queryClient.invalidateQueries({ queryKey: ['admin-products'] });
-        toast.success('Produtos bloqueados foram desativados automaticamente.');
-      } catch (error: any) {
-        toast.error('Falha ao desativar bloqueados', { description: error.message });
-      }
-    };
-
-    deactivate();
-  }, [isAdmin, blockedAnomalyIds, blockedAnomalyExternalIds, products, queryClient]);
+  // Guardrail: anomalies alone should not auto-disable products.
+  // Blocking is now explicit (manual action or backend cleanup policy).
 
   const handleCopyBlockedLinks = async () => {
     const links = Array.from(
@@ -1375,11 +1352,7 @@ export default function Admin() {
   const getAffiliateDraftValue = (product: Product) =>
     affiliateDrafts[product.id] ?? product.affiliate_link ?? '';
 
-  const parseMultilineLinks = (value: string) =>
-    value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+  const parseMultilineLinks = (value: string) => parseAffiliateLinksInput(value);
 
   const saveAffiliateLinkForProduct = async (
     product: Product,
@@ -1415,11 +1388,15 @@ export default function Admin() {
     }
 
     const nowIso = new Date().toISOString();
+    const validatedBy = user?.id ?? null;
     const parsedExternalId = extractMercadoLivreId(link);
     const updates: Record<string, unknown> = {
       affiliate_link: link,
       affiliate_verified: true,
       affiliate_generated_at: nowIso,
+      validated_at: nowIso,
+      validated_by: validatedBy,
+      affiliate_url_used: link,
       is_active: true,
       status: 'active',
       auto_disabled_reason: null,
@@ -1436,6 +1413,27 @@ export default function Admin() {
       .update(updates)
       .eq('id', product.id);
     if (error) throw error;
+
+    // Keep exactly one canonical Mercado Livre row after validation.
+    const duplicateIds = products
+      .filter(
+        (row) =>
+          row.id !== product.id &&
+          isMercadoLivreProduct(row) &&
+          areSameAffiliateCanonicalProduct(row, product),
+      )
+      .map((row) => row.id);
+
+    if (duplicateIds.length > 0) {
+      const { error: duplicateError } = await supabase
+        .from('products')
+        .update({
+          is_active: false,
+          status: 'standby',
+        })
+        .in('id', duplicateIds);
+      if (duplicateError) throw duplicateError;
+    }
 
     return { ok: true };
   };
@@ -1595,18 +1593,11 @@ export default function Admin() {
     const allProducts: Product[] = [];
     const validProducts: Product[] = [];
     const blockedProducts: Product[] = [];
-    const duplicateCountByRepresentativeId: Record<string, number> = {};
-    let hiddenDuplicatesAll = 0;
 
     for (const groupProducts of grouped.values()) {
       const allRepresentative = pickRepresentative(groupProducts, () => true);
       if (allRepresentative) {
         allProducts.push(allRepresentative);
-        const duplicates = Math.max(0, groupProducts.length - 1);
-        if (duplicates > 0) {
-          duplicateCountByRepresentativeId[allRepresentative.id] = duplicates;
-          hiddenDuplicatesAll += duplicates;
-        }
       }
 
       const validRepresentative = pickRepresentative(
@@ -1633,9 +1624,6 @@ export default function Admin() {
       allProducts: sortByOriginalOrder(allProducts),
       validProducts: sortByOriginalOrder(validProducts),
       blockedProducts: sortByOriginalOrder(blockedProducts),
-      duplicateCountByRepresentativeId,
-      hiddenDuplicatesAll,
-      totalRaw: mercadoProducts.length,
     };
   }, [filteredAllProducts, blockedProductIds]);
 
@@ -1675,15 +1663,11 @@ export default function Admin() {
 
     return {
       products,
-      duplicateCountByProductId: dedupedMercadoLists.duplicateCountByRepresentativeId,
-      hiddenDuplicates: dedupedMercadoLists.hiddenDuplicatesAll,
-      totalRaw: dedupedMercadoLists.totalRaw,
       hiddenBlockedByApi: Math.max(0, dedupedMercadoLists.allProducts.length - eligibleProducts.length),
     };
   }, [dedupedMercadoLists, blockedProductIds]);
 
   const filteredAffiliateProducts = affiliateGrouped.products;
-  const affiliateDuplicateCountByProductId = affiliateGrouped.duplicateCountByProductId;
 
   const affiliateStatusStats = useMemo(() => {
     let ok = 0;
@@ -1696,14 +1680,10 @@ export default function Admin() {
       ok,
       pending,
       total: filteredAffiliateProducts.length,
-      hiddenDuplicates: affiliateGrouped.hiddenDuplicates,
-      totalRaw: affiliateGrouped.totalRaw,
       hiddenBlockedByApi: affiliateGrouped.hiddenBlockedByApi,
     };
   }, [
     filteredAffiliateProducts,
-    affiliateGrouped.hiddenDuplicates,
-    affiliateGrouped.totalRaw,
     affiliateGrouped.hiddenBlockedByApi,
   ]);
 
@@ -1715,66 +1695,78 @@ export default function Admin() {
     [filteredAffiliateProducts],
   );
 
-  const pendingAffiliateSourceUrlsInOrder = useMemo(
-    () =>
-      pendingAffiliateProducts
-        .slice(0, MAX_BULK_AFFILIATE_LINKS)
-        .map((product) => (product.source_url || product.affiliate_link || '').trim())
-        .filter(Boolean),
-    [pendingAffiliateProducts],
-  );
-
   const bulkAffiliateLinksParsed = useMemo(
     () => parseMultilineLinks(bulkAffiliateLinksInput),
     [bulkAffiliateLinksInput],
   );
+  const hasOpenAffiliateBatch = Boolean(affiliateBatchId && affiliateBatchCount > 0);
 
   const handleCopyPendingAffiliateSourceUrls = async () => {
-    if (!pendingAffiliateSourceUrlsInOrder.length) {
+    if (!pendingAffiliateProducts.length) {
       toast.error('Nenhum produto pendente para copiar.');
       return;
     }
 
-    const linksForBatch = pendingAffiliateSourceUrlsInOrder.slice(
-      0,
-      MAX_BULK_AFFILIATE_LINKS,
-    );
-    const content = linksForBatch.join('\n');
-    const hasMorePendingThanBatch =
-      pendingAffiliateProducts.length > MAX_BULK_AFFILIATE_LINKS;
+    setIsCreatingAffiliateBatch(true);
     try {
-      await navigator.clipboard.writeText(content);
-      toast.success(
-        hasMorePendingThanBatch
-          ? `Copiadas ${linksForBatch.length} URLs (maximo por lote).`
-          : 'URLs pendentes copiadas em ordem de validacao.',
-      );
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = content;
-      textarea.style.position = 'fixed';
-      textarea.style.top = '-9999px';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
+      const { data, error } = await supabase.rpc('export_standby_affiliate_batch', {
+        p_limit: MAX_BULK_AFFILIATE_LINKS,
+        p_source: 'admin_affiliate_tab',
+      });
+      if (error) throw error;
+
+      const rows = ((data as AffiliateBatchExportRow[] | null) ?? [])
+        .filter((row) => Boolean(row.source_url && row.source_url.trim()))
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+      if (!rows.length) {
+        setAffiliateBatchId(null);
+        setAffiliateBatchCount(0);
+        toast.error('Nenhum item elegivel para lote de afiliados.');
+        return;
+      }
+
+      const batchId = rows[0]?.batch_id ?? null;
+      if (!batchId) {
+        toast.error('Falha ao gerar lote de validacao.');
+        return;
+      }
+
+      const linksForBatch = rows
+        .map((row) => (row.source_url ?? '').trim())
+        .filter(Boolean);
+      const content = linksForBatch.join('\n');
+
       try {
+        await navigator.clipboard.writeText(content);
+      } catch {
+        const textarea = document.createElement('textarea');
+        textarea.value = content;
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
         document.execCommand('copy');
-        toast.success(
-          hasMorePendingThanBatch
-            ? `Copiadas ${linksForBatch.length} URLs (maximo por lote).`
-            : 'URLs pendentes copiadas em ordem de validacao.',
-        );
-      } catch (error: any) {
-        toast.error('Falha ao copiar URLs', { description: error.message });
-      } finally {
         document.body.removeChild(textarea);
       }
+
+      setAffiliateBatchId(batchId);
+      setAffiliateBatchCount(linksForBatch.length);
+      setBulkAffiliateLinksInput('');
+      toast.success(
+        `Lote ${batchId.slice(0, 8)} gerado com ${linksForBatch.length} URL(s).`,
+      );
+    } catch (error: any) {
+      toast.error('Falha ao gerar lote de afiliados.', { description: error.message });
+    } finally {
+      setIsCreatingAffiliateBatch(false);
     }
   };
 
   const handleSaveAffiliateLinksBulk = async () => {
-    if (!pendingAffiliateProducts.length) {
-      toast.error('Nenhum produto pendente para validar.');
+    if (!affiliateBatchId) {
+      toast.error('Gere um lote antes de validar em bloco.');
       return;
     }
     if (!bulkAffiliateLinksParsed.length) {
@@ -1784,12 +1776,6 @@ export default function Admin() {
     if (bulkAffiliateLinksParsed.length > MAX_BULK_AFFILIATE_LINKS) {
       toast.error(
         `Maximo de ${MAX_BULK_AFFILIATE_LINKS} links por envio. Divida em mais de um lote.`,
-      );
-      return;
-    }
-    if (bulkAffiliateLinksParsed.length > pendingAffiliateProducts.length) {
-      toast.error(
-        `Voce colou ${bulkAffiliateLinksParsed.length} links, mas existem ${pendingAffiliateProducts.length} pendentes.`,
       );
       return;
     }
@@ -1809,57 +1795,59 @@ export default function Admin() {
 
     setIsApplyingBulkAffiliateLinks(true);
     try {
-      let successCount = 0;
-      const failures: string[] = [];
-      const successfulProductIds: string[] = [];
-
-      for (let index = 0; index < bulkAffiliateLinksParsed.length; index += 1) {
-        const product = pendingAffiliateProducts[index];
-        if (!product) break;
-
-        const result = await saveAffiliateLinkForProduct(
-          product,
-          bulkAffiliateLinksParsed[index],
-        );
-        if (result.ok) {
-          successCount += 1;
-          successfulProductIds.push(product.id);
-        } else {
-          failures.push(`Linha ${index + 1}: ${result.error}`);
-        }
-      }
-
-      if (successCount > 0) {
-        setBulkAffiliateLinksInput('');
-        setAffiliateDrafts((prev) => {
-          if (!successfulProductIds.length) return prev;
-          const next = { ...prev };
-          for (const productId of successfulProductIds) {
-            delete next[productId];
-          }
-          return next;
-        });
-        queryClient.invalidateQueries({ queryKey: ['admin-products'] });
-      }
-
-      if (successCount > 0 && failures.length === 0) {
-        toast.success(`${successCount} link(s) validados em lote com sucesso.`);
-        return;
-      }
-
-      if (successCount > 0 && failures.length > 0) {
-        toast.warning(
-          `${successCount} link(s) validados. ${failures.length} linha(s) falharam.`,
-          { description: failures[0] },
-        );
-        return;
-      }
-
-      toast.error('Nenhum link do lote foi validado.', {
-        description: failures[0] || 'Verifique os links colados.',
+      const { data, error } = await supabase.rpc('apply_affiliate_validation_batch', {
+        p_batch_id: affiliateBatchId,
+        p_affiliate_urls: bulkAffiliateLinksParsed,
       });
+      if (error) throw error;
+
+      const payload = (Array.isArray(data) ? data[0] : data) as
+        | {
+            ok?: boolean;
+            error?: string | null;
+            applied?: number | null;
+            invalid?: number | null;
+            skipped?: number | null;
+            ignored_extra?: number | null;
+          }
+        | null;
+
+      if (!payload?.ok) {
+        toast.error('Lote nao aplicado.', {
+          description: payload?.error || 'Falha na validacao do batch.',
+        });
+        return;
+      }
+
+      const applied = Number(payload.applied ?? 0);
+      const invalid = Number(payload.invalid ?? 0);
+      const skipped = Number(payload.skipped ?? 0);
+      const ignoredExtra = Number(payload.ignored_extra ?? 0);
+
+      if (applied > 0) {
+        setBulkAffiliateLinksInput('');
+      }
+      setAffiliateBatchId(null);
+      setAffiliateBatchCount(0);
+      queryClient.invalidateQueries({ queryKey: ['admin-products'] });
+
+      if (applied > 0) {
+        const invalidLabel = invalid > 0 ? `, ${invalid} invalida(s)` : '';
+        const skippedLabel = skipped > 0 ? `, ${skipped} pendente(s)` : '';
+        const extraLabel = ignoredExtra > 0 ? `, ${ignoredExtra} excedente(s)` : '';
+        toast.success(`Lote aplicado: ${applied} validado(s)${invalidLabel}${skippedLabel}${extraLabel}.`);
+      } else {
+        toast.warning('Nenhum produto foi validado neste lote.', {
+          description: 'Confira links invalidos ou gere um novo batch.',
+        });
+      }
     } catch (error: any) {
       toast.error('Falha ao aplicar validacao em lote.', { description: error.message });
+      const message = String(error?.message ?? '').toLowerCase();
+      if (message.includes('batch_expired') || message.includes('batch_not_found')) {
+        setAffiliateBatchId(null);
+        setAffiliateBatchCount(0);
+      }
     } finally {
       setIsApplyingBulkAffiliateLinks(false);
     }
@@ -2255,11 +2243,6 @@ export default function Admin() {
                 </TabsList>
               </Tabs>
             </div>
-            {dedupedMercadoLists.hiddenDuplicatesAll > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Duplicados ocultos automaticamente na listagem: {dedupedMercadoLists.hiddenDuplicatesAll}.
-              </p>
-            )}
           </div>
 
           {/* Price Sync Changes */}
@@ -2531,13 +2514,6 @@ export default function Admin() {
                     <p className="text-base font-semibold text-foreground">{affiliateStatusStats.pending}</p>
                   </div>
                 </div>
-                {affiliateStatusStats.hiddenDuplicates > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Duplicados ocultos automaticamente: {affiliateStatusStats.hiddenDuplicates}
-                    {" "}
-                    (de {affiliateStatusStats.totalRaw} registros).
-                  </p>
-                )}
                 {affiliateStatusStats.hiddenBlockedByApi > 0 && (
                   <p className="text-xs text-muted-foreground">
                     Bloqueados pela API ocultados nesta aba: {affiliateStatusStats.hiddenBlockedByApi}.
@@ -2555,11 +2531,19 @@ export default function Admin() {
                       variant="outline"
                       size="sm"
                       onClick={handleCopyPendingAffiliateSourceUrls}
-                      disabled={!pendingAffiliateSourceUrlsInOrder.length}
+                      disabled={isCreatingAffiliateBatch || !pendingAffiliateProducts.length}
                     >
-                      Copiar proximas {MAX_BULK_AFFILIATE_LINKS} URLs
+                      {isCreatingAffiliateBatch
+                        ? 'Gerando lote...'
+                        : `Gerar lote e copiar ${MAX_BULK_AFFILIATE_LINKS} URLs`}
                     </Button>
                   </div>
+                  {hasOpenAffiliateBatch && (
+                    <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-foreground">
+                      Batch atual: <code>{affiliateBatchId}</code> ({affiliateBatchCount} item(ns)).
+                      Cole os links <code>/sec/</code> na mesma ordem deste batch.
+                    </div>
+                  )}
                   <Textarea
                     value={bulkAffiliateLinksInput}
                     onChange={(e) => setBulkAffiliateLinksInput(e.target.value)}
@@ -2581,7 +2565,7 @@ export default function Admin() {
                       onClick={handleSaveAffiliateLinksBulk}
                       disabled={
                         isApplyingBulkAffiliateLinks ||
-                        !pendingAffiliateProducts.length ||
+                        !hasOpenAffiliateBatch ||
                         !bulkAffiliateLinksParsed.length ||
                         bulkAffiliateLinksParsed.length > MAX_BULK_AFFILIATE_LINKS
                       }
@@ -2610,11 +2594,6 @@ export default function Admin() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {(affiliateDuplicateCountByProductId[product.id] ?? 0) > 0 && (
-                            <span className="inline-flex items-center rounded-full bg-secondary px-2 py-1 text-xs font-semibold text-muted-foreground">
-                              +{affiliateDuplicateCountByProductId[product.id]} duplicado(s)
-                            </span>
-                          )}
                           {product.is_active ? (
                             <span className="inline-flex items-center rounded-full bg-success/10 px-2 py-1 text-xs font-semibold text-success">
                               Ativo
