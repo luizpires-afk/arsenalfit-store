@@ -21,7 +21,12 @@ import { toast } from "sonner";
 import { PriceDisclaimer } from "@/Components/PriceDisclaimer";
 import { useCart } from "@/hooks/useCart";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
-import { hasMeaningfulPixDiscount } from "@/lib/catalog";
+import { resolveFinalPriceInfo } from "@/lib/pricing.js";
+import {
+  buildOutProductPath,
+  getOfferUnavailableMessage,
+  resolveOfferUrl,
+} from "@/lib/offer.js";
 
 interface ProductProps {
   product: {
@@ -31,6 +36,7 @@ interface ProductProps {
     description?: string;
     price: number;
     pix_price?: number | null;
+    pix_price_source?: string | null;
     original_price?: number;
     previous_price?: number | null;
     image_url: string | null;
@@ -50,6 +56,7 @@ interface ProductProps {
     marketplace?: string;
     brand?: string | null;
     subcategory?: string | null;
+    curation_badges?: string[] | null;
     rating?: number;
     reviews_count?: number;
   };
@@ -73,18 +80,6 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
             "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
         ];
 
-  const discount =
-    product.discount_percentage && product.discount_percentage > 0
-      ? Math.round(product.discount_percentage)
-      : product.original_price && product.original_price > product.price
-      ? Math.round(
-          ((product.original_price - product.price) / product.original_price) * 100
-        )
-      : null;
-  const saving =
-    product.original_price && product.original_price > product.price
-      ? product.original_price - product.price
-      : null;
   const isHighlight = variant === "highlight";
   const isCompact = variant !== "default";
   const isTechnical = variant === "technical";
@@ -111,26 +106,24 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
         ? new Date(product.ultima_verificacao)
         : null;
 
-  const hasDrop = typeof product.previous_price === "number" && product.previous_price > product.price;
+  const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
   const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
   const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
-  const pixPrice =
-    typeof product.pix_price === "number" &&
-    Number.isFinite(product.pix_price) &&
-    product.pix_price > 0 &&
-    product.pix_price < product.price &&
-    hasMeaningfulPixDiscount(product.price, product.pix_price)
-      ? product.pix_price
-      : null;
-  const showPix = pixPrice !== null;
-  const savingsBase =
-    product.original_price && product.original_price > product.price
-      ? product.original_price
-      : product.price;
-  const pixSaving =
-    showPix && pixPrice !== null && savingsBase > pixPrice
-      ? savingsBase - pixPrice
-      : null;
+  const pricing = resolveFinalPriceInfo(product);
+  const finalPrice = pricing.finalPrice;
+  const listPrice = pricing.listPrice;
+  const saving = pricing.savings;
+  const offerResolution = resolveOfferUrl(product);
+  const canOpenOffer = Boolean(offerResolution.canRedirect && product.id);
+  const offerUnavailableMessage = getOfferUnavailableMessage(
+    offerResolution,
+    product.marketplace,
+  );
+  const discount =
+    pricing.discountPercent ??
+    (product.discount_percentage && product.discount_percentage > 0
+      ? Math.round(product.discount_percentage)
+      : null);
 
   const fixedBadge = product.free_shipping
     ? {
@@ -148,12 +141,38 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
               : "bg-zinc-900 text-white text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-tighter shadow-md gap-1",
       };
 
+  const curationBadges = Array.isArray(product.curation_badges) ? product.curation_badges : [];
+  const hasEliteBadge = curationBadges.includes("ELITE");
+  const hasBestValueBadge = curationBadges.includes("MELHOR_CUSTO_BENEFICIO");
+  const hasBestSellerBadge = curationBadges.includes("MAIS_VENDIDO");
+
   const dynamicBadge = (() => {
     if (discount && discount >= 1) {
       return {
         label: `-${discount}%`,
         className:
           "bg-[hsl(var(--badge-red))] text-white text-[11px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest shadow-lg shadow-red-500/30 gap-1",
+      };
+    }
+    if (hasEliteBadge) {
+      return {
+        label: "Elite",
+        className:
+          "bg-zinc-900 text-white text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest border border-zinc-700 gap-1",
+      };
+    }
+    if (hasBestValueBadge) {
+      return {
+        label: "Melhor CxB",
+        className:
+          "bg-emerald-600 text-white text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest gap-1",
+      };
+    }
+    if (hasBestSellerBadge) {
+      return {
+        label: "Mais vendido",
+        className:
+          "bg-orange-500 text-white text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest gap-1",
       };
     }
     if (isTechnical && isRecentDrop) {
@@ -238,22 +257,28 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const purchaseLink = product.affiliate_link || undefined;
-
-    if (purchaseLink) {
+    if (canOpenOffer) {
       ReactGA.event({
         category: "Conversion",
         action: "Click_Affiliate",
         label: `${displayTitle} (${product.id})`,
-        value: Number(product.price),
+        value: Number(finalPrice),
       });
 
       supabase.rpc("increment_product_clicks", { product_id: product.id });
+      supabase
+        .rpc("enqueue_price_check_refresh", {
+          p_product_id: product.id,
+          p_force: false,
+          p_reason: "offer_click",
+        })
+        .catch(() => {});
       trackLocalInterest();
 
-      window.open(purchaseLink, "_blank", "noopener,noreferrer");
+      const outPath = buildOutProductPath(product.id, "product_card");
+      window.open(outPath, "_blank", "noopener,noreferrer");
     } else {
-      toast.error("Link de afiliado indisponível no momento.");
+      toast.error(offerUnavailableMessage);
     }
   };
 
@@ -354,9 +379,9 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
 
           <div className={`mt-auto ${isCompact ? "pt-2 space-y-2" : "pt-4 space-y-3"}`}>
             <div className="flex flex-col">
-              {showOriginalPrice && product.original_price && product.original_price > product.price && (
+              {showOriginalPrice && listPrice && listPrice > finalPrice && (
                 <span className="text-[11px] text-zinc-500/80 line-through font-medium">
-                  De: R$ {Number(product.original_price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  De: R$ {Number(listPrice).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </span>
               )}
               <div className="flex items-center justify-between gap-3">
@@ -371,27 +396,14 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
                           : "text-2xl sm:text-3xl"
                     }`}
                   >
-                    R$ {Number(product.price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    R$ {Number(finalPrice).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
-              {showPix && (
-                <div className="flex items-center gap-2 text-emerald-300 font-bold">
-                  <span className="rounded-full border border-emerald-400/40 bg-emerald-400/15 px-2 py-0.5 text-[9px] uppercase tracking-widest">
-                    Pix
-                  </span>
-                  <span className="text-[12px]">
-                    no Pix: R${" "}
-                    {Number(pixPrice).toLocaleString("pt-BR", {
-                      minimumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
-              )}
-              {showSavings && (pixSaving || saving) && (
+              {showSavings && saving && (
                 <span className="text-[11px] text-emerald-300/90 font-semibold">
                   Economize R${" "}
-                  {Number(pixSaving ?? saving).toLocaleString("pt-BR", {
+                  {Number(saving).toLocaleString("pt-BR", {
                     minimumFractionDigits: 2,
                   })}
                 </span>
@@ -409,12 +421,13 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
 
             <Button
               onClick={handleBuyNow}
+              disabled={!canOpenOffer}
               className={`w-full bg-[#a3e635] hover:bg-[#b7f24c] text-black font-black rounded-xl transition-all flex items-center justify-center gap-2 uppercase italic tracking-wide shadow-[0_0_15px_rgba(163,230,53,0.1)] group-hover:shadow-[0_0_24px_rgba(163,230,53,0.4)] hover:scale-[1.01] ${
                 isCompact ? "h-11 text-[11px]" : "h-11 text-sm"
               }`}
               aria-label={`Ver oferta de ${displayTitle}`}
             >
-              Ver oferta <ExternalLink size={16} strokeWidth={2.5} />
+              {canOpenOffer ? "Ver oferta" : "Aguardando validacao"} <ExternalLink size={16} strokeWidth={2.5} />
             </Button>
             {showMicrotext && (
               <p className="text-[10px] text-zinc-500/80 text-center">

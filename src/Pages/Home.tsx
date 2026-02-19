@@ -14,6 +14,7 @@ import { CategoryFilter } from '@/Components/shared/CategoryFilter';
 import SearchBar from '@/Components/SearchBar';
 import { ProductCard } from '@/Components/ProductCard';
 import { Button } from '@/Components/ui/button';
+import { resolveFinalPriceInfo } from '@/lib/pricing.js';
 
 export default function Home() {
   const BEST_DEAL_MIN_DISCOUNT = 15;
@@ -131,30 +132,18 @@ export default function Home() {
     const candidates = (products || [])
       .filter((product) => product.is_active !== false)
       .map((product) => {
-        const price = Number(product.price || 0);
-        const prevRaw =
-          typeof product.previous_price === 'number'
-            ? product.previous_price
-            : typeof product.original_price === 'number'
-              ? product.original_price
-              : null;
-        const prev = typeof prevRaw === 'number' ? prevRaw : null;
+        const pricing = resolveFinalPriceInfo(product);
+        const price = Number(pricing.finalPrice || 0);
+        const prev = typeof pricing.listPrice === 'number' ? pricing.listPrice : null;
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || product.created_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : null;
-        const pix =
-          typeof product.pix_price === 'number' &&
-          product.pix_price > 0 &&
-          product.pix_price < price
-            ? product.pix_price
-            : null;
         const discountValue = prev ? Math.max(prev - price, 0) : 0;
         const discountPercent = prev && prev > 0 ? Math.round((discountValue / prev) * 100) : 0;
         return {
           product,
           price,
           prev,
-          pix,
           discountValue,
           discountPercent,
           lastUpdatedText: formatLastUpdated(lastUpdated),
@@ -173,9 +162,6 @@ export default function Home() {
     );
 
     shortlisted.sort((a, b) => {
-      const pixA = a.pix ? 1 : 0;
-      const pixB = b.pix ? 1 : 0;
-      if (pixA !== pixB) return pixB - pixA;
       if (b.discountPercent !== a.discountPercent) return b.discountPercent - a.discountPercent;
       return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
     });
@@ -319,11 +305,6 @@ export default function Home() {
                                 Queda {deal.discountPercent}%
                               </span>
                             )}
-                            {deal.pix && (
-                              <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-600 text-white px-2 py-1 rounded-md">
-                                Pix
-                              </span>
-                            )}
                           </div>
                           <img
                             src={product.image_url || '/placeholder.svg'}
@@ -359,16 +340,6 @@ export default function Home() {
                               )}
                             </div>
 
-                            {deal.pix && (
-                              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-right">
-                                <div className="text-[10px] font-black uppercase text-emerald-600 tracking-widest">
-                                  Pix
-                                </div>
-                                <div className="text-xl font-black text-emerald-700">
-                                  R$ {deal.pix.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                </div>
-                              </div>
-                            )}
                           </div>
 
                           {deal.discountValue > 0 && (

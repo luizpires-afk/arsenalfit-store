@@ -23,6 +23,7 @@ import {
   applySubFilter,
   compareBySubFilter,
   createCatalogIndex,
+  dedupeCatalogProducts,
   paginateItems,
   parseSubFilter,
   scoreCatalogMatch,
@@ -213,12 +214,14 @@ function toCardProduct(p: Product) {
 
     // OK. Card espera string | null (NUNCA undefined)
     affiliate_link: p.affiliate_link ?? null,
+    source_url: p.source_url ?? undefined,
 
     // se o card usa slug como string | undefined
     slug: p.slug ?? undefined,
 
     marketplace: (p as any).marketplace ?? undefined,
     pix_price: p.pix_price ?? undefined,
+    pix_price_source: (p as any).pix_price_source ?? undefined,
     previous_price: p.previous_price ?? undefined,
     is_on_sale: p.is_on_sale ?? undefined,
     is_featured: p.is_featured ?? undefined,
@@ -227,6 +230,7 @@ function toCardProduct(p: Product) {
     subcategory: p.subcategory ?? undefined,
     rating: (p as any).rating ?? undefined,
     reviews_count: (p as any).reviews_count ?? undefined,
+    curation_badges: p.curation_badges ?? undefined,
     detected_at: p.detected_at ?? undefined,
     updated_at: p.updated_at ?? undefined,
     last_sync: p.last_sync ?? undefined,
@@ -361,7 +365,7 @@ export default function Category() {
               if (fallback.error) throw fallback.error;
               if (!alive) return;
               setGenderFilterSupported(false);
-              setProducts((fallback.data as Product[]) || []);
+              setProducts(dedupeCatalogProducts(((fallback.data as Product[]) || []) as any) as Product[]);
               return;
             }
             throw error;
@@ -369,7 +373,7 @@ export default function Category() {
 
           if (!alive) return;
           setGenderFilterSupported(true);
-          setProducts((data as Product[]) || []);
+          setProducts(dedupeCatalogProducts(((data as Product[]) || []) as any) as Product[]);
           return;
         }
 
@@ -377,7 +381,7 @@ export default function Category() {
         if (error) throw error;
         if (!alive) return;
         setGenderFilterSupported(true);
-        setProducts((data as Product[]) || []);
+        setProducts(dedupeCatalogProducts(((data as Product[]) || []) as any) as Product[]);
       } catch (err) {
         console.error("Erro ao buscar produtos:", err);
         if (!alive) return;

@@ -1,5 +1,16 @@
 ﻿// @ts-ignore - Remote module resolution is handled by Deno at runtime.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  PRICE_SOURCE,
+  resolvePriorityAndTtl,
+  computeNextCheckAt,
+  resolveFinalPriceFromSignals,
+  detectPriceOutlier,
+  computeBackoffUntil,
+  computeDomainThrottleDelayMs,
+  updateDomainCircuitState,
+  isCircuitOpen,
+} from "./price_check_policy.js";
 
 const Deno = (globalThis as unknown as {
   Deno: {
@@ -27,9 +38,33 @@ const DEFAULT_MAX_CONTINUATIONS = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_CONTIN
 const HARD_MAX_CONTINUATIONS = Number(
   Deno?.env?.get?.("PRICE_SYNC_HARD_MAX_CONTINUATIONS") ?? "8",
 );
+const PRICE_SYNC_QUEUE_ENABLED =
+  (Deno?.env?.get?.("PRICE_SYNC_QUEUE_ENABLED") ?? "true").toLowerCase() !== "false";
 const SYNC_LOCK_KEY = Deno?.env?.get?.("PRICE_SYNC_LOCK_KEY") ?? "price_sync_edge";
 const DEFAULT_LOCK_TTL_SECONDS = Number(
   Deno?.env?.get?.("PRICE_SYNC_LOCK_TTL_SECONDS") ?? "900",
+);
+const PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS = Number(
+  Deno?.env?.get?.("PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS") ?? "12",
+);
+const PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS = Number(
+  Deno?.env?.get?.("PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS") ?? "20",
+);
+const PRICE_SYNC_DOMAIN = Deno?.env?.get?.("PRICE_SYNC_DOMAIN") ?? "mercadolivre.com.br";
+const PRICE_SYNC_CIRCUIT_ERROR_THRESHOLD = Number(
+  Deno?.env?.get?.("PRICE_SYNC_CIRCUIT_ERROR_THRESHOLD") ?? "5",
+);
+const PRICE_SYNC_CIRCUIT_OPEN_SECONDS = Number(
+  Deno?.env?.get?.("PRICE_SYNC_CIRCUIT_OPEN_SECONDS") ?? "900",
+);
+const PRICE_SYNC_OUTLIER_PERCENT_THRESHOLD = Number(
+  Deno?.env?.get?.("PRICE_SYNC_OUTLIER_PERCENT_THRESHOLD") ?? "0.3",
+);
+const PRICE_SYNC_OUTLIER_ABS_THRESHOLD = Number(
+  Deno?.env?.get?.("PRICE_SYNC_OUTLIER_ABS_THRESHOLD") ?? "60",
+);
+const PRICE_SYNC_OUTLIER_RECHECK_MINUTES = Number(
+  Deno?.env?.get?.("PRICE_SYNC_OUTLIER_RECHECK_MINUTES") ?? "10",
 );
 const ENABLE_PIX_PRICE =
   (Deno?.env?.get?.("PIX_PRICE_ENABLED") ?? "true").toLowerCase() !== "false";
@@ -46,7 +81,6 @@ const ITEM_DELAY_MAX_MS = Number(Deno?.env?.get?.("PRICE_SYNC_ITEM_DELAY_MAX_MS"
 const MAX_SCRAPER_FALLBACKS_PER_RUN = Number(
   Deno?.env?.get?.("PRICE_SYNC_MAX_SCRAPER_FALLBACKS") ?? "8",
 );
-const MAX_PIX_SCRAPES_PER_RUN = Number(Deno?.env?.get?.("PRICE_SYNC_MAX_PIX_SCRAPES") ?? "8");
 const PIX_MIN_RATIO_VS_STANDARD = Number(
   Deno?.env?.get?.("PIX_MIN_RATIO_VS_STANDARD") ?? "0.2",
 );
@@ -128,6 +162,24 @@ type PriceChangeRow = {
   source: "auth" | "public" | "catalog" | "scraper";
 };
 
+type PriceCheckJobRow = {
+  job_id: number;
+  product_id: string;
+  domain: string;
+  attempts: number;
+  queued_at: string;
+  available_at: string;
+  meta?: Record<string, unknown> | null;
+};
+
+type DomainState = {
+  domain: string;
+  last_request_at: string | null;
+  consecutive_errors: number;
+  circuit_open_until: string | null;
+  last_status_code: number | null;
+};
+
 const toHex = (buffer: ArrayBuffer) =>
   Array.from(new Uint8Array(buffer))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -204,6 +256,18 @@ const toNumber = (value: unknown): number | null => {
     const parsed = Number(value.replace(",", "."));
     return Number.isFinite(parsed) ? parsed : null;
   }
+  return null;
+};
+
+const extractCatalogPriority = (specifications: unknown): "HIGH" | "MED" | "LOW" | null => {
+  if (!specifications || typeof specifications !== "object" || Array.isArray(specifications)) return null;
+  const root = specifications as Record<string, unknown>;
+  const curation =
+    root.catalog_curation && typeof root.catalog_curation === "object" && !Array.isArray(root.catalog_curation)
+      ? (root.catalog_curation as Record<string, unknown>)
+      : null;
+  const raw = String(curation?.priority ?? root.priority ?? "").trim().toUpperCase();
+  if (raw === "HIGH" || raw === "MED" || raw === "LOW") return raw;
   return null;
 };
 
@@ -302,14 +366,6 @@ const hasMeaningfulScraperPixDiscount = (
   return absDiff >= minAbs || pctDiff >= minPct;
 };
 
-const resolvePixMinRatioForSource = (source: string | null | undefined) => {
-  const configured =
-    source === "scraper"
-      ? PIX_SCRAPER_MIN_RATIO_VS_STANDARD
-      : PIX_MIN_RATIO_VS_STANDARD;
-  return Math.min(0.95, Math.max(0, Number.isFinite(configured) ? configured : 0.2));
-};
-
 const shouldKeepStoredPixForPrice = (
   pix: number | null,
   source: string | null | undefined,
@@ -317,9 +373,7 @@ const shouldKeepStoredPixForPrice = (
 ) => {
   if (!(typeof standard === "number" && Number.isFinite(standard) && standard > 0)) return false;
   if (!(typeof pix === "number" && Number.isFinite(pix) && pix > 0 && pix < standard)) return false;
-  if (source === "manual" || source === "api") return true;
-  const minRatio = resolvePixMinRatioForSource(source);
-  return pix >= standard * minRatio && hasMeaningfulScraperPixDiscount(pix, standard);
+  return source === "manual" || source === "api";
 };
 
 const isTrustedPriceSource = (source: string | null | undefined) =>
@@ -741,6 +795,21 @@ const extractPriceSignals = (data: any) => {
     pix: pickBestPixCandidate(pixCandidates, standard),
     standard,
   };
+};
+
+const resolveApiStandardPrice = (
+  itemBody: any,
+  priceSignals: { standard: number | null },
+) => {
+  const basePrice = toNumber(itemBody?.price);
+  if (typeof basePrice === "number" && Number.isFinite(basePrice) && basePrice > 0) {
+    return basePrice;
+  }
+  const signalPrice = toNumber(priceSignals?.standard);
+  if (typeof signalPrice === "number" && Number.isFinite(signalPrice) && signalPrice > 0) {
+    return signalPrice;
+  }
+  return null;
 };
 
 // --------- TOKEN STORE (corrigido para NAO depender de upsert com id fixo) ---------
@@ -1261,7 +1330,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const basePrice = toNumber((itemResp.body as any)?.price);
     const standardPrice = ENABLE_PIX_PRICE
       ? priceSignalsFromItem.standard ?? priceSignalsFromPrices.standard ?? null
       : null;
@@ -1269,48 +1337,11 @@ Deno.serve(async (req: Request) => {
       ? priceSignalsFromItem.pix ?? priceSignalsFromPrices.pix ?? null
       : null;
 
-    let resolvedPrice = standardPrice ?? basePrice ?? null;
+    const resolvedPrice = resolveApiStandardPrice(itemResp.body, {
+      standard: standardPrice,
+    });
     let resolvedPix = pickBestPixCandidate([pixCandidate], resolvedPrice);
-    let pixSource: "api" | "scraper" | null = resolvedPix ? "api" : null;
-    let usedScraperPix = false;
-
-    if (
-      ENABLE_PIX_PRICE &&
-      !resolvedPix &&
-      typeof resolvedPrice === "number" &&
-      resolvedPrice > 0
-    ) {
-      const scrapeUrl = resolveScrapeUrl(
-        product,
-        normalizedExternalId ?? fetchItemId ?? "",
-        itemResp.body,
-      );
-      if (scrapeUrl) {
-        let scrapedPix: number | null = null;
-        const html = await fetchScrapedHtml(scrapeUrl);
-        scrapedPix = html ? extractPixPriceFromHtml(html, resolvedPrice) : null;
-
-        if (!scrapedPix) {
-          const directHtml = await fetchScrapedHtml(scrapeUrl, undefined, true);
-          scrapedPix = directHtml ? extractPixPriceFromHtml(directHtml, resolvedPrice) : null;
-        }
-
-        if (!scrapedPix) {
-          const jinaHtml = await fetchJinaHtml(scrapeUrl);
-          scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml, resolvedPrice) : null;
-        }
-
-        if (
-          typeof scrapedPix === "number" &&
-          Number.isFinite(scrapedPix) &&
-          hasMeaningfulScraperPixDiscount(scrapedPix, resolvedPrice)
-        ) {
-          resolvedPix = scrapedPix;
-          pixSource = "scraper";
-          usedScraperPix = true;
-        }
-      }
-    }
+    let pixSource: "api" | null = resolvedPix ? "api" : null;
 
     if (resolvedPix !== null && resolvedPrice !== null && resolvedPix >= resolvedPrice) {
       resolvedPix = null;
@@ -1327,7 +1358,12 @@ Deno.serve(async (req: Request) => {
         api_status: itemResp.status,
         used_public_fallback: usedPublicFallback,
         used_catalog_fallback: usedProductFallback,
-        used_scraper_pix: usedScraperPix,
+        used_scraper_pix: false,
+        raw_price_api: toNumber((itemResp.body as any)?.price),
+        raw_price_scraper: null,
+        raw_pix_api: pixCandidate,
+        final_price: resolvedPix ?? resolvedPrice,
+        final_price_source: resolvedPix !== null ? "pix_api" : "standard",
         item_id: (itemResp.body as any)?.id ?? fetchItemId ?? null,
         catalog_id: catalogId ?? null,
         preferred_item_id: preferredItemId ?? null,
@@ -1557,6 +1593,30 @@ Deno.serve(async (req: Request) => {
     (payload as any)?.allow_continuation ?? (payload as any)?.allowContinuation,
     true,
   );
+  const useQueueMode = toBoolean(
+    (payload as any)?.use_queue ?? (payload as any)?.useQueue,
+    PRICE_SYNC_QUEUE_ENABLED,
+  );
+  const enforceScraperWhenNoPix = toBoolean(
+    (payload as any)?.enforce_scraper_when_no_pix ?? (payload as any)?.enforceScraperWhenNoPix,
+    true,
+  );
+  const domainMinIntervalSeconds = clamp(
+    toPositiveInt(
+      (payload as any)?.min_interval_between_requests_seconds ?? (payload as any)?.minIntervalBetweenRequestsSeconds,
+      PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS,
+    ),
+    1,
+    120,
+  );
+  const domainMaxIntervalSeconds = clamp(
+    toPositiveInt(
+      (payload as any)?.max_interval_between_requests_seconds ?? (payload as any)?.maxIntervalBetweenRequestsSeconds,
+      PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS,
+    ),
+    domainMinIntervalSeconds,
+    180,
+  );
   const debugUrl =
     typeof (payload as any)?.debug_url === "string" ? String((payload as any)?.debug_url) : null;
 
@@ -1644,6 +1704,142 @@ Deno.serve(async (req: Request) => {
           message: "price_sync_runs_upsert_failed",
           run_id: runId,
           error: runError.message,
+        }),
+      );
+    }
+  };
+
+  const mapPriceSourceToState = (source: string | null | undefined) => {
+    const normalized = String(source ?? "").trim().toUpperCase();
+    if (normalized === PRICE_SOURCE.API_PIX) return PRICE_SOURCE.API_PIX;
+    if (normalized === PRICE_SOURCE.SCRAPER) return PRICE_SOURCE.SCRAPER;
+    return PRICE_SOURCE.API_BASE;
+  };
+
+  const loadDomainState = async (domain: string): Promise<DomainState> => {
+    const { data } = await supabase
+      .from("price_check_domain_state")
+      .select("domain, last_request_at, consecutive_errors, circuit_open_until, last_status_code")
+      .eq("domain", domain)
+      .maybeSingle();
+
+    return {
+      domain,
+      last_request_at: (data as any)?.last_request_at ?? null,
+      consecutive_errors: Number((data as any)?.consecutive_errors ?? 0) || 0,
+      circuit_open_until: (data as any)?.circuit_open_until ?? null,
+      last_status_code:
+        typeof (data as any)?.last_status_code === "number" ? (data as any)?.last_status_code : null,
+    };
+  };
+
+  const saveDomainState = async (state: DomainState) => {
+    await supabase.from("price_check_domain_state").upsert(
+      {
+        domain: state.domain,
+        last_request_at: state.last_request_at ?? new Date().toISOString(),
+        consecutive_errors: Math.max(0, Number(state.consecutive_errors || 0)),
+        circuit_open_until: state.circuit_open_until ?? null,
+        last_status_code:
+          typeof state.last_status_code === "number" ? state.last_status_code : null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "domain" },
+    );
+  };
+
+  const claimQueueJobs = async (workerId: string, limit: number): Promise<PriceCheckJobRow[]> => {
+    const { data, error } = await supabase.rpc("claim_price_check_jobs", {
+      p_worker_id: workerId,
+      p_limit: limit,
+    });
+    if (error) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "claim_price_check_jobs_failed",
+          run_id: runId,
+          error: error.message,
+        }),
+      );
+      return [];
+    }
+    return Array.isArray(data) ? (data as PriceCheckJobRow[]) : [];
+  };
+
+  const completeQueueJob = async (
+    jobId: number | null | undefined,
+    status: "done" | "retry" | "failed",
+    options?: { errorCode?: string | null; retrySeconds?: number | null; metaPatch?: Record<string, unknown> },
+  ) => {
+    if (!jobId) return;
+    const retrySeconds =
+      typeof options?.retrySeconds === "number" && Number.isFinite(options.retrySeconds)
+        ? Math.max(5, Math.floor(options.retrySeconds))
+        : null;
+    await supabase.rpc("complete_price_check_job", {
+      p_job_id: jobId,
+      p_worker_id: runId,
+      p_status: status,
+      p_error_code: options?.errorCode ?? null,
+      p_retry_in_seconds: retrySeconds,
+      p_meta_patch: options?.metaPatch ?? {},
+    });
+  };
+
+  const upsertPriceCheckState = async (input: {
+    productId: string;
+    finalPrice: number | null;
+    finalSource: string | null;
+    nextCheckAt: string;
+    checkedAt?: string;
+    failCount?: number;
+    errorCode?: string | null;
+    backoffUntil?: string | null;
+    priority?: string | null;
+    staleTtlMinutes?: number | null;
+    suspectPrice?: number | null;
+    suspectReason?: string | null;
+    suspectDetectedAt?: string | null;
+  }) => {
+    const checkedAt = input.checkedAt ?? new Date().toISOString();
+    const safePriority = String(input.priority ?? "MED").toUpperCase();
+    const safeFailCount = Math.max(0, Math.floor(Number(input.failCount ?? 0)));
+    const safeTtl =
+      typeof input.staleTtlMinutes === "number" && Number.isFinite(input.staleTtlMinutes)
+        ? Math.max(1, Math.floor(input.staleTtlMinutes))
+        : 360;
+
+    await supabase.from("price_check_state").upsert(
+      {
+        product_id: input.productId,
+        last_checked_at: checkedAt,
+        next_check_at: input.nextCheckAt,
+        last_final_price: input.finalPrice,
+        last_price_source: input.finalSource ? mapPriceSourceToState(input.finalSource) : null,
+        priority: ["HIGH", "MED", "LOW"].includes(safePriority) ? safePriority : "MED",
+        fail_count: safeFailCount,
+        last_error_code: input.errorCode ?? null,
+        backoff_until: input.backoffUntil ?? null,
+        stale_ttl_minutes: safeTtl,
+        suspect_price: input.suspectPrice ?? null,
+        suspect_reason: input.suspectReason ?? null,
+        suspect_detected_at: input.suspectDetectedAt ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "product_id" },
+    );
+  };
+
+  const insertPriceCheckEvent = async (event: Record<string, unknown>) => {
+    const { error: eventError } = await supabase.from("price_check_events").insert(event);
+    if (eventError) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "price_check_event_insert_failed",
+          run_id: runId,
+          error: eventError.message,
         }),
       );
     }
@@ -1901,33 +2097,83 @@ Deno.serve(async (req: Request) => {
   const itemDelayMin = clamp(ITEM_DELAY_MIN_MS, 0, 3000);
   const itemDelayMax = Math.max(itemDelayMin, clamp(ITEM_DELAY_MAX_MS, itemDelayMin, 5000));
   const maxScraperFallbacksPerRun = Math.max(0, MAX_SCRAPER_FALLBACKS_PER_RUN);
-  const maxPixScrapesPerRun = Math.max(0, MAX_PIX_SCRAPES_PER_RUN);
   let scraperFallbacksUsed = 0;
-  let pixScrapesUsed = 0;
   let stoppedByRuntime = false;
 
   const now = new Date();
-  const nowIso = now.toISOString();
   const nowGraceIso = new Date(now.getTime() + SCHEDULE_GRACE_MS).toISOString();
-  let query = supabase
-    .from("products")
-    .select(
-      "id, marketplace, external_id, price, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link",
-    )
-    .eq("marketplace", "mercadolivre")
-    .not("external_id", "is", null)
-    .neq("status", "paused")
-    .neq("status", "standby");
-
-  if (!forceSync) {
-    query = query.lte("next_check_at", nowGraceIso);
+  const queueJobs = useQueueMode ? await claimQueueJobs(runId, batchSize) : [];
+  const queueJobByProductId = new Map<string, PriceCheckJobRow>();
+  for (const job of queueJobs) {
+    if (!queueJobByProductId.has(job.product_id)) {
+      queueJobByProductId.set(job.product_id, job);
+    }
   }
 
-  const { data: products, error } = await query
-    .order("next_check_at", { ascending: true })
-    .limit(batchSize);
+  let products: any[] | null = null;
+  let error: { message: string } | null = null;
+
+  if (queueJobByProductId.size > 0) {
+    const orderedIds = Array.from(queueJobByProductId.keys());
+    const { data: queuedProducts, error: queueProductsError } = await supabase
+      .from("products")
+      .select(
+        "id, marketplace, external_id, name, created_at, is_featured, clicks_count, price, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link, specifications",
+      )
+      .in("id", orderedIds)
+      .eq("marketplace", "mercadolivre")
+      .not("external_id", "is", null);
+
+    if (queueProductsError) {
+      error = { message: queueProductsError.message };
+    } else {
+      const byId = new Map((queuedProducts ?? []).map((item) => [item.id, item]));
+      products = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+
+      const returnedIds = new Set((products ?? []).map((item: any) => item.id));
+      for (const [productId, job] of queueJobByProductId.entries()) {
+        if (!returnedIds.has(productId)) {
+          await completeQueueJob(job.job_id, "failed", {
+            errorCode: "product_not_found_for_job",
+            metaPatch: { reason: "product_not_found_for_job" },
+          });
+        }
+      }
+    }
+  }
+
+  if (!products && !error) {
+    let query = supabase
+      .from("products")
+      .select(
+        "id, marketplace, external_id, name, created_at, is_featured, clicks_count, price, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link, specifications",
+      )
+      .eq("marketplace", "mercadolivre")
+      .not("external_id", "is", null)
+      .neq("status", "paused")
+      .neq("status", "standby");
+
+    if (!forceSync) {
+      query = query.lte("next_check_at", nowGraceIso);
+    }
+
+    const fallbackResult = await query
+      .order("next_check_at", { ascending: true })
+      .limit(batchSize);
+
+    products = fallbackResult.data ?? [];
+    error = fallbackResult.error ? { message: fallbackResult.error.message } : null;
+  }
 
   if (error) {
+    if (queueJobByProductId.size > 0) {
+      for (const job of queueJobByProductId.values()) {
+        await completeQueueJob(job.job_id, "retry", {
+          errorCode: "fetch_failed_before_processing",
+          retrySeconds: 600,
+        });
+      }
+    }
     await upsertRun({
       id: runId,
       finished_at: new Date().toISOString(),
@@ -1944,6 +2190,9 @@ Deno.serve(async (req: Request) => {
   await upsertRun({
     id: runId,
     total_produtos: stats.total_produtos,
+    ...(queueJobByProductId.size > 0
+      ? { note: `queue_claimed:${queueJobByProductId.size}` }
+      : {}),
   });
 
   if (!stats.total_produtos) {
@@ -1965,11 +2214,21 @@ Deno.serve(async (req: Request) => {
       total_price_changes: 0,
       note: "no_products_due",
     });
-    return new Response(JSON.stringify({ ok: true, run_id: runId, stats }), {
+    return new Response(JSON.stringify({
+      ok: true,
+      run_id: runId,
+      stats,
+      queue: {
+        enabled: useQueueMode,
+        claimed: queueJobByProductId.size,
+      },
+    }), {
       status: 200,
       headers: JSON_HEADERS,
     });
   }
+
+  let domainState = await loadDomainState(PRICE_SYNC_DOMAIN);
 
   for (const product of products ?? []) {
     if (Date.now() >= runDeadlineMs) {
@@ -1988,8 +2247,19 @@ Deno.serve(async (req: Request) => {
       extractItemIdFromUrl(product?.source_url) ||
       extractItemIdFromUrl(product?.affiliate_link);
     const fetchItemId = preferredItemId || normalizedExternalId;
+    const queueJob = queueJobByProductId.get(product.id) ?? null;
+    const catalogPriority = extractCatalogPriority((product as any)?.specifications ?? null);
+    const priorityPlan = resolvePriorityAndTtl({
+      now,
+      createdAt: product?.created_at ?? null,
+      isFeatured: product?.is_featured ?? false,
+      clicksCount: product?.clicks_count ?? 0,
+      productName: product?.name ?? normalizedExternalId ?? "",
+      catalogPriority,
+    });
 
     if (
+      !queueJob &&
       !forceSync &&
       nextCheck &&
       now < nextCheck &&
@@ -2004,6 +2274,20 @@ Deno.serve(async (req: Request) => {
       const update = { last_sync: now.toISOString(), next_check_at: nextCheckAt };
       stats.total_erros_desconhecidos += 1;
       await supabase.from("products").update(update).eq("id", product.id);
+      await upsertPriceCheckState({
+        productId: product.id,
+        finalPrice: typeof product?.price === "number" ? product.price : null,
+        finalSource: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+        nextCheckAt,
+        checkedAt: now.toISOString(),
+        failCount: 1,
+        errorCode: "invalid_external_id",
+        backoffUntil: addMs(now, HOURS_24_MS).toISOString(),
+      });
+      await completeQueueJob(queueJob?.job_id, "failed", {
+        errorCode: "invalid_external_id",
+      });
+      stats.total_verificados += 1;
 
       console.log(
         JSON.stringify({
@@ -2022,12 +2306,37 @@ Deno.serve(async (req: Request) => {
     let usedPublicFallback = false;
     let usedProductFallback = false;
     let catalogFallbackPrice: number | null = null;
-    let catalogFallbackItemId: string | null = null;
     let usedScraperFallback = false;
     let policyUnauthorized = false;
     let catalogLookupFailed = false;
+    let finalSource: string | null = null;
+    let rawApiPrice: number | null = null;
+    let rawApiPix: number | null = null;
+    let rawScrapedPrice: number | null = null;
+
+    const perProductNow = new Date();
+    const throttleDelay = computeDomainThrottleDelayMs({
+      now: perProductNow,
+      lastRequestAt: domainState.last_request_at ?? null,
+      minIntervalSeconds: domainMinIntervalSeconds,
+      maxIntervalSeconds: domainMaxIntervalSeconds,
+    });
+    if (throttleDelay > 0) {
+      await sleep(throttleDelay);
+    }
+
+    if (isCircuitOpen(domainState, new Date())) {
+      result = {
+        statusCode: 429,
+        error: "circuit_open",
+        body: { circuit_open_until: domainState.circuit_open_until ?? null },
+      };
+    }
 
     try {
+      if (result?.error === "circuit_open") {
+        throw new Error("circuit_open");
+      }
       const controller = new AbortController();
       const timer = setTimeout(
         () => controller.abort(),
@@ -2127,11 +2436,9 @@ Deno.serve(async (req: Request) => {
                 };
                 usedProductFallback = true;
                 catalogFallbackPrice = typeof best.price === "number" ? best.price : null;
-                catalogFallbackItemId = typeof bestId === "string" ? bestId : null;
               } else if (!preferredItemId && minPrice !== null) {
                 // Sem item preferido, mantemos o menor preço do catálogo como fallback.
                 catalogFallbackPrice = minPrice;
-                catalogFallbackItemId = typeof minItemId === "string" ? minItemId : null;
               }
             } else {
               catalogLookupFailed = true;
@@ -2200,7 +2507,10 @@ Deno.serve(async (req: Request) => {
       if (
         SCRAPER_ENABLED &&
         scraperFallbacksUsed < maxScraperFallbacksPerRun &&
-        itemResp.status !== 200 &&
+        (itemResp.status !== 200 ||
+          (itemResp.status === 200 &&
+            (!priceSignalsFromItem.pix && !priceSignalsFromPrices.pix) &&
+            enforceScraperWhenNoPix)) &&
         itemResp.status !== 304 &&
         itemResp.status !== 429
       ) {
@@ -2213,19 +2523,8 @@ Deno.serve(async (req: Request) => {
           const extractFromHtml = (html: string | null) => {
             if (!html) return null;
             const scrapedPrice = extractStandardPriceFromHtml(html);
-            const scrapedPix = ENABLE_PIX_PRICE
-              ? extractPixPriceFromHtml(html, scrapedPrice)
-              : null;
             if (typeof scrapedPrice === "number" && Number.isFinite(scrapedPrice) && scrapedPrice > 0) {
-              let resolvedPix: number | null = null;
-              if (
-                typeof scrapedPix === "number" &&
-                Number.isFinite(scrapedPix) &&
-                hasMeaningfulScraperPixDiscount(scrapedPix, scrapedPrice)
-              ) {
-                resolvedPix = scrapedPix;
-              }
-              return { price: scrapedPrice, pix_price: resolvedPix };
+              return { price: scrapedPrice, pix_price: null };
             }
             return null;
           };
@@ -2248,82 +2547,62 @@ Deno.serve(async (req: Request) => {
       if (itemResp.status === 304) {
         result = { statusCode: 304, etag: itemResp?.etag ?? null };
       } else if (itemResp.status === 200) {
-        const basePrice = toNumber((itemResp.body as any)?.price);
         const standardPrice = ENABLE_PIX_PRICE
           ? priceSignalsFromItem.standard ?? priceSignalsFromPrices.standard ?? null
           : null;
         const pixCandidate = ENABLE_PIX_PRICE
           ? priceSignalsFromItem.pix ?? priceSignalsFromPrices.pix ?? null
           : null;
-        const resolvedPrice = standardPrice ?? basePrice;
+        const resolvedPrice = resolveApiStandardPrice(itemResp.body, {
+          standard: standardPrice,
+        });
         let resolvedPix = pickBestPixCandidate([pixCandidate], resolvedPrice);
-        let pixSource: "api" | "scraper" | null = resolvedPix !== null ? "api" : null;
+        let pixSource: "api" | null = resolvedPix !== null ? "api" : null;
 
         if (resolvedPix !== null && typeof resolvedPrice === "number" && resolvedPix >= resolvedPrice) {
           resolvedPix = null;
           pixSource = null;
         }
 
+        rawApiPrice = toNumber((itemResp.body as any)?.price);
+        rawApiPix = pixCandidate;
+        const finalPriceInfo = resolveFinalPriceFromSignals({
+          apiPrice: resolvedPrice,
+          apiPixPrice: resolvedPix,
+          scrapedPrice: scrapedFallback?.price ?? null,
+          requireScraperWhenNoPix: enforceScraperWhenNoPix,
+        });
+        finalSource = finalPriceInfo.source;
+        usedScraperFallback = finalPriceInfo.source === PRICE_SOURCE.SCRAPER;
+        rawScrapedPrice = usedScraperFallback ? scrapedFallback?.price ?? null : null;
+
         result = {
           statusCode: 200,
-          price: resolvedPrice,
+          price: finalPriceInfo.finalPrice ?? resolvedPrice,
           original_price: toNumber((itemResp.body as any)?.original_price),
-          pix_price: resolvedPix,
-          pix_source: pixSource,
+          pix_price: finalPriceInfo.source === PRICE_SOURCE.API_PIX ? (finalPriceInfo.finalPrice ?? null) : null,
+          pix_source: finalPriceInfo.source === PRICE_SOURCE.API_PIX ? pixSource : null,
+          raw_price_api: rawApiPrice,
+          raw_price_scraper: scrapedFallback?.price ?? null,
+          raw_pix_api: rawApiPix,
+          final_price_source: finalPriceInfo.source ?? PRICE_SOURCE.API_BASE,
           status: mapStatus((itemResp.body as any) || {}),
           available_quantity: (itemResp.body as any)?.available_quantity,
           etag: itemResp?.etag ?? null,
         };
-
-        if (
-          ENABLE_PIX_PRICE &&
-          !result.pix_price &&
-          typeof resolvedPrice === "number" &&
-          pixScrapesUsed < maxPixScrapesPerRun
-        ) {
-          const scrapeUrl = resolveScrapeUrl(product, normalizedExternalId, itemResp.body);
-          if (scrapeUrl) {
-            pixScrapesUsed += 1;
-            let scrapedPix: number | null = null;
-            const html = await fetchScrapedHtml(scrapeUrl, controller.signal);
-            scrapedPix = html ? extractPixPriceFromHtml(html, resolvedPrice) : null;
-
-            if (!scrapedPix) {
-              const directHtml = await fetchScrapedHtml(scrapeUrl, controller.signal, true);
-              scrapedPix = directHtml ? extractPixPriceFromHtml(directHtml, resolvedPrice) : null;
-            }
-
-            if (!scrapedPix) {
-              const jinaHtml = await fetchJinaHtml(scrapeUrl, controller.signal);
-              scrapedPix = jinaHtml ? extractPixPriceFromHtml(jinaHtml, resolvedPrice) : null;
-            }
-
-            if (
-              typeof scrapedPix === "number" &&
-              Number.isFinite(scrapedPix) &&
-              hasMeaningfulScraperPixDiscount(scrapedPix, resolvedPrice)
-            ) {
-              result.pix_price = scrapedPix;
-              (result as any).pix_source = "scraper";
-              console.log(
-                JSON.stringify({
-                  level: "info",
-                  message: "pix_price_scraped",
-                  run_id: runId,
-                  item_id: normalizedExternalId,
-                  pix_price: scrapedPix,
-                }),
-              );
-            }
-          }
-        }
       } else if (scrapedFallback) {
         usedScraperFallback = true;
+        rawScrapedPrice = scrapedFallback.price;
+        finalSource = PRICE_SOURCE.SCRAPER;
         result = {
           statusCode: 200,
           price: scrapedFallback.price,
           pix_price: scrapedFallback.pix_price,
           pix_source: scrapedFallback.pix_price ? "scraper" : null,
+          raw_price_api: null,
+          raw_price_scraper: scrapedFallback.price,
+          raw_pix_api: null,
+          final_price_source: PRICE_SOURCE.SCRAPER,
           status: "active",
           etag: null,
         };
@@ -2337,14 +2616,55 @@ Deno.serve(async (req: Request) => {
     } catch (error) {
       if ((error as any)?.name === "AbortError") {
         result = { isTimeout: true, error: "timeout" };
+      } else if ((error as any)?.message === "circuit_open") {
+        result = {
+          statusCode: 429,
+          error: "circuit_open",
+          body: { circuit_open_until: domainState.circuit_open_until ?? null },
+        };
       } else {
         result = { statusCode: 0, error: "provider_error" };
         errorMessage = (error as any)?.message || String(error);
       }
     }
 
+    const statusForCircuit =
+      typeof result?.statusCode === "number" ? result.statusCode : result?.isTimeout ? 0 : 0;
+    const nextDomainState = updateDomainCircuitState({
+      state: {
+        consecutiveErrors: domainState.consecutive_errors,
+        circuitOpenUntil: domainState.circuit_open_until,
+        lastStatusCode: domainState.last_status_code,
+        lastRequestAt: domainState.last_request_at,
+      },
+      statusCode: statusForCircuit,
+      now: new Date(),
+      errorThreshold: Math.max(1, PRICE_SYNC_CIRCUIT_ERROR_THRESHOLD),
+      openSeconds: Math.max(30, PRICE_SYNC_CIRCUIT_OPEN_SECONDS),
+    });
+    domainState = {
+      domain: PRICE_SYNC_DOMAIN,
+      last_request_at: nextDomainState.lastRequestAt ?? new Date().toISOString(),
+      consecutive_errors: Number(nextDomainState.consecutiveErrors ?? 0) || 0,
+      circuit_open_until: nextDomainState.circuitOpenUntil ?? null,
+      last_status_code:
+        typeof nextDomainState.lastStatusCode === "number" ? nextDomainState.lastStatusCode : null,
+    };
+    await saveDomainState(domainState);
+
     let update: Record<string, unknown> = {};
     let nextCheckAt = addMs(now, HOURS_12_MS).toISOString();
+    let stateFinalPrice: number | null = typeof product?.price === "number" ? product.price : null;
+    let stateFinalSource: string | null = mapPriceSourceToState((product as any)?.last_price_source ?? null);
+    let stateFailCount = 0;
+    let stateErrorCode: string | null = null;
+    let stateBackoffUntil: string | null = null;
+    let stateSuspectPrice: number | null = null;
+    let stateSuspectReason: string | null = null;
+    let stateSuspectDetectedAt: string | null = null;
+    let queueCompletionStatus: "done" | "retry" | "failed" = "done";
+    let queueRetrySeconds: number | null = null;
+    let eventStatus: "updated" | "not_modified" | "backoff" | "error" | "suspect" = "updated";
 
     if (result?.statusCode === 304) {
       const wasAutoBlocked = product?.auto_disabled_reason === "blocked";
@@ -2355,7 +2675,9 @@ Deno.serve(async (req: Request) => {
           : usedPublicFallback
             ? "public"
             : "auth";
-      nextCheckAt = addMs(now, wasAutoBlocked ? HOURS_2_MS : HOURS_6_MS).toISOString();
+      nextCheckAt = wasAutoBlocked
+        ? addMs(now, HOURS_2_MS).toISOString()
+        : computeNextCheckAt({ now, ttlMinutes: priorityPlan.ttlMinutes });
       const existingPix304 =
         typeof product?.pix_price === "number" ? product.pix_price : null;
       const existingPixSource304 =
@@ -2370,17 +2692,19 @@ Deno.serve(async (req: Request) => {
         last_price_source: source,
         last_price_verified_at: now.toISOString(),
         next_check_at: nextCheckAt,
+        last_health_check_at: now.toISOString(),
         etag: result?.etag ?? product?.etag ?? null,
         pix_price: canKeepPix304 ? existingPix304 : null,
         pix_price_source: canKeepPix304 ? existingPixSource304 : null,
         pix_price_checked_at: canKeepPix304 ? (product as any)?.pix_price_checked_at ?? null : null,
-        ...(wasAutoBlocked
-          ? { is_active: false, auto_disabled_reason: "blocked", auto_disabled_at: product?.auto_disabled_at ?? now.toISOString() }
-          : {}),
       };
+      eventStatus = "not_modified";
+      stateFinalPrice = typeof product?.price === "number" ? product.price : null;
+      stateFinalSource = mapPriceSourceToState((product as any)?.last_price_source ?? null);
+      stateFailCount = 0;
       stats.total_304 += 1;
     } else if (result?.statusCode === 200 && typeof result?.price === "number") {
-      nextCheckAt = addMs(now, HOURS_6_MS).toISOString();
+      nextCheckAt = computeNextCheckAt({ now, ttlMinutes: priorityPlan.ttlMinutes });
       const mappedStatus = result?.status ?? product?.status ?? "active";
       const resolvedStatus =
         product?.status === "paused" || product?.status === "standby"
@@ -2431,6 +2755,72 @@ Deno.serve(async (req: Request) => {
         typeof nextOriginal === "number" && nextOriginal > stabilizedPrice
           ? Math.round(((nextOriginal - stabilizedPrice) / nextOriginal) * 100)
           : 0;
+      const outlier = detectPriceOutlier({
+        previousPrice: currentPrice,
+        newPrice: stabilizedPrice,
+        percentThreshold: Math.max(0, PRICE_SYNC_OUTLIER_PERCENT_THRESHOLD),
+        absoluteThreshold: Math.max(0, PRICE_SYNC_OUTLIER_ABS_THRESHOLD),
+      });
+      if (outlier.isOutlier) {
+        const retryMinutes = Math.max(1, PRICE_SYNC_OUTLIER_RECHECK_MINUTES);
+        const retrySeconds = retryMinutes * 60;
+        nextCheckAt = addMs(now, retryMinutes * 60 * 1000).toISOString();
+        update = {
+          last_sync: now.toISOString(),
+          last_price_verified_at: now.toISOString(),
+          next_check_at: nextCheckAt,
+          data_health_status: "SUSPECT_PRICE",
+          deactivation_reason: "suspect_outlier",
+          last_health_check_at: now.toISOString(),
+        };
+        await supabase.from("products").update(update).eq("id", product.id);
+        await upsertPriceCheckState({
+          productId: product.id,
+          finalPrice: currentPrice,
+          finalSource: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+          nextCheckAt,
+          checkedAt: now.toISOString(),
+          failCount: Number(queueJob?.attempts ?? 0) + 1,
+          errorCode: "suspect_outlier",
+          backoffUntil: nextCheckAt,
+          priority: priorityPlan.priority,
+          staleTtlMinutes: priorityPlan.ttlMinutes,
+          suspectPrice: stabilizedPrice,
+          suspectReason: "delta_above_threshold",
+          suspectDetectedAt: now.toISOString(),
+        });
+        await completeQueueJob(queueJob?.job_id, "retry", {
+          errorCode: "suspect_outlier",
+          retrySeconds,
+          metaPatch: {
+            previous_price: currentPrice,
+            suspect_price: stabilizedPrice,
+            absolute_delta: outlier.absoluteDelta,
+            percent_delta: outlier.percentDelta,
+          },
+        });
+        await insertPriceCheckEvent({
+          run_id: runId,
+          job_id: queueJob?.job_id ?? null,
+          product_id: product.id,
+          domain: PRICE_SYNC_DOMAIN,
+          status_code: result?.statusCode ?? null,
+          raw_api_price: rawApiPrice,
+          raw_api_pix: rawApiPix,
+          raw_scraped_price: rawScrapedPrice,
+          final_price: stabilizedPrice,
+          final_price_source: (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE,
+          duration_ms: Date.now() - itemStartedAt,
+          event_status: "suspect",
+          error_code: "suspect_outlier",
+          created_at: now.toISOString(),
+        });
+        eventStatus = "suspect";
+        stats.total_verificados += 1;
+        stats.total_skipped += 1;
+        await sleep(randomInt(itemDelayMin, itemDelayMax));
+        continue;
+      }
 
       const hasPriceChange =
         product?.price === null || product?.price === undefined || stabilizedPrice !== product.price;
@@ -2438,21 +2828,15 @@ Deno.serve(async (req: Request) => {
       const isReliableSource = source === "auth" || source === "public";
       const shouldReactivate =
         wasAutoBlocked && resolvedStatus !== "paused" && resolvedStatus !== "standby" && isReliableSource;
-      const isActive =
-        resolvedStatus === "paused" || resolvedStatus === "standby"
-          ? false
-          : shouldReactivate
-            ? true
-            : product?.is_active ?? true;
+      const isActive = shouldReactivate ? true : product?.is_active ?? true;
 
       if (wasAutoBlocked && !isReliableSource) {
         nextCheckAt = addMs(now, HOURS_2_MS).toISOString();
         update = {
           last_sync: now.toISOString(),
           next_check_at: nextCheckAt,
-          is_active: false,
-          auto_disabled_reason: "blocked",
-          auto_disabled_at: product?.auto_disabled_at ?? now.toISOString(),
+          is_active: product?.is_active ?? true,
+          last_health_check_at: now.toISOString(),
         };
         stats.total_200 += 1;
         const { error: updateError } = await supabase.from("products").update(update).eq("id", product.id);
@@ -2475,49 +2859,59 @@ Deno.serve(async (req: Request) => {
             used_public_fallback: usedPublicFallback,
             used_product_fallback: usedProductFallback,
             used_scraper_fallback: usedScraperFallback,
+            price_source: source,
+            raw_price_api: (result as any)?.raw_price_api ?? null,
+            raw_price_scraper: (result as any)?.raw_price_scraper ?? null,
+            raw_pix_api: (result as any)?.raw_pix_api ?? null,
+            final_price: stabilizedPrice,
+            final_price_source: (result as any)?.final_price_source ?? finalSource ?? "API_BASE",
             etag_before: etagBefore,
             etag_after: etagAfter,
             error: updateError?.message || errorMessage || result?.error || null,
           }),
         );
+        await upsertPriceCheckState({
+          productId: product.id,
+          finalPrice: typeof product?.price === "number" ? product.price : null,
+          finalSource: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+          nextCheckAt,
+          checkedAt: now.toISOString(),
+          failCount: Number(queueJob?.attempts ?? 0) + 1,
+          errorCode: "untrusted_source",
+          backoffUntil: nextCheckAt,
+          priority: priorityPlan.priority,
+          staleTtlMinutes: priorityPlan.ttlMinutes,
+        });
+        await completeQueueJob(queueJob?.job_id, "retry", {
+          errorCode: "untrusted_source",
+          retrySeconds: 2 * 60 * 60,
+        });
+        await insertPriceCheckEvent({
+          run_id: runId,
+          job_id: queueJob?.job_id ?? null,
+          product_id: product.id,
+          domain: PRICE_SYNC_DOMAIN,
+          status_code: result?.statusCode ?? null,
+          raw_api_price: rawApiPrice,
+          raw_api_pix: rawApiPix,
+          raw_scraped_price: rawScrapedPrice,
+          final_price: typeof product?.price === "number" ? product.price : null,
+          final_price_source: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+          duration_ms: Date.now() - itemStartedAt,
+          event_status: "backoff",
+          error_code: "untrusted_source",
+          created_at: now.toISOString(),
+        });
+        stats.total_verificados += 1;
         await sleep(randomInt(itemDelayMin, itemDelayMax));
         continue;
       }
 
-      const existingPix =
-        typeof product?.pix_price === "number" ? product.pix_price : null;
-      const existingPixSource =
-        (product as any)?.pix_price_source ?? null;
-      const incomingPix =
-        typeof (result as any)?.pix_price === "number" ? (result as any).pix_price : null;
-      const incomingPixSource =
-        incomingPix !== null ? ((result as any)?.pix_source ?? "api") : null;
-      const normalizedIncomingPix =
-        incomingPix !== null
-          ? incomingPixSource === "scraper"
-            ? hasMeaningfulScraperPixDiscount(incomingPix, stabilizedPrice)
-              ? incomingPix
-              : null
-            : incomingPix > 0 && incomingPix < stabilizedPrice
-              ? incomingPix
-              : null
-          : null;
-      const existingPixLooksValid = shouldKeepStoredPixForPrice(
-        existingPix,
-        existingPixSource,
-        stabilizedPrice,
-      );
-      const shouldKeepExistingPix = existingPixLooksValid;
-      const resolvedPix =
-        normalizedIncomingPix !== null ? normalizedIncomingPix : shouldKeepExistingPix ? existingPix : null;
-      const resolvedPixSource =
-        resolvedPix !== null
-          ? normalizedIncomingPix !== null
-            ? incomingPixSource
-            : existingPixSource
-          : null;
-      const resolvedPixCheckedAt =
-        normalizedIncomingPix !== null ? now.toISOString() : (product as any)?.pix_price_checked_at ?? null;
+      const finalPriceSource =
+        (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE;
+      const resolvedPix = finalPriceSource === PRICE_SOURCE.API_PIX ? stabilizedPrice : null;
+      const resolvedPixSource = resolvedPix !== null ? "api" : null;
+      const resolvedPixCheckedAt = resolvedPix !== null ? now.toISOString() : null;
 
       update = {
         previous_price: product?.price ?? null,
@@ -2525,14 +2919,15 @@ Deno.serve(async (req: Request) => {
         price: stabilizedPrice,
         last_price_source: source,
         last_price_verified_at: now.toISOString(),
+        data_health_status: "HEALTHY",
+        deactivation_reason: null,
+        last_health_check_at: now.toISOString(),
         pix_price: resolvedPix,
         pix_price_source: resolvedPix !== null ? resolvedPixSource : null,
         pix_price_checked_at: resolvedPix !== null ? resolvedPixCheckedAt : null,
         discount_percentage: discountPercentage,
         is_on_sale: isOnSale,
-        ...(resolvedStatus === "paused" || resolvedStatus === "standby"
-          ? { is_active: false }
-          : { is_active: isActive }),
+        is_active: isActive,
         ...(shouldReactivate ? { auto_disabled_reason: null, auto_disabled_at: null } : {}),
         ...(resolvedStockQty !== null ? { stock_quantity: resolvedStockQty } : {}),
         ...(hasPriceChange ? { detected_price: stabilizedPrice, detected_at: now.toISOString() } : {}),
@@ -2541,6 +2936,10 @@ Deno.serve(async (req: Request) => {
         last_sync: now.toISOString(),
         next_check_at: nextCheckAt,
       };
+      eventStatus = "updated";
+      stateFinalPrice = stabilizedPrice;
+      stateFinalSource = mapPriceSourceToState(finalPriceSource);
+      stateFailCount = 0;
       stats.total_200 += 1;
 
         if (hasPriceChange) {
@@ -2576,12 +2975,18 @@ Deno.serve(async (req: Request) => {
     } else if (result?.statusCode === 404) {
       nextCheckAt = addMs(now, HOURS_24_MS).toISOString();
       update = {
-        status: "paused",
-        is_active: false,
-        stock_quantity: 0,
         last_sync: now.toISOString(),
         next_check_at: nextCheckAt,
+        data_health_status: "API_MISSING",
+        deactivation_reason: "http_404",
+        last_health_check_at: now.toISOString(),
       };
+      eventStatus = "backoff";
+      stateFailCount = Number(queueJob?.attempts ?? 0) + 1;
+      stateErrorCode = "http_404";
+      stateBackoffUntil = nextCheckAt;
+      queueCompletionStatus = "retry";
+      queueRetrySeconds = 24 * 60 * 60;
       stats.total_404 += 1;
     } else if (result?.statusCode === 403) {
       const body = (result as any)?.body || {};
@@ -2615,33 +3020,86 @@ Deno.serve(async (req: Request) => {
         update = {
           last_sync: now.toISOString(),
           next_check_at: nextCheckAt,
-          is_active: false,
           auto_disabled_reason: "blocked",
           auto_disabled_at: now.toISOString(),
+          data_health_status: "API_MISSING",
+          deactivation_reason: "policy_blocked",
+          last_health_check_at: now.toISOString(),
         };
+        stateErrorCode = "policy_blocked";
+        stateBackoffUntil = nextCheckAt;
+        queueCompletionStatus = "retry";
+        queueRetrySeconds = 6 * 60 * 60;
       } else if (isAccessDenied) {
         nextCheckAt = addMs(now, HOURS_24_MS).toISOString();
         update = {
-          status: "paused",
-          is_active: false,
-          stock_quantity: 0,
           last_sync: now.toISOString(),
           next_check_at: nextCheckAt,
+          last_health_check_at: now.toISOString(),
         };
+        stateErrorCode = "http_403";
+        stateBackoffUntil = nextCheckAt;
+        queueCompletionStatus = "retry";
+        queueRetrySeconds = 24 * 60 * 60;
       } else {
         nextCheckAt = addMs(now, HOURS_12_MS).toISOString();
-        update = { last_sync: now.toISOString(), next_check_at: nextCheckAt };
+        update = {
+          last_sync: now.toISOString(),
+          next_check_at: nextCheckAt,
+          last_health_check_at: now.toISOString(),
+        };
+        stateErrorCode = "http_403_other";
+        stateBackoffUntil = nextCheckAt;
+        queueCompletionStatus = "retry";
+        queueRetrySeconds = 12 * 60 * 60;
       }
 
+      eventStatus = "backoff";
+      stateFailCount = Number(queueJob?.attempts ?? 0) + 1;
       stats.total_403 += 1;
     } else if (result?.statusCode === 429 || result?.isTimeout) {
-      nextCheckAt = addMs(now, HOURS_12_MS).toISOString();
-      update = { last_sync: now.toISOString(), next_check_at: nextCheckAt };
+      const failCount = Number(queueJob?.attempts ?? 0) + 1;
+      const backoffUntil = computeBackoffUntil({
+        failCount,
+        now,
+        baseMs: 120000,
+        maxMs: HOURS_12_MS,
+      });
+      nextCheckAt = backoffUntil;
+      update = {
+        last_sync: now.toISOString(),
+        next_check_at: nextCheckAt,
+        last_health_check_at: now.toISOString(),
+      };
+      eventStatus = "backoff";
+      stateFailCount = failCount;
+      stateErrorCode = result?.statusCode === 429 ? "http_429" : "timeout";
+      stateBackoffUntil = backoffUntil;
+      queueCompletionStatus = "retry";
+      queueRetrySeconds = Math.max(60, Math.floor((new Date(backoffUntil).getTime() - now.getTime()) / 1000));
       if (result?.statusCode === 429) stats.total_429 += 1;
       if (result?.isTimeout) stats.total_timeout += 1;
     } else {
       stats.total_erros_desconhecidos += 1;
-      update = { last_sync: now.toISOString(), next_check_at: nextCheckAt };
+      const failCount = Number(queueJob?.attempts ?? 0) + 1;
+      const backoffUntil = computeBackoffUntil({
+        failCount,
+        now,
+        baseMs: 120000,
+        maxMs: HOURS_12_MS,
+      });
+      nextCheckAt = backoffUntil;
+      update = {
+        last_sync: now.toISOString(),
+        next_check_at: nextCheckAt,
+        last_health_check_at: now.toISOString(),
+      };
+      eventStatus = "error";
+      stateFailCount = failCount;
+      stateErrorCode = result?.error ? String(result.error) : "unknown_error";
+      stateBackoffUntil = backoffUntil;
+      queueCompletionStatus = "retry";
+      queueRetrySeconds = Math.max(60, Math.floor((new Date(backoffUntil).getTime() - now.getTime()) / 1000));
     }
 
     stats.total_verificados += 1;
@@ -2669,11 +3127,86 @@ Deno.serve(async (req: Request) => {
         used_public_fallback: usedPublicFallback,
         used_product_fallback: usedProductFallback,
         used_scraper_fallback: usedScraperFallback,
+        price_source: (update as any)?.last_price_source ?? null,
+        raw_price_api: (result as any)?.raw_price_api ?? null,
+        raw_price_scraper: (result as any)?.raw_price_scraper ?? null,
+        raw_pix_api: (result as any)?.raw_pix_api ?? null,
+        final_price: typeof (update as any)?.price === "number" ? (update as any).price : null,
+        final_price_source:
+          (result as any)?.final_price_source ??
+          (typeof (update as any)?.pix_price === "number" && (update as any).pix_price > 0
+            ? PRICE_SOURCE.API_PIX
+            : PRICE_SOURCE.API_BASE),
         etag_before: etagBefore,
         etag_after: etagAfter,
         error: updateError?.message || errorMessage || result?.error || null,
       }),
     );
+
+    const stateNextCheckAt =
+      typeof (update as any)?.next_check_at === "string" ? (update as any).next_check_at : nextCheckAt;
+    const statePriceToPersist =
+      typeof (update as any)?.price === "number" ? (update as any).price : stateFinalPrice;
+    const stateSourceToPersist =
+      (result as any)?.final_price_source
+        ? mapPriceSourceToState((result as any)?.final_price_source)
+        : stateFinalSource;
+
+    await upsertPriceCheckState({
+      productId: product.id,
+      finalPrice: statePriceToPersist,
+      finalSource: stateSourceToPersist,
+      nextCheckAt: stateNextCheckAt,
+      checkedAt: now.toISOString(),
+      failCount: Math.max(0, stateFailCount),
+      errorCode: updateError?.message || stateErrorCode || errorMessage || result?.error || null,
+      backoffUntil: stateBackoffUntil,
+      priority: priorityPlan.priority,
+      staleTtlMinutes: priorityPlan.ttlMinutes,
+      suspectPrice: stateSuspectPrice,
+      suspectReason: stateSuspectReason,
+      suspectDetectedAt: stateSuspectDetectedAt,
+    });
+
+    const completionErrorCode =
+      updateError?.message || stateErrorCode || errorMessage || result?.error || null;
+    if (updateError) {
+      await completeQueueJob(queueJob?.job_id, "retry", {
+        errorCode: String(completionErrorCode ?? "update_failed"),
+        retrySeconds: Math.max(60, queueRetrySeconds ?? 600),
+      });
+    } else if (queueCompletionStatus === "retry") {
+      await completeQueueJob(queueJob?.job_id, "retry", {
+        errorCode: completionErrorCode ? String(completionErrorCode) : null,
+        retrySeconds: Math.max(60, queueRetrySeconds ?? 600),
+      });
+    } else if (queueCompletionStatus === "failed") {
+      await completeQueueJob(queueJob?.job_id, "failed", {
+        errorCode: completionErrorCode ? String(completionErrorCode) : null,
+      });
+    } else {
+      await completeQueueJob(queueJob?.job_id, "done", {
+        errorCode: completionErrorCode ? String(completionErrorCode) : null,
+      });
+    }
+
+    await insertPriceCheckEvent({
+      run_id: runId,
+      job_id: queueJob?.job_id ?? null,
+      product_id: product.id,
+      domain: PRICE_SYNC_DOMAIN,
+      status_code: result?.statusCode ?? null,
+      raw_api_price: rawApiPrice ?? (result as any)?.raw_price_api ?? null,
+      raw_api_pix: rawApiPix ?? (result as any)?.raw_pix_api ?? null,
+      raw_scraped_price: rawScrapedPrice ?? (result as any)?.raw_price_scraper ?? null,
+      final_price: statePriceToPersist,
+      final_price_source:
+        (result as any)?.final_price_source ?? stateSourceToPersist ?? mapPriceSourceToState((product as any)?.last_price_source ?? null),
+      duration_ms: durationMs,
+      event_status: eventStatus,
+      error_code: completionErrorCode ? String(completionErrorCode) : null,
+      created_at: now.toISOString(),
+    });
 
     if (Date.now() >= runDeadlineMs) {
       stoppedByRuntime = true;
@@ -2804,17 +3337,28 @@ Deno.serve(async (req: Request) => {
     (stoppedByRuntime || (products?.length ?? 0) >= batchSize);
 
   if (shouldEvaluateContinuation) {
-    const dueQuery = supabase
-      .from("products")
-      .select("id", { count: "exact", head: true })
-      .eq("marketplace", "mercadolivre")
-      .not("external_id", "is", null)
-      .neq("status", "paused")
-      .neq("status", "standby");
-
-    const dueResult = forceSync
-      ? await dueQuery
-      : await dueQuery.lte("next_check_at", new Date(Date.now() + SCHEDULE_GRACE_MS).toISOString());
+    const dueResult = useQueueMode
+      ? await supabase
+          .from("price_check_jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "queued")
+          .lte("available_at", new Date().toISOString())
+      : forceSync
+        ? await supabase
+            .from("products")
+            .select("id", { count: "exact", head: true })
+            .eq("marketplace", "mercadolivre")
+            .not("external_id", "is", null)
+            .neq("status", "paused")
+            .neq("status", "standby")
+        : await supabase
+            .from("products")
+            .select("id", { count: "exact", head: true })
+            .eq("marketplace", "mercadolivre")
+            .not("external_id", "is", null)
+            .neq("status", "paused")
+            .neq("status", "standby")
+            .lte("next_check_at", new Date(Date.now() + SCHEDULE_GRACE_MS).toISOString());
 
     if (dueResult.error) {
       continuationError = dueResult.error.message;
@@ -2839,6 +3383,7 @@ Deno.serve(async (req: Request) => {
           batch_size: batchSize,
           max_runtime_ms: maxRuntimeMs,
           allow_continuation: true,
+          use_queue: useQueueMode,
         };
 
         const { error: enqueueError } = await supabase.rpc("enqueue_price_sync", {
@@ -2868,6 +3413,10 @@ Deno.serve(async (req: Request) => {
       ok: true,
       run_id: runId,
       stats,
+      queue: {
+        enabled: useQueueMode,
+        claimed: queueJobByProductId.size,
+      },
       continuation: {
         queued: continuationQueued,
         depth: continuationDepth,

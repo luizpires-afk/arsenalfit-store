@@ -25,6 +25,14 @@ import SEOHead from "@/Components/SEOHead";
 import { ProductCard } from "@/Components/ProductCard";
 import { Button } from "@/Components/ui/button";
 import SearchBarSticky from "@/Components/SearchBarSticky";
+import {
+  compareBySubFilter,
+  dedupeCatalogProducts,
+  isBestValueCurationProduct,
+  isEliteCurationProduct,
+  isPopularCurationProduct,
+} from "@/lib/catalog";
+import { resolveFinalPriceInfo } from "@/lib/pricing.js";
 
 const BEST_DEAL_MIN_DISCOUNT = 20;
 const BEST_DEAL_MAX_VERIFY_AGE_HOURS = 12;
@@ -43,9 +51,9 @@ const CAROUSEL_LIMIT = 16;
 const CATEGORY_PRIORITY = ["suplement", "equip", "acessor", "roupa"];
 
 const PRODUCT_SELECT_BASE =
-  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, updated_at, image_url, images, affiliate_link, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count";
+  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, updated_at, image_url, images, affiliate_link, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
 const PRODUCT_SELECT_WITH_SOURCE =
-  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, last_price_source, last_price_verified_at, updated_at, image_url, images, affiliate_link, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count";
+  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, last_price_source, last_price_verified_at, updated_at, image_url, images, affiliate_link, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
 
 const HERO_BANNERS = [
   {
@@ -87,6 +95,14 @@ const mergeUnique = <T extends { id: string }>(...lists: (T[] | undefined)[]) =>
   }
   return merged;
 };
+
+const sortByCurationPriority = <T extends { id: string }>(items: T[]) =>
+  [...items].sort((a, b) =>
+    compareBySubFilter(a as any, b as any, "melhores"),
+  );
+
+const dedupeByCatalog = <T extends { id: string }>(items: T[]) =>
+  dedupeCatalogProducts(items as any[]) as T[];
 
 const ShakerIcon = ({ size = 18, className = "" }: { size?: number; className?: string }) => (
   <svg
@@ -729,8 +745,8 @@ export default function HomeV2() {
 
   const bestDealsMeta = useMemo(() => {
     const nowMs = Date.now();
-    const basePool = (bestDealsData || []).filter(
-      (product: any) => product.is_active !== false,
+    const basePool = dedupeByCatalog(
+      (bestDealsData || []).filter((product: any) => product.is_active !== false),
     );
     if (basePool.length === 0) return { items: [], primaryCount: 0, fallbackUsed: false };
 
@@ -790,9 +806,12 @@ export default function HomeV2() {
 
     const candidates = pool
       .map((product: any) => {
-        const price = toNumber(product.price) ?? 0;
+        const pricing = resolveFinalPriceInfo(product);
+        const price = toNumber(pricing.finalPrice) ?? 0;
         const prev =
-          toNumber(product.previous_price) ?? toNumber(product.original_price);
+          toNumber(product.previous_price) ??
+          toNumber(pricing.listPrice) ??
+          toNumber(pricing.originalPrice);
         const discountValue = prev ? Math.max(prev - price, 0) : 0;
         const discountFromPrev =
           prev && prev > 0 ? (discountValue / prev) * 100 : 0;
@@ -804,19 +823,14 @@ export default function HomeV2() {
               : discountRaw
             : 0;
         const discountPercent = Math.max(discountFromPrev, discountFromField);
-        const pix =
-          typeof product.pix_price === "number" &&
-          product.pix_price > 0 &&
-          product.pix_price < price
-            ? product.pix_price
-            : null;
+        const usesPix = Boolean(pricing.usedPix);
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
         return {
           product,
           prev,
-          pix,
+          usesPix,
           discountValue,
           discountPercent,
           lastUpdatedMs,
@@ -829,8 +843,8 @@ export default function HomeV2() {
     );
 
     shortlisted.sort((a, b) => {
-      const pixA = a.pix ? 1 : 0;
-      const pixB = b.pix ? 1 : 0;
+      const pixA = a.usesPix ? 1 : 0;
+      const pixB = b.usesPix ? 1 : 0;
       if (pixA !== pixB) return pixB - pixA;
       if (b.discountPercent !== a.discountPercent)
         return b.discountPercent - a.discountPercent;
@@ -898,7 +912,7 @@ export default function HomeV2() {
   });
 
   const priceDropsToday = useMemo(() => {
-    const primary = (dropsData || [])
+    const primary = dedupeByCatalog(dropsData || [])
       .filter((product: any) => {
         const price = Number(product.price || 0);
         const prev = typeof product.previous_price === "number" ? product.previous_price : null;
@@ -968,33 +982,52 @@ export default function HomeV2() {
     });
 
   const eliteProducts = useMemo(() => {
-    const pool = (eliteData || []).filter((product: any) => product.is_active !== false);
+    const pool = sortByCurationPriority(
+      dedupeByCatalog(
+        (eliteData || []).filter((product: any) => product.is_active !== false),
+      ),
+    );
 
-    const dropped = pool
-      .filter(
-        (product: any) =>
-          typeof product.previous_price === "number" &&
-          product.previous_price > product.price,
-      )
-      .sort((a: any, b: any) => {
-        const priceA = Number(a.price || 0);
-        const priceB = Number(b.price || 0);
-        return priceB - priceA;
-      });
+    const elitePrimary = pool.filter((product: any) =>
+      isEliteCurationProduct(product as any),
+    );
+    const bestValueSecondary = pool.filter(
+      (product: any) =>
+        !isEliteCurationProduct(product as any) &&
+        isBestValueCurationProduct(product as any),
+    );
+    const popularSecondary = pool.filter(
+      (product: any) =>
+        !isEliteCurationProduct(product as any) &&
+        !isBestValueCurationProduct(product as any) &&
+        isPopularCurationProduct(product as any),
+    );
 
-    const priceyFallback = pool
-      .filter((product: any) => Number(product.price || 0) >= 150)
-      .sort((a: any, b: any) => Number(b.price || 0) - Number(a.price || 0));
+    const fallback = sortByCurationPriority(
+      dedupeByCatalog(
+        mergeUnique(eliteFallbackData, bestDealsData, previewData).filter(
+          (product: any) => product?.is_active !== false,
+        ),
+      ),
+    );
 
-    const curated = mergeUnique(dropped, priceyFallback);
-    const fallback = mergeUnique(eliteFallbackData, bestDealsData, previewData);
-    const merged = mergeUnique(curated, fallback);
+    const merged = mergeUnique(
+      elitePrimary,
+      bestValueSecondary,
+      popularSecondary,
+      fallback,
+    );
     return merged.slice(0, CAROUSEL_LIMIT);
   }, [eliteData, eliteFallbackData, bestDealsData, previewData]);
 
   const previewProducts = useMemo(() => {
-    const merged = mergeUnique(previewData, bestDealsData, eliteData, lowPriceData);
-    return merged.slice(0, 8);
+    const merged = dedupeByCatalog(
+      mergeUnique(previewData, bestDealsData, eliteData, lowPriceData).filter(
+        (product: any) => product?.is_active !== false,
+      ),
+    );
+    const sorted = sortByCurationPriority(merged);
+    return sorted.slice(0, 8);
   }, [previewData, bestDealsData, eliteData, lowPriceData]);
 
   const previewProductsLimited = useMemo(
@@ -1022,7 +1055,7 @@ export default function HomeV2() {
   const hotCategoryIds = useMemo(() => {
     const ids = new Set<string>();
     const bestDealIds = new Set(bestDealsShow.map((item: any) => item.id));
-    const pool = mergeUnique(bestDealsData, dropsData, previewData, eliteData);
+    const pool = dedupeByCatalog(mergeUnique(bestDealsData, dropsData, previewData, eliteData));
 
     for (const product of pool as any[]) {
       const categoryId = product?.category_id;
@@ -1040,9 +1073,13 @@ export default function HomeV2() {
         product.is_on_sale === true ||
         (typeof product.discount_percentage === "number" && product.discount_percentage > 0);
       const isFeatured = product.is_featured === true;
+      const isCuratedPriority =
+        isEliteCurationProduct(product as any) ||
+        isBestValueCurationProduct(product as any) ||
+        isPopularCurationProduct(product as any);
       const isBestDeal = bestDealIds.has(product.id);
 
-      if (isBestDeal || isPromo || hasDrop || isFeatured) {
+      if (isBestDeal || isPromo || hasDrop || isFeatured || isCuratedPriority) {
         ids.add(categoryId);
       }
     }

@@ -25,7 +25,12 @@ import { StickyMobileCTA } from "@/Components/product/StickyMobileCTA";
 import { normalizeMarketplaceProduct } from "@/lib/productNormalizer";
 import { formatPrice } from "@/lib/validators";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
-import { hasMeaningfulPixDiscount } from "@/lib/catalog";
+import { resolveFinalPriceInfo } from "@/lib/pricing.js";
+import {
+  buildOutProductPath,
+  getOfferUnavailableMessage,
+  resolveOfferUrl,
+} from "@/lib/offer.js";
 import { useProduct } from "@/hooks/useProducts";
 import { useCart } from "@/hooks/useCart";
 import { useSyncedHeight } from "@/hooks/useSyncedHeight";
@@ -39,6 +44,7 @@ interface ExtendedProduct {
   slug?: string;
   price: number;
   pix_price?: number | null;
+  pix_price_source?: string | null;
   detected_price?: number | null;
   original_price?: number | null;
   discount_percentage?: number | null;
@@ -52,6 +58,8 @@ interface ExtendedProduct {
   source_url?: string | null;
   free_shipping?: boolean | null;
   marketplace?: string | null;
+  status?: string | null;
+  auto_disabled_reason?: string | null;
   advantages?: string[] | null;
   specifications?: Record<string, unknown> | null;
   instructions?: string | null;
@@ -191,7 +199,6 @@ const ProductGallery = ({
 const BuyBoxSticky = ({
   price,
   originalPrice,
-  pixPrice,
   savings,
   discountPercent,
   isFeatured,
@@ -199,6 +206,8 @@ const BuyBoxSticky = ({
   installment,
   lastUpdatedLabel,
   onBuyNow,
+  canBuyNow,
+  buyDisabledText,
   onAddToCart,
   isBuying,
   isAdding,
@@ -209,7 +218,6 @@ const BuyBoxSticky = ({
 }: {
   price: number;
   originalPrice?: number | null;
-  pixPrice?: number | null;
   savings?: number | null;
   discountPercent?: number | null;
   isFeatured?: boolean | null;
@@ -217,6 +225,8 @@ const BuyBoxSticky = ({
   installment?: string;
   lastUpdatedLabel?: string | null;
   onBuyNow: () => void;
+  canBuyNow: boolean;
+  buyDisabledText?: string | null;
   onAddToCart: () => void;
   isBuying: boolean;
   isAdding: boolean;
@@ -272,11 +282,6 @@ const BuyBoxSticky = ({
             </span>
           )}
         </div>
-        {pixPrice && pixPrice > 0 && (
-          <p className="text-sm font-semibold text-emerald-600">
-            no Pix: {formatPrice(pixPrice)}
-          </p>
-        )}
         {savings && savings > 0 && discountPercent ? (
           <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
             Economia de {formatPrice(savings)} ({discountPercent}%)
@@ -291,9 +296,9 @@ const BuyBoxSticky = ({
         <Button
           onClick={onBuyNow}
           className="h-14 rounded-2xl bg-[hsl(var(--accent-orange))] text-white font-semibold text-base transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:bg-[hsl(var(--accent-orange))]/90 focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/40"
-          disabled={isBuying}
+          disabled={isBuying || !canBuyNow}
         >
-          {isBuying ? "Redirecionando..." : "Comprar agora"}
+          {isBuying ? "Redirecionando..." : canBuyNow ? "Comprar agora" : "Aguardando validacao"}
         </Button>
         <Button
           variant="outline"
@@ -325,6 +330,9 @@ const BuyBoxSticky = ({
       {lastUpdatedLabel && (
         <p className="text-[11px] text-zinc-400">{lastUpdatedLabel}</p>
       )}
+      {!canBuyNow && buyDisabledText && (
+        <p className="text-[11px] text-amber-600">{buyDisabledText}</p>
+      )}
     </div>
   </div>
 );
@@ -344,7 +352,7 @@ const CollapsibleDescription = ({ text }: { text: string }) => {
       <div className="relative">
         <p className="text-sm leading-relaxed text-zinc-700 whitespace-pre-line">
           {displayText}
-          {!expanded && displayText !== text ? "…" : null}
+          {!expanded && displayText !== text ? "..." : null}
         </p>
         {!expanded && displayText !== text && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-white via-white/80 to-transparent" />
@@ -498,16 +506,15 @@ export default function ProductDetails() {
     if (shortDescription && trimmed === shortDescription.trim()) return "";
     return trimmed;
   }, [p?.description, shortDescription]);
-
-  const pixPriceCandidate = p?.pix_price ?? normalized?.pixPrice ?? null;
-  const pixPrice =
-    pixPriceCandidate &&
-    p &&
-    pixPriceCandidate > 0 &&
-    pixPriceCandidate < p.price &&
-    hasMeaningfulPixDiscount(p.price, pixPriceCandidate)
-      ? pixPriceCandidate
-      : undefined;
+  const pricing = useMemo(() => (p ? resolveFinalPriceInfo(p) : null), [p]);
+  const finalPrice = pricing?.finalPrice ?? p?.price ?? 0;
+  const offerResolution = useMemo(() => (p ? resolveOfferUrl(p) : null), [p]);
+  const canBuyNow = Boolean(p?.id && offerResolution?.canRedirect);
+  const buyDisabledText = offerResolution
+    ? getOfferUnavailableMessage(offerResolution, p?.marketplace ?? "")
+    : null;
+  const listPrice = pricing?.listPrice ?? null;
+  const savings = pricing?.savings ?? null;
   const lastUpdated = p?.updated_at
     ? new Date(p.updated_at)
     : p?.last_sync
@@ -523,26 +530,13 @@ export default function ProductDetails() {
         : undefined;
 
   const discountPercent =
-    typeof p?.discount_percentage === "number" && p.discount_percentage > 0
+    pricing?.discountPercent ??
+    (typeof p?.discount_percentage === "number" && p.discount_percentage > 0
       ? Math.round(p.discount_percentage)
-      : p?.original_price && p.original_price > p.price
-        ? Math.round(((p.original_price - p.price) / p.original_price) * 100)
-        : null;
-  const savingsBase =
-    p?.original_price && p.original_price > p.price
-      ? p.original_price
-      : p?.price ?? null;
-  const pixDiscountPercent =
-    pixPrice && savingsBase && savingsBase > pixPrice
-      ? Math.round(((savingsBase - pixPrice) / savingsBase) * 100)
-      : null;
-  const effectiveDiscountPercent = pixDiscountPercent ?? discountPercent;
-  const savings =
-    pixPrice && savingsBase && savingsBase > pixPrice
-      ? savingsBase - pixPrice
-      : p?.original_price && p.original_price > p.price
-        ? p.original_price - p.price
-        : null;
+      : listPrice && listPrice > finalPrice
+        ? Math.round(((listPrice - finalPrice) / listPrice) * 100)
+        : null);
+  const effectiveDiscountPercent = discountPercent;
 
   const lastUpdatedLabel = lastUpdated
     ? `Última atualização em ${lastUpdated.toLocaleDateString("pt-BR")} às ${lastUpdated.toLocaleTimeString("pt-BR", {
@@ -562,8 +556,14 @@ export default function ProductDetails() {
 
   useEffect(() => {
     if (!p) return;
+    const productForSchema = { ...p, price: finalPrice };
     const jsonLd = stripUndefined(
-      buildJsonLd(p, title, galleryImages.filter((img) => !img.includes("placeholder")), availability)
+      buildJsonLd(
+        productForSchema,
+        title,
+        galleryImages.filter((img) => !img.includes("placeholder")),
+        availability,
+      )
     );
     const script = document.createElement("script");
     script.type = "application/ld+json";
@@ -573,7 +573,7 @@ export default function ProductDetails() {
     return () => {
       document.head.removeChild(script);
     };
-  }, [p, title, galleryImages, availability]);
+  }, [p, title, galleryImages, availability, finalPrice]);
 
   useEffect(() => {
     const fetchRelated = async () => {
@@ -591,6 +591,17 @@ export default function ProductDetails() {
     fetchRelated();
   }, [p?.brand, p?.id]);
 
+  useEffect(() => {
+    if (!p?.id) return;
+    supabase
+      .rpc("enqueue_price_check_refresh", {
+        p_product_id: p.id,
+        p_force: false,
+        p_reason: "product_page_view",
+      })
+      .catch(() => {});
+  }, [p?.id]);
+
   const handleToggleMonitoring = async () => {
     if (!p) return;
     if (monitorBusy) return;
@@ -601,7 +612,7 @@ export default function ProductDetails() {
         id: p.id,
         title,
         imageUrl: p.image_url ?? null,
-        price: Number(p.price) || 0,
+        price: Number(finalPrice) || 0,
       });
       toast.success(enabled ? "Produto monitorado para alertas" : "Monitoramento removido");
     } finally {
@@ -610,13 +621,19 @@ export default function ProductDetails() {
   };
 
   const handleBuyNow = () => {
-    const link = p?.affiliate_link;
-    if (!link) {
-      toast.error("Link de afiliado indisponível.");
+    if (!p?.id || !canBuyNow) {
+      toast.error(buyDisabledText || "Oferta indisponivel no momento.");
       return;
     }
+    supabase
+      .rpc("enqueue_price_check_refresh", {
+        p_product_id: p.id,
+        p_force: false,
+        p_reason: "offer_click",
+      })
+      .catch(() => {});
     setIsBuying(true);
-    window.open(link, "_blank", "noopener,noreferrer");
+    window.open(buildOutProductPath(p.id, "product_details"), "_blank", "noopener,noreferrer");
     window.setTimeout(() => setIsBuying(false), 800);
   };
 
@@ -749,9 +766,8 @@ export default function ProductDetails() {
             </div>
 
             <BuyBoxSticky
-              price={p.price}
-              originalPrice={p.original_price}
-              pixPrice={pixPrice}
+              price={finalPrice}
+              originalPrice={listPrice}
               savings={savings}
               discountPercent={effectiveDiscountPercent}
               isFeatured={p.is_featured}
@@ -759,6 +775,8 @@ export default function ProductDetails() {
               installment={normalized.installment}
               lastUpdatedLabel={lastUpdatedLabel}
               onBuyNow={handleBuyNow}
+              canBuyNow={canBuyNow}
+              buyDisabledText={buyDisabledText}
               onAddToCart={handleAddToCart}
               isBuying={isBuying}
               isAdding={isAdding}
@@ -806,7 +824,9 @@ export default function ProductDetails() {
                   <p className="text-zinc-900 font-semibold line-clamp-2">
                     {item.name || item.title}
                   </p>
-                  <p className="text-primary font-bold text-lg">{formatPrice(Number(item.price))}</p>
+                  <p className="text-primary font-bold text-lg">
+                    {formatPrice(resolveFinalPriceInfo(item).finalPrice)}
+                  </p>
                 </a>
               ))}
             </div>
@@ -814,7 +834,16 @@ export default function ProductDetails() {
         )}
       </div>
 
-      <StickyMobileCTA visible={showStickyCTA} price={p.price} onBuyNow={handleBuyNow} />
+      <StickyMobileCTA
+        visible={showStickyCTA}
+        price={finalPrice}
+        onBuyNow={handleBuyNow}
+        disabled={!canBuyNow}
+      />
     </Layout>
   );
 }
+
+
+
+

@@ -7,7 +7,12 @@ import { useCart } from '@/hooks/useCart';
 import { toast } from 'sonner';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from '@/lib/cartFeedback';
-import { hasMeaningfulPixDiscount } from '@/lib/catalog';
+import { resolveFinalPriceInfo } from '@/lib/pricing.js';
+import {
+  buildOutProductPath,
+  getOfferUnavailableMessage,
+  resolveOfferUrl,
+} from '@/lib/offer.js';
 import { useRef } from 'react';
 
 // Definindo a Interface localmente para resolver o erro de módulo
@@ -17,6 +22,7 @@ interface Product {
   slug?: string;
   price: number;
   pix_price?: number | null;
+  pix_price_source?: string | null;
   original_price?: number;
   previous_price?: number | null;
   detected_at?: string | null;
@@ -71,12 +77,12 @@ export const OfferCard = ({ product }: OfferCardProps) => {
   const handleBuyNow = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const link = product.affiliate_link;
-    if (!link) {
-      toast.error('Link de afiliado indisponível.');
+    if (!canOpenOffer) {
+      toast.error(offerUnavailableMessage);
       return;
     }
-    window.open(link, '_blank', 'noopener,noreferrer');
+    const outPath = buildOutProductPath(product.id, 'offer_card');
+    window.open(outPath, '_blank', 'noopener,noreferrer');
   };
 
   // Ajuste de lógica para pegar a imagem correta
@@ -84,29 +90,31 @@ export const OfferCard = ({ product }: OfferCardProps) => {
     ? product.image_url 
     : (product.images && product.images.length > 0 ? product.images[0] : '/placeholder.svg');
 
+  const pricing = resolveFinalPriceInfo(product);
+  const finalPrice = pricing.finalPrice;
+  const listPrice = pricing.listPrice;
+  const offerResolution = resolveOfferUrl(product);
+  const canOpenOffer = Boolean(offerResolution.canRedirect && product.id);
+  const offerUnavailableMessage = getOfferUnavailableMessage(
+    offerResolution,
+    product.marketplace,
+  );
   const discountPercentage = product.discount_percentage || 0;
   
   // Cálculo de desconto em tempo real
-  const calculatedDiscount = product.original_price && product.original_price > product.price
-    ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
-    : discountPercentage;
+  const calculatedDiscount =
+    pricing.discountPercent ??
+    (product.original_price && product.original_price > finalPrice
+      ? Math.round(((product.original_price - finalPrice) / product.original_price) * 100)
+      : discountPercentage);
 
   const hasDiscount = calculatedDiscount > 0;
-  const hasDrop = typeof product.previous_price === "number" && product.previous_price > product.price;
+  const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
   const dropPercent = hasDrop && product.previous_price
-    ? Math.round(((product.previous_price - product.price) / product.previous_price) * 100)
+    ? Math.round(((product.previous_price - finalPrice) / product.previous_price) * 100)
     : 0;
   const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
   const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
-  const pixPrice =
-    typeof product.pix_price === "number" && Number.isFinite(product.pix_price)
-      ? product.pix_price
-      : null;
-  const showPix =
-    pixPrice !== null &&
-    pixPrice > 0 &&
-    pixPrice < product.price &&
-    hasMeaningfulPixDiscount(product.price, pixPrice);
 
   const productLink = product.slug ? `/produto/${product.slug}` : "#";
 
@@ -151,19 +159,14 @@ export const OfferCard = ({ product }: OfferCardProps) => {
 
           {/* Price Section */}
           <div className="mb-4 space-y-0">
-            {hasDiscount && (
+            {(hasDiscount || (listPrice && listPrice > finalPrice)) && (
               <span className="text-xs text-zinc-500 line-through block font-bold">
-                R$ {product.original_price?.toFixed(2).replace('.', ',')}
+                R$ {(listPrice ?? product.original_price)?.toFixed(2).replace('.', ',')}
               </span>
             )}
             <span className="text-2xl font-black text-[#a3e635] italic">
-              R$ {product.price.toFixed(2).replace('.', ',')}
+              R$ {finalPrice.toFixed(2).replace('.', ',')}
             </span>
-            {showPix && (
-              <span className="text-[11px] text-emerald-400 font-semibold block">
-                no Pix: R$ {pixPrice?.toFixed(2).replace('.', ',')}
-              </span>
-            )}
             <PriceDisclaimer
               lastUpdated={lastUpdated}
               className="text-[10px] text-zinc-500 block mt-1"
@@ -187,10 +190,11 @@ export const OfferCard = ({ product }: OfferCardProps) => {
               size="sm"
               className="flex-1 bg-white text-black hover:bg-[#a3e635] font-black uppercase italic rounded-xl text-[10px] transition-colors"
               onClick={handleBuyNow}
+              disabled={!canOpenOffer}
               aria-label={`Comprar ${product.name || 'produto'}`}
             >
               <ExternalLink className="mr-1 h-3 w-3" />
-              Comprar
+              {canOpenOffer ? 'Comprar' : 'Aguardando validacao'}
             </Button>
           </div>
         </CardContent>
