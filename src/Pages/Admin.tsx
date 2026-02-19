@@ -98,6 +98,9 @@ const isMercadoLivreSecLink = (value?: string | null) => {
   }
 };
 
+const isMercadoLivreProduct = (product: Product) =>
+  String(product.marketplace || "").toLowerCase().includes("mercado");
+
 const extractMlCatalogProductIdFromUrl = (value?: string | null) => {
   if (!value) return null;
   try {
@@ -1506,32 +1509,10 @@ export default function Admin() {
     );
   }, [products, searchQuery]);
 
-  const filteredValidProducts = useMemo(
-    () =>
-      filteredAllProducts.filter(
-        product =>
-          String(product.marketplace || '').toLowerCase().includes('mercado') &&
-          !blockedProductIds.has(product.id) &&
-          Boolean(product.last_sync),
-      ),
-    [filteredAllProducts, blockedProductIds],
-  );
-
-  const filteredBlockedProducts = useMemo(
-    () =>
-      filteredAllProducts.filter(
-        product =>
-          String(product.marketplace || '').toLowerCase().includes('mercado') &&
-          blockedProductIds.has(product.id),
-      ),
-    [filteredAllProducts, blockedProductIds],
-  );
-
-  const affiliateGrouped = useMemo(() => {
-    const mercadoProducts = [...filteredAllProducts].filter((product) =>
-      String(product.marketplace || '').toLowerCase().includes('mercado'),
+  const dedupedMercadoLists = useMemo(() => {
+    const mercadoProducts = filteredAllProducts.filter((product) =>
+      isMercadoLivreProduct(product),
     );
-
     const grouped = new Map<string, Product[]>();
     for (const product of mercadoProducts) {
       const key = buildAffiliateCanonicalKey(product);
@@ -1540,24 +1521,87 @@ export default function Admin() {
       else grouped.set(key, [product]);
     }
 
-    const products: Product[] = [];
-    const duplicateCountByProductId: Record<string, number> = {};
-    let hiddenDuplicates = 0;
+    const productOrder = new Map<string, number>();
+    filteredAllProducts.forEach((product, index) => {
+      productOrder.set(product.id, index);
+    });
+
+    const pickRepresentative = (
+      rows: Product[],
+      predicate: (row: Product) => boolean,
+    ) => {
+      const eligible = rows.filter(predicate);
+      if (!eligible.length) return null;
+      const ordered = [...eligible].sort(compareAffiliateRepresentativePriority);
+      return ordered[0] ?? null;
+    };
+
+    const allProducts: Product[] = [];
+    const validProducts: Product[] = [];
+    const blockedProducts: Product[] = [];
+    const duplicateCountByRepresentativeId: Record<string, number> = {};
+    let hiddenDuplicatesAll = 0;
 
     for (const groupProducts of grouped.values()) {
-      const ordered = [...groupProducts].sort(compareAffiliateRepresentativePriority);
-      const representative = ordered[0];
-      if (!representative) continue;
-
-      products.push(representative);
-      const duplicates = Math.max(0, groupProducts.length - 1);
-      if (duplicates > 0) {
-        duplicateCountByProductId[representative.id] = duplicates;
-        hiddenDuplicates += duplicates;
+      const allRepresentative = pickRepresentative(groupProducts, () => true);
+      if (allRepresentative) {
+        allProducts.push(allRepresentative);
+        const duplicates = Math.max(0, groupProducts.length - 1);
+        if (duplicates > 0) {
+          duplicateCountByRepresentativeId[allRepresentative.id] = duplicates;
+          hiddenDuplicatesAll += duplicates;
+        }
       }
+
+      const validRepresentative = pickRepresentative(
+        groupProducts,
+        (product) => !blockedProductIds.has(product.id) && Boolean(product.last_sync),
+      );
+      if (validRepresentative) validProducts.push(validRepresentative);
+
+      const blockedRepresentative = pickRepresentative(
+        groupProducts,
+        (product) => blockedProductIds.has(product.id),
+      );
+      if (blockedRepresentative) blockedProducts.push(blockedRepresentative);
     }
 
-    products.sort((a, b) => {
+    const sortByOriginalOrder = (rows: Product[]) =>
+      rows.sort((a, b) => {
+        const aIndex = productOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+        const bIndex = productOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+        return aIndex - bIndex;
+      });
+
+    return {
+      allProducts: sortByOriginalOrder(allProducts),
+      validProducts: sortByOriginalOrder(validProducts),
+      blockedProducts: sortByOriginalOrder(blockedProducts),
+      duplicateCountByRepresentativeId,
+      hiddenDuplicatesAll,
+      totalRaw: mercadoProducts.length,
+    };
+  }, [filteredAllProducts, blockedProductIds]);
+
+  const filteredValidProducts = dedupedMercadoLists.validProducts;
+  const filteredBlockedProducts = dedupedMercadoLists.blockedProducts;
+  const filteredAllProductsDeduped = useMemo(() => {
+    const nonMercadoProducts = filteredAllProducts.filter(
+      (product) => !isMercadoLivreProduct(product),
+    );
+    const productOrder = new Map<string, number>();
+    filteredAllProducts.forEach((product, index) => {
+      productOrder.set(product.id, index);
+    });
+    return [...nonMercadoProducts, ...dedupedMercadoLists.allProducts].sort((a, b) => {
+      const aIndex = productOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = productOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      return aIndex - bIndex;
+    });
+  }, [filteredAllProducts, dedupedMercadoLists.allProducts]);
+
+  const affiliateGrouped = useMemo(() => {
+    const products = [...dedupedMercadoLists.allProducts].sort((a, b) => {
       const aPending = isMercadoLivreSecLink(a.affiliate_link) ? 0 : 1;
       const bPending = isMercadoLivreSecLink(b.affiliate_link) ? 0 : 1;
       if (aPending !== bPending) return bPending - aPending;
@@ -1571,11 +1615,11 @@ export default function Admin() {
 
     return {
       products,
-      duplicateCountByProductId,
-      hiddenDuplicates,
-      totalRaw: mercadoProducts.length,
+      duplicateCountByProductId: dedupedMercadoLists.duplicateCountByRepresentativeId,
+      hiddenDuplicates: dedupedMercadoLists.hiddenDuplicatesAll,
+      totalRaw: dedupedMercadoLists.totalRaw,
     };
-  }, [filteredAllProducts]);
+  }, [dedupedMercadoLists]);
 
   const filteredAffiliateProducts = affiliateGrouped.products;
   const affiliateDuplicateCountByProductId = affiliateGrouped.duplicateCountByProductId;
@@ -1603,7 +1647,7 @@ export default function Admin() {
       ? filteredBlockedProducts
       : productTab === 'valid'
         ? filteredValidProducts
-        : filteredAllProducts;
+        : filteredAllProductsDeduped;
 
   if (authLoading) {
     return (
@@ -1977,7 +2021,7 @@ export default function Admin() {
                 }
               >
                 <TabsList className="w-full sm:w-auto">
-                  <TabsTrigger value="all">Todos ({filteredAllProducts.length})</TabsTrigger>
+                  <TabsTrigger value="all">Todos ({filteredAllProductsDeduped.length})</TabsTrigger>
                   <TabsTrigger value="valid">Validação ok ({filteredValidProducts.length})</TabsTrigger>
                   <TabsTrigger value="blocked">Bloqueados ({filteredBlockedProducts.length})</TabsTrigger>
                   <TabsTrigger value="affiliate">
@@ -1986,6 +2030,11 @@ export default function Admin() {
                 </TabsList>
               </Tabs>
             </div>
+            {dedupedMercadoLists.hiddenDuplicatesAll > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Duplicados ocultos automaticamente na listagem: {dedupedMercadoLists.hiddenDuplicatesAll}.
+              </p>
+            )}
           </div>
 
           {/* Price Sync Changes */}
