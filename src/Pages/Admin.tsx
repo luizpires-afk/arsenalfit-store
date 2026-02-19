@@ -101,6 +101,12 @@ const isMercadoLivreSecLink = (value?: string | null) => {
 const isMercadoLivreProduct = (product: Product) =>
   String(product.marketplace || "").toLowerCase().includes("mercado");
 
+const normalizeMlExternalId = (value?: string | null) => {
+  if (!value) return null;
+  const match = String(value).toUpperCase().match(/MLB\d{6,12}/);
+  return match?.[0] ?? null;
+};
+
 const extractMlCatalogProductIdFromUrl = (value?: string | null) => {
   if (!value) return null;
   try {
@@ -531,13 +537,31 @@ export default function Admin() {
     return ids;
   }, [blockedAnomalies]);
 
+  const blockedAnomalyExternalIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of blockedAnomalies) {
+      const normalized = normalizeMlExternalId(row.external_id);
+      if (normalized) ids.add(normalized);
+    }
+    return ids;
+  }, [blockedAnomalies]);
+
   const blockedProductIds = useMemo(() => {
     const ids = new Set<string>();
     for (const product of products) {
-      if (product.auto_disabled_reason === 'blocked') ids.add(product.id);
+      const normalizedExternalId = normalizeMlExternalId(product.external_id);
+      const blockedByAnomalyExternalId =
+        normalizedExternalId !== null && blockedAnomalyExternalIds.has(normalizedExternalId);
+      if (
+        product.auto_disabled_reason === 'blocked' ||
+        blockedAnomalyIds.has(product.id) ||
+        blockedByAnomalyExternalId
+      ) {
+        ids.add(product.id);
+      }
     }
     return ids;
-  }, [products]);
+  }, [products, blockedAnomalyIds, blockedAnomalyExternalIds]);
 
   const anomalyStats = useMemo(() => {
     const total = anomalies.length;
@@ -1247,16 +1271,20 @@ export default function Admin() {
 
   useEffect(() => {
     if (!isAdmin) return;
-    if (!blockedAnomalyIds.size) return;
-    const blockedActiveIds = products
-      .filter(
-        (product) =>
-          blockedAnomalyIds.has(product.id) &&
-          product.is_active &&
-          product.auto_disabled_reason !== 'blocked',
-      )
+    if (!blockedAnomalyIds.size && !blockedAnomalyExternalIds.size) return;
+    const blockedIdsToFlag = products
+      .filter((product) => {
+        const normalizedExternalId = normalizeMlExternalId(product.external_id);
+        const blockedByExternalId =
+          normalizedExternalId !== null &&
+          blockedAnomalyExternalIds.has(normalizedExternalId);
+        return (
+          (blockedAnomalyIds.has(product.id) || blockedByExternalId) &&
+          product.auto_disabled_reason !== 'blocked'
+        );
+      })
       .map((product) => product.id);
-    if (!blockedActiveIds.length) return;
+    if (!blockedIdsToFlag.length) return;
 
     const deactivate = async () => {
       try {
@@ -1267,7 +1295,7 @@ export default function Admin() {
             auto_disabled_reason: 'blocked',
             auto_disabled_at: new Date().toISOString(),
           })
-          .in('id', blockedActiveIds);
+          .in('id', blockedIdsToFlag);
         if (error) throw error;
         queryClient.invalidateQueries({ queryKey: ['admin-products'] });
         toast.success('Produtos bloqueados foram desativados automaticamente.');
@@ -1277,7 +1305,7 @@ export default function Admin() {
     };
 
     deactivate();
-  }, [isAdmin, blockedAnomalyIds, products, queryClient]);
+  }, [isAdmin, blockedAnomalyIds, blockedAnomalyExternalIds, products, queryClient]);
 
   const handleCopyBlockedLinks = async () => {
     const links = Array.from(
@@ -1601,7 +1629,11 @@ export default function Admin() {
   }, [filteredAllProducts, dedupedMercadoLists.allProducts]);
 
   const affiliateGrouped = useMemo(() => {
-    const products = [...dedupedMercadoLists.allProducts].sort((a, b) => {
+    const eligibleProducts = dedupedMercadoLists.allProducts.filter(
+      (product) => !blockedProductIds.has(product.id),
+    );
+
+    const products = [...eligibleProducts].sort((a, b) => {
       const aPending = isMercadoLivreSecLink(a.affiliate_link) ? 0 : 1;
       const bPending = isMercadoLivreSecLink(b.affiliate_link) ? 0 : 1;
       if (aPending !== bPending) return bPending - aPending;
@@ -1618,8 +1650,9 @@ export default function Admin() {
       duplicateCountByProductId: dedupedMercadoLists.duplicateCountByRepresentativeId,
       hiddenDuplicates: dedupedMercadoLists.hiddenDuplicatesAll,
       totalRaw: dedupedMercadoLists.totalRaw,
+      hiddenBlockedByApi: Math.max(0, dedupedMercadoLists.allProducts.length - eligibleProducts.length),
     };
-  }, [dedupedMercadoLists]);
+  }, [dedupedMercadoLists, blockedProductIds]);
 
   const filteredAffiliateProducts = affiliateGrouped.products;
   const affiliateDuplicateCountByProductId = affiliateGrouped.duplicateCountByProductId;
@@ -1637,8 +1670,14 @@ export default function Admin() {
       total: filteredAffiliateProducts.length,
       hiddenDuplicates: affiliateGrouped.hiddenDuplicates,
       totalRaw: affiliateGrouped.totalRaw,
+      hiddenBlockedByApi: affiliateGrouped.hiddenBlockedByApi,
     };
-  }, [filteredAffiliateProducts, affiliateGrouped.hiddenDuplicates, affiliateGrouped.totalRaw]);
+  }, [
+    filteredAffiliateProducts,
+    affiliateGrouped.hiddenDuplicates,
+    affiliateGrouped.totalRaw,
+    affiliateGrouped.hiddenBlockedByApi,
+  ]);
 
   const activeProductsList =
     productTab === 'affiliate'
@@ -2311,6 +2350,11 @@ export default function Admin() {
                     Duplicados ocultos automaticamente: {affiliateStatusStats.hiddenDuplicates}
                     {" "}
                     (de {affiliateStatusStats.totalRaw} registros).
+                  </p>
+                )}
+                {affiliateStatusStats.hiddenBlockedByApi > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Bloqueados pela API ocultados nesta aba: {affiliateStatusStats.hiddenBlockedByApi}.
                   </p>
                 )}
               </div>
