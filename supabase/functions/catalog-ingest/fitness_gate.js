@@ -113,6 +113,12 @@ const NEGATIVE_TERMS = {
     "gourmet",
     "escritorio",
     "home office",
+    "garrafa termica",
+    "copo termico",
+    "stanley",
+    "quick flip",
+    "termolar",
+    "magic pump",
   ],
   [SITE_CATEGORIES.EQUIPAMENTOS]: [
     "profissional",
@@ -154,7 +160,7 @@ const AMBIGUOUS_RULES = {
   [SITE_CATEGORIES.ACESSORIOS]: [
     {
       name: "garrafa_context",
-      triggers: ["garrafa", "termica", "térmica"],
+      triggers: ["garrafa"],
       requiresOneOf: [
         "squeeze",
         "shaker",
@@ -167,6 +173,11 @@ const AMBIGUOUS_RULES = {
         "esportivo",
         "esporte",
       ],
+    },
+    {
+      name: "termica_context",
+      triggers: ["termica", "thermal"],
+      requiresOneOf: ["squeeze", "shaker", "coqueteleira"],
     },
   ],
 };

@@ -3394,8 +3394,62 @@ Deno.serve(async (req) => {
       supabase,
       Array.from(candidatesByCategory.keys()),
     );
-    const existingProductsByCanonicalKey = new Map<string, ExistingProductRow>();
+    const siteCategoryByCategoryId = new Map<string, string>();
+    for (const mapping of mappings) {
+      if (!mapping.category_id) continue;
+      if (siteCategoryByCategoryId.has(mapping.category_id)) continue;
+      siteCategoryByCategoryId.set(mapping.category_id, resolveMappingSiteCategory(mapping));
+    }
+
+    const existingFitnessBlockedIds = new Set<string>();
     for (const existing of existingCategoryProducts) {
+      if (existing.is_active !== true) continue;
+      const categoryHint = existing.category_id ? siteCategoryByCategoryId.get(existing.category_id) : null;
+      const inferredCategory =
+        categoryHint ??
+        inferSiteCategoryFromText(
+          `${existing.name ?? ""} ${existing.short_description ?? ""} ${existing.description ?? ""}`,
+        );
+      if (!inferredCategory) continue;
+
+      const specs = toRecord(existing.specifications);
+      const attributes = specs
+        ? Object.entries(specs).map(([name, value]) => ({
+            name,
+            value_name:
+              value === null || value === undefined
+                ? ""
+                : typeof value === "string"
+                  ? value
+                  : JSON.stringify(value),
+          }))
+        : [];
+
+      const gate = evaluateFitnessGate(inferredCategory, {
+        title: existing.name ?? "",
+        brand: null,
+        attributes,
+        mlCategoryId: null,
+        mlCategoryAllowlist: [],
+        extraText: `${existing.short_description ?? ""} ${existing.description ?? ""}`,
+      });
+
+      if (gate.blockedByNegative || gate.blockedByAmbiguous) {
+        existingFitnessBlockedIds.add(existing.id);
+        if (gate.blockedByNegative) {
+          stats.rejected_by_negative_terms += 1;
+        }
+        if (gate.blockedByAmbiguous) {
+          stats.rejected_ambiguous_without_gym_context += 1;
+        }
+      }
+    }
+
+    const existingCategoryProductsForSelection = existingCategoryProducts.filter(
+      (existing) => !existingFitnessBlockedIds.has(existing.id),
+    );
+    const existingProductsByCanonicalKey = new Map<string, ExistingProductRow>();
+    for (const existing of existingCategoryProductsForSelection) {
       const canonicalKey = buildExistingCanonicalKey(existing);
       const current = existingProductsByCanonicalKey.get(canonicalKey);
       if (!current) {
@@ -3409,11 +3463,11 @@ Deno.serve(async (req) => {
     }
     const existingScoresByProductId = await loadProductScoresMap(
       supabase,
-      existingCategoryProducts.map((item) => item.id),
+      existingCategoryProductsForSelection.map((item) => item.id),
     );
     const categoryStateMap = getCategoryStateMap(
       Array.from(candidatesByCategory.keys()),
-      existingCategoryProducts,
+      existingCategoryProductsForSelection,
       configMap,
       existingScoresByProductId,
       runtimeLimitsMap,
@@ -3423,8 +3477,13 @@ Deno.serve(async (req) => {
     const standbyCandidatesPool = new Map<string, OfferCandidate[]>();
     const deactivatedProducts: ExistingProductRow[] = [];
     const deactivatedProductIds = new Set<string>();
-    const curatedPinnedExternalIds = new Set<string>();
     for (const existing of existingCategoryProducts) {
+      if (!existingFitnessBlockedIds.has(existing.id)) continue;
+      deactivatedProducts.push(existing);
+      deactivatedProductIds.add(existing.id);
+    }
+    const curatedPinnedExternalIds = new Set<string>();
+    for (const existing of existingCategoryProductsForSelection) {
       if (!isCuratedPinnedProduct(existing)) continue;
       const normalizedExternalId = normalizeExternalId(existing.external_id);
       if (!normalizedExternalId) continue;
@@ -3592,7 +3651,7 @@ Deno.serve(async (req) => {
     }
     const standbyCandidates = Array.from(standbyByCanonical.values()).sort(sortCandidatesByPriority);
 
-    for (const existing of existingCategoryProducts) {
+    for (const existing of existingCategoryProductsForSelection) {
       if (!existing.is_active) continue;
       if (deactivatedProductIds.has(existing.id)) continue;
       const normalizedExistingExternalId = normalizeExternalId(existing.external_id);

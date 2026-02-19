@@ -62,6 +62,18 @@ const PIX_SCRAPER_MIN_DISCOUNT_ABS = Number(
 const PIX_SCRAPER_MIN_DISCOUNT_PERCENT = Number(
   Deno?.env?.get?.("PIX_SCRAPER_MIN_DISCOUNT_PERCENT") ?? "0.005",
 );
+const UNTRUSTED_PRICE_MIN_RATIO = Number(
+  Deno?.env?.get?.("UNTRUSTED_PRICE_MIN_RATIO") ?? "0.55",
+);
+const UNTRUSTED_PRICE_MAX_RATIO = Number(
+  Deno?.env?.get?.("UNTRUSTED_PRICE_MAX_RATIO") ?? "1.8",
+);
+const ORIGINAL_KEEP_MAX_RATIO_TRUSTED = Number(
+  Deno?.env?.get?.("ORIGINAL_KEEP_MAX_RATIO_TRUSTED") ?? "4.0",
+);
+const ORIGINAL_KEEP_MAX_RATIO_UNTRUSTED = Number(
+  Deno?.env?.get?.("ORIGINAL_KEEP_MAX_RATIO_UNTRUSTED") ?? "1.8",
+);
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -308,6 +320,65 @@ const shouldKeepStoredPixForPrice = (
   if (source === "manual" || source === "api") return true;
   const minRatio = resolvePixMinRatioForSource(source);
   return pix >= standard * minRatio && hasMeaningfulScraperPixDiscount(pix, standard);
+};
+
+const isTrustedPriceSource = (source: string | null | undefined) =>
+  source === "auth" || source === "public";
+
+const stabilizeIncomingPriceForSource = (
+  incomingPrice: number,
+  currentPrice: number | null,
+  source: string | null | undefined,
+) => {
+  if (!Number.isFinite(incomingPrice) || incomingPrice <= 0) return incomingPrice;
+  if (!(typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0)) {
+    return incomingPrice;
+  }
+  if (isTrustedPriceSource(source)) return incomingPrice;
+
+  const minRatio = clamp(
+    Number.isFinite(UNTRUSTED_PRICE_MIN_RATIO) ? UNTRUSTED_PRICE_MIN_RATIO : 0.55,
+    0.1,
+    1,
+  );
+  const maxRatio = clamp(
+    Number.isFinite(UNTRUSTED_PRICE_MAX_RATIO) ? UNTRUSTED_PRICE_MAX_RATIO : 1.8,
+    1,
+    5,
+  );
+  const ratio = incomingPrice / currentPrice;
+  if (ratio < minRatio || ratio > maxRatio) return currentPrice;
+  return incomingPrice;
+};
+
+const resolveOriginalPrice = (params: {
+  incomingOriginal: number | null | undefined;
+  storedOriginal: number | null | undefined;
+  price: number;
+  source: string | null | undefined;
+}) => {
+  const normalizedIncoming = toNumber(params.incomingOriginal);
+  if (
+    typeof normalizedIncoming === "number" &&
+    Number.isFinite(normalizedIncoming) &&
+    normalizedIncoming > params.price
+  ) {
+    return normalizedIncoming;
+  }
+
+  const normalizedStored = toNumber(params.storedOriginal);
+  if (
+    !(typeof normalizedStored === "number" && Number.isFinite(normalizedStored) && normalizedStored > params.price)
+  ) {
+    return null;
+  }
+
+  const maxRatioRaw = isTrustedPriceSource(params.source)
+    ? ORIGINAL_KEEP_MAX_RATIO_TRUSTED
+    : ORIGINAL_KEEP_MAX_RATIO_UNTRUSTED;
+  const maxRatio = clamp(Number.isFinite(maxRatioRaw) ? maxRatioRaw : 1.8, 1, 10);
+  if (normalizedStored > params.price * maxRatio) return null;
+  return normalizedStored;
 };
 
 const stripHtml = (html: string): string => {
@@ -896,10 +967,17 @@ const pickBestProductItem = (
     return exact ?? null;
   }
 
-  const withPrice = results.filter((item: any) => typeof item?.price === "number");
+  const withPrice = results.filter(
+    (item: any) => typeof item?.price === "number" && Number(item.price) > 0,
+  );
   if (!withPrice.length) return null;
 
-  withPrice.sort((a: any, b: any) => Number(a.price) - Number(b.price));
+  const activeInStock = withPrice.filter((item: any) => {
+    const status = String(item?.status ?? "").toLowerCase();
+    const available = toNumber(item?.available_quantity);
+    return status !== "paused" && status !== "closed" && (available === null || available > 0);
+  });
+  if (activeInStock.length) return activeInStock[0];
   return withPrice[0];
 };
 
@@ -1364,12 +1442,17 @@ Deno.serve(async (req: Request) => {
 
     const currentPrice = typeof product.price === "number" ? product.price : null;
     const currentOriginal = typeof product.original_price === "number" ? product.original_price : null;
-    const nextOriginal =
-      currentOriginal === null
-        ? Math.max(currentPrice ?? 0, price)
-        : Math.max(currentOriginal, price);
+    const stabilizedPrice = stabilizeIncomingPriceForSource(price, currentPrice, "scraper");
+    const nextOriginal = resolveOriginalPrice({
+      incomingOriginal: null,
+      storedOriginal: currentOriginal,
+      price: stabilizedPrice,
+      source: "scraper",
+    });
     const discountPercentage =
-      nextOriginal > price ? Math.round(((nextOriginal - price) / nextOriginal) * 100) : 0;
+      typeof nextOriginal === "number" && nextOriginal > stabilizedPrice
+        ? Math.round(((nextOriginal - stabilizedPrice) / nextOriginal) * 100)
+        : 0;
     const nowIso = new Date().toISOString();
     const normalizedPriceSource = source === "none" ? null : "scraper";
 
@@ -1377,8 +1460,8 @@ Deno.serve(async (req: Request) => {
       .from("products")
       .update({
         previous_price: currentPrice,
-        price,
-        detected_price: price,
+        price: stabilizedPrice,
+        detected_price: stabilizedPrice,
         detected_at: nowIso,
         last_sync: nowIso,
         last_price_source: normalizedPriceSource,
@@ -1396,7 +1479,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    return new Response(JSON.stringify({ ok: true, price, source }), {
+    return new Response(JSON.stringify({ ok: true, price: stabilizedPrice, source }), {
       status: 200,
       headers: JSON_HEADERS,
     });
@@ -1833,7 +1916,8 @@ Deno.serve(async (req: Request) => {
     )
     .eq("marketplace", "mercadolivre")
     .not("external_id", "is", null)
-    .neq("status", "paused");
+    .neq("status", "paused")
+    .neq("status", "standby");
 
   if (!forceSync) {
     query = query.lte("next_check_at", nowGraceIso);
@@ -2183,6 +2267,7 @@ Deno.serve(async (req: Request) => {
         result = {
           statusCode: 200,
           price: resolvedPrice,
+          original_price: toNumber((itemResp.body as any)?.original_price),
           pix_price: resolvedPix,
           pix_source: pixSource,
           status: mapStatus((itemResp.body as any) || {}),
@@ -2297,30 +2382,16 @@ Deno.serve(async (req: Request) => {
     } else if (result?.statusCode === 200 && typeof result?.price === "number") {
       nextCheckAt = addMs(now, HOURS_6_MS).toISOString();
       const mappedStatus = result?.status ?? product?.status ?? "active";
-      const resolvedStatus = product?.status === "paused" ? "paused" : mappedStatus;
+      const resolvedStatus =
+        product?.status === "paused" || product?.status === "standby"
+          ? product.status
+          : mappedStatus;
       const wasAutoBlocked = product?.auto_disabled_reason === "blocked";
       const availableQty =
         typeof result?.available_quantity === "number" ? result.available_quantity : null;
       const resolvedStockQty =
         availableQty !== null ? Math.max(availableQty, 0) : resolvedStatus === "out_of_stock" ? 0 : null;
 
-      const currentOriginal = product?.original_price ?? null;
-      const candidateOriginal = Math.max(product?.price ?? 0, result.price);
-      const nextOriginal =
-        currentOriginal === null
-          ? candidateOriginal
-          : result.price > currentOriginal
-            ? result.price
-            : currentOriginal;
-
-      const discountPercentage =
-        nextOriginal && nextOriginal > result.price
-          ? Math.round(((nextOriginal - result.price) / nextOriginal) * 100)
-          : 0;
-
-      const hasPriceChange =
-        product?.price === null || product?.price === undefined || result.price !== product.price;
-      const isOnSale = discountPercentage > 0;
       const source: PriceChangeRow["source"] = usedScraperFallback
         ? "scraper"
         : usedProductFallback
@@ -2328,10 +2399,47 @@ Deno.serve(async (req: Request) => {
           : usedPublicFallback
             ? "public"
             : "auth";
+      const currentPrice = typeof product?.price === "number" ? product.price : null;
+      const stabilizedPrice = stabilizeIncomingPriceForSource(result.price, currentPrice, source);
+      const didStabilizePrice = stabilizedPrice !== result.price;
+      if (didStabilizePrice) {
+        priceAnomalies.push({
+          run_id: runId,
+          product_id: product.id,
+          marketplace: product.marketplace ?? null,
+          external_id: normalizedExternalId,
+          catalog_id: catalogId ?? null,
+          preferred_item_id: preferredItemId ?? null,
+          source_url: product?.source_url ?? null,
+          affiliate_link: product?.affiliate_link ?? null,
+          price_from_catalog: usedProductFallback ? result.price : null,
+          price_from_item: usedProductFallback ? null : result.price,
+          note: "untrusted_price_swing_ignored",
+          detected_at: now.toISOString(),
+        });
+      }
+
+      const currentOriginal = product?.original_price ?? null;
+      const nextOriginal = resolveOriginalPrice({
+        incomingOriginal: (result as any)?.original_price ?? null,
+        storedOriginal: currentOriginal,
+        price: stabilizedPrice,
+        source,
+      });
+
+      const discountPercentage =
+        typeof nextOriginal === "number" && nextOriginal > stabilizedPrice
+          ? Math.round(((nextOriginal - stabilizedPrice) / nextOriginal) * 100)
+          : 0;
+
+      const hasPriceChange =
+        product?.price === null || product?.price === undefined || stabilizedPrice !== product.price;
+      const isOnSale = discountPercentage > 0;
       const isReliableSource = source === "auth" || source === "public";
-      const shouldReactivate = wasAutoBlocked && resolvedStatus !== "paused" && isReliableSource;
+      const shouldReactivate =
+        wasAutoBlocked && resolvedStatus !== "paused" && resolvedStatus !== "standby" && isReliableSource;
       const isActive =
-        resolvedStatus === "paused"
+        resolvedStatus === "paused" || resolvedStatus === "standby"
           ? false
           : shouldReactivate
             ? true
@@ -2387,17 +2495,17 @@ Deno.serve(async (req: Request) => {
       const normalizedIncomingPix =
         incomingPix !== null
           ? incomingPixSource === "scraper"
-            ? hasMeaningfulScraperPixDiscount(incomingPix, result.price)
+            ? hasMeaningfulScraperPixDiscount(incomingPix, stabilizedPrice)
               ? incomingPix
               : null
-            : incomingPix > 0 && incomingPix < result.price
+            : incomingPix > 0 && incomingPix < stabilizedPrice
               ? incomingPix
               : null
           : null;
       const existingPixLooksValid = shouldKeepStoredPixForPrice(
         existingPix,
         existingPixSource,
-        result.price,
+        stabilizedPrice,
       );
       const shouldKeepExistingPix = existingPixLooksValid;
       const resolvedPix =
@@ -2414,7 +2522,7 @@ Deno.serve(async (req: Request) => {
       update = {
         previous_price: product?.price ?? null,
         original_price: nextOriginal,
-        price: result.price,
+        price: stabilizedPrice,
         last_price_source: source,
         last_price_verified_at: now.toISOString(),
         pix_price: resolvedPix,
@@ -2422,10 +2530,12 @@ Deno.serve(async (req: Request) => {
         pix_price_checked_at: resolvedPix !== null ? resolvedPixCheckedAt : null,
         discount_percentage: discountPercentage,
         is_on_sale: isOnSale,
-        ...(resolvedStatus === "paused" ? { is_active: false } : { is_active: isActive }),
+        ...(resolvedStatus === "paused" || resolvedStatus === "standby"
+          ? { is_active: false }
+          : { is_active: isActive }),
         ...(shouldReactivate ? { auto_disabled_reason: null, auto_disabled_at: null } : {}),
         ...(resolvedStockQty !== null ? { stock_quantity: resolvedStockQty } : {}),
-        ...(hasPriceChange ? { detected_price: result.price, detected_at: now.toISOString() } : {}),
+        ...(hasPriceChange ? { detected_price: stabilizedPrice, detected_at: now.toISOString() } : {}),
         etag: result?.etag ?? product?.etag ?? null,
         status: resolvedStatus,
         last_sync: now.toISOString(),
@@ -2440,7 +2550,7 @@ Deno.serve(async (req: Request) => {
             marketplace: product.marketplace ?? null,
             external_id: normalizedExternalId,
             old_price: product?.price ?? null,
-            new_price: result.price,
+            new_price: stabilizedPrice,
             discount_percentage: discountPercentage,
             is_on_sale: isOnSale,
             source,
@@ -2699,7 +2809,8 @@ Deno.serve(async (req: Request) => {
       .select("id", { count: "exact", head: true })
       .eq("marketplace", "mercadolivre")
       .not("external_id", "is", null)
-      .neq("status", "paused");
+      .neq("status", "paused")
+      .neq("status", "standby");
 
     const dueResult = forceSync
       ? await dueQuery

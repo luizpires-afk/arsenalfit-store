@@ -43,19 +43,28 @@ export type CatalogProduct = {
   discount_percentage?: number | null;
   is_on_sale?: boolean;
   is_featured?: boolean;
+  curation_badges?: string[] | null;
   free_shipping?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
   detected_at?: string | null;
   marketplace?: string | null;
+  external_id?: string | null;
+  source_url?: string | null;
+  affiliate_link?: string | null;
   brand?: string | null;
   subcategory?: string | null;
+  specifications?: Record<string, unknown> | null;
   category?: { name?: string | null; slug?: string | null } | null;
   popularityScore?: number | null;
   clicks_count?: number | null;
   rating?: number | null;
   reviews_count?: number | null;
 };
+
+const CURATION_BADGE_ELITE = "ELITE";
+const CURATION_BADGE_BEST_VALUE = "MELHOR_CUSTO_BENEFICIO";
+const CURATION_BADGE_BEST_SELLER = "MAIS_VENDIDO";
 
 export type CatalogIndexItem<T extends CatalogProduct> = {
   item: T;
@@ -175,6 +184,73 @@ export const getPriorityScore = (product: CatalogProduct) => {
   return 0;
 };
 
+const toFiniteNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const getCatalogCuration = (product: CatalogProduct) => {
+  const specs =
+    product.specifications && typeof product.specifications === "object"
+      ? (product.specifications as Record<string, unknown>)
+      : null;
+  const catalogCuration =
+    specs?.catalog_curation && typeof specs.catalog_curation === "object"
+      ? (specs.catalog_curation as Record<string, unknown>)
+      : null;
+  return catalogCuration;
+};
+
+const getCatalogCurationScore = (
+  product: CatalogProduct,
+  field: "score_custo_beneficio" | "score_popularidade",
+) => {
+  const catalogCuration = getCatalogCuration(product);
+  if (!catalogCuration) return null;
+  const raw = toFiniteNumber(catalogCuration[field]);
+  return raw;
+};
+
+export const getCurationBadges = (product: CatalogProduct) => {
+  const badges = new Set<string>();
+
+  if (Array.isArray(product.curation_badges)) {
+    for (const badge of product.curation_badges) {
+      const normalized = String(badge ?? "").trim().toUpperCase();
+      if (normalized) badges.add(normalized);
+    }
+  }
+
+  const catalogCuration = getCatalogCuration(product);
+  if (Array.isArray(catalogCuration?.badges)) {
+    for (const badge of catalogCuration.badges) {
+      const normalized = String(badge ?? "").trim().toUpperCase();
+      if (normalized) badges.add(normalized);
+    }
+  }
+
+  return Array.from(badges);
+};
+
+export const hasCurationBadge = (product: CatalogProduct, badge: string) => {
+  const normalized = String(badge ?? "").trim().toUpperCase();
+  if (!normalized) return false;
+  return getCurationBadges(product).includes(normalized);
+};
+
+export const isEliteCurationProduct = (product: CatalogProduct) =>
+  hasCurationBadge(product, CURATION_BADGE_ELITE) || product.is_featured === true;
+
+export const isBestValueCurationProduct = (product: CatalogProduct) =>
+  hasCurationBadge(product, CURATION_BADGE_BEST_VALUE);
+
+export const isPopularCurationProduct = (product: CatalogProduct) =>
+  hasCurationBadge(product, CURATION_BADGE_BEST_SELLER);
+
 export const getPopularityScore = (product: CatalogProduct) => {
   if (typeof product.popularityScore === "number") return product.popularityScore;
   if (typeof product.clicks_count === "number") return product.clicks_count;
@@ -184,11 +260,53 @@ export const getPopularityScore = (product: CatalogProduct) => {
   return 0;
 };
 
+export const getCurationPopularityScore = (product: CatalogProduct) => {
+  const score = getCatalogCurationScore(product, "score_popularidade");
+  if (score !== null) return score;
+  return getPopularityScore(product);
+};
+
+export const getCurationCostBenefitScore = (product: CatalogProduct) => {
+  const score = getCatalogCurationScore(product, "score_custo_beneficio");
+  if (score !== null) return score;
+  return 0;
+};
+
 export const getRecencyScore = (product: CatalogProduct) => {
   const dateValue = product.updated_at || product.created_at || product.detected_at;
   if (!dateValue) return 0;
   const time = new Date(dateValue).getTime();
   return Number.isFinite(time) ? time : 0;
+};
+
+export const compareByCurationPriority = (
+  a: CatalogProduct,
+  b: CatalogProduct,
+) => {
+  const eliteDiff = Number(isEliteCurationProduct(b)) - Number(isEliteCurationProduct(a));
+  if (eliteDiff !== 0) return eliteDiff;
+
+  const bestValueDiff =
+    Number(isBestValueCurationProduct(b)) - Number(isBestValueCurationProduct(a));
+  if (bestValueDiff !== 0) return bestValueDiff;
+
+  const popularBadgeDiff =
+    Number(isPopularCurationProduct(b)) - Number(isPopularCurationProduct(a));
+  if (popularBadgeDiff !== 0) return popularBadgeDiff;
+
+  const popularityDiff = getCurationPopularityScore(b) - getCurationPopularityScore(a);
+  if (Math.abs(popularityDiff) > 0.0001) return popularityDiff;
+
+  const cxbDiff = getCurationCostBenefitScore(b) - getCurationCostBenefitScore(a);
+  if (Math.abs(cxbDiff) > 0.0001) return cxbDiff;
+
+  const priorityDiff = getPriorityScore(b) - getPriorityScore(a);
+  if (priorityDiff !== 0) return priorityDiff;
+
+  const recencyDiff = getRecencyScore(b) - getRecencyScore(a);
+  if (recencyDiff !== 0) return recencyDiff;
+
+  return getEffectivePrice(a) - getEffectivePrice(b);
 };
 
 const buildSearchText = (product: CatalogProduct) =>
@@ -314,13 +432,7 @@ export const sortEntries = <T extends CatalogProduct>(
     return sorted;
   }
   if (subFilter === "melhores") {
-    sorted.sort((a, b) => {
-      const scoreDiff = getPriorityScore(b.item) - getPriorityScore(a.item);
-      if (scoreDiff !== 0) return scoreDiff;
-      const popDiff = getPopularityScore(b.item) - getPopularityScore(a.item);
-      if (popDiff !== 0) return popDiff;
-      return getRecencyScore(b.item) - getRecencyScore(a.item);
-    });
+    sorted.sort((a, b) => compareByCurationPriority(a.item, b.item));
     return sorted;
   }
   return sorted;
@@ -341,13 +453,142 @@ export const compareBySubFilter = (
     return getRecencyScore(b) - getRecencyScore(a);
   }
   if (subFilter === "melhores") {
-    const scoreDiff = getPriorityScore(b) - getPriorityScore(a);
-    if (scoreDiff !== 0) return scoreDiff;
-    const popDiff = getPopularityScore(b) - getPopularityScore(a);
-    if (popDiff !== 0) return popDiff;
-    return getRecencyScore(b) - getRecencyScore(a);
+    return compareByCurationPriority(a, b);
   }
   return 0;
+};
+
+const extractCanonicalCatalogIdFromUrl = (value?: string | null) => {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const path = url.pathname;
+    const catalogMatch = path.match(/\/p\/(MLB\d{6,12})/i);
+    if (catalogMatch?.[1]) return catalogMatch[1].toUpperCase();
+
+    for (const key of ["item_id", "wid", "id"]) {
+      const raw = url.searchParams.get(key);
+      const match = raw?.match(/MLB(\d{6,12})/i);
+      if (match?.[1]) return `MLB${match[1]}`;
+    }
+    const encodedItemId = value.match(/item_id%3AMLB(\d{6,12})/i);
+    if (encodedItemId?.[1]) return `MLB${encodedItemId[1]}`;
+    return null;
+  } catch {
+    const encodedItemId = value.match(/item_id%3AMLB(\d{6,12})/i);
+    if (encodedItemId?.[1]) return `MLB${encodedItemId[1]}`;
+    return null;
+  }
+};
+
+const extractPathKeyFromUrl = (value?: string | null) => {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+    if (!path || path === "/") return null;
+    return `path:${path}`;
+  } catch {
+    return null;
+  }
+};
+
+const buildProductFingerprintKey = (product: CatalogProduct) => {
+  const normalizedTitle = normalizeText(product.name || product.title || "");
+  if (!normalizedTitle || normalizedTitle.length < 10) return null;
+  const compactTitle = normalizedTitle
+    .replace(/\b(kit|com|para|de|do|da|e|em|no|na|o|a)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!compactTitle) return null;
+  const normalizedBrand = normalizeText(product.brand || "");
+  const normalizedCategory = normalizeText(
+    product.category?.slug || product.category?.name || product.subcategory || "",
+  );
+  return `fingerprint:${normalizedCategory}:${normalizedBrand}:${compactTitle.slice(0, 140)}`;
+};
+
+const getCanonicalCatalogKey = (product: CatalogProduct) => {
+  const fromSourceCatalogId = extractCanonicalCatalogIdFromUrl(product.source_url);
+  if (fromSourceCatalogId) return `catalog:${fromSourceCatalogId}`;
+  const fromAffiliateCatalogId = extractCanonicalCatalogIdFromUrl(product.affiliate_link);
+  if (fromAffiliateCatalogId) return `catalog:${fromAffiliateCatalogId}`;
+
+  const fingerprint = buildProductFingerprintKey(product);
+  if (fingerprint) return fingerprint;
+
+  const fromSourcePath = extractPathKeyFromUrl(product.source_url);
+  if (fromSourcePath) return fromSourcePath;
+  const fromAffiliatePath = extractPathKeyFromUrl(product.affiliate_link);
+  if (fromAffiliatePath) return fromAffiliatePath;
+
+  const external = String(product.external_id ?? "").toUpperCase().trim();
+  if (external) return `external:${external}`;
+  const title = normalizeText(product.name || product.title || "");
+  if (title) return `title:${title.slice(0, 120)}`;
+  return `id:${product.id}`;
+};
+
+const pickBestCatalogProduct = <T extends CatalogProduct>(a: T, b: T) => {
+  const byPriority = compareByCurationPriority(a, b);
+  if (byPriority < 0) return a;
+  if (byPriority > 0) return b;
+  const effectiveA = getEffectivePrice(a);
+  const effectiveB = getEffectivePrice(b);
+  if (effectiveA !== effectiveB) return effectiveA < effectiveB ? a : b;
+  const recencyDiff = getRecencyScore(a) - getRecencyScore(b);
+  if (recencyDiff !== 0) return recencyDiff > 0 ? a : b;
+  return a.id.localeCompare(b.id) <= 0 ? a : b;
+};
+
+const ACCESSORY_BLOCKLIST_TERMS = [
+  "cafe",
+  "cafeteira",
+  "chimarrao",
+  "erva mate",
+  "cuia",
+  "bule",
+  "coador",
+  "garrafa termica",
+  "copo termico",
+  "termica",
+  "thermal",
+  "stanley",
+  "quick flip",
+  "termolar",
+  "magic pump",
+];
+
+const shouldHideAccessoryOutOfScopeProduct = (product: CatalogProduct) => {
+  if (getProductCategory(product) !== "ACESSORIOS") return false;
+  const haystack = normalizeText(
+    [
+      product.name,
+      product.title,
+      product.description,
+      product.brand,
+      product.subcategory,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (!haystack) return false;
+  return ACCESSORY_BLOCKLIST_TERMS.some((term) => haystack.includes(term));
+};
+
+export const dedupeCatalogProducts = <T extends CatalogProduct>(items: T[]) => {
+  const byCanonical = new Map<string, T>();
+  for (const item of items || []) {
+    if (shouldHideAccessoryOutOfScopeProduct(item)) continue;
+    const key = getCanonicalCatalogKey(item);
+    const current = byCanonical.get(key);
+    if (!current) {
+      byCanonical.set(key, item);
+      continue;
+    }
+    byCanonical.set(key, pickBestCatalogProduct(current, item));
+  }
+  return Array.from(byCanonical.values());
 };
 
 export const getPaginationRange = (
