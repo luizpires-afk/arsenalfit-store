@@ -19,3 +19,9 @@ verify_jwt = false
 [functions.price-drop-alerts]
 verify_jwt = false
 static_files = ["./functions/price-drop-alerts/*.html"]
+
+[functions.catalog-ingest]
+verify_jwt = false
+
+[functions.catalog-cleanup-unblock]
+verify_jwt = false

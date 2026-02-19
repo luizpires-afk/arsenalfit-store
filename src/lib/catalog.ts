@@ -1,11 +1,13 @@
+import {
+  hasMeaningfulPixDiscount as hasMeaningfulPixDiscountBase,
+  resolveFinalPriceInfo,
+} from "./pricing.js";
+
 export type CatalogCategory =
   | "SUPLEMENTOS"
   | "EQUIPAMENTOS"
   | "ACESSORIOS"
   | "ROUPAS";
-
-const MIN_PIX_DIFF_ABS = 0.5;
-const MIN_PIX_DIFF_RATIO = 0.005;
 
 export type SubFilterValue =
   | "melhores"
@@ -38,6 +40,7 @@ export type CatalogProduct = {
   description?: string | null;
   price: number;
   pix_price?: number | null;
+  pix_price_source?: string | null;
   original_price?: number | null;
   previous_price?: number | null;
   discount_percentage?: number | null;
@@ -120,31 +123,15 @@ export const getDiscountPercent = (product: CatalogProduct) => {
 };
 
 export const getPixPrice = (product: CatalogProduct) => {
-  const pix =
-    typeof product.pix_price === "number" && Number.isFinite(product.pix_price)
-      ? product.pix_price
-      : null;
-  const price =
-    typeof product.price === "number" && Number.isFinite(product.price)
-      ? product.price
-      : null;
-  if (!pix || pix <= 0) return null;
-  if (price && pix >= price) return null;
-  if (price && !hasMeaningfulPixDiscount(price, pix)) return null;
-  return pix;
+  return resolveFinalPriceInfo(product).pixPrice;
 };
 
 export const hasMeaningfulPixDiscount = (price: number, pix: number) => {
-  if (!(Number.isFinite(price) && Number.isFinite(pix))) return false;
-  if (!(price > 0 && pix > 0 && pix < price)) return false;
-  const diff = price - pix;
-  const ratio = diff / price;
-  return diff >= MIN_PIX_DIFF_ABS || ratio >= MIN_PIX_DIFF_RATIO;
+  return hasMeaningfulPixDiscountBase(price, pix);
 };
 
 export const getEffectivePrice = (product: CatalogProduct) => {
-  const pix = getPixPrice(product);
-  return pix ?? product.price ?? 0;
+  return resolveFinalPriceInfo(product).finalPrice;
 };
 
 export const isPromoProduct = (product: CatalogProduct) => {

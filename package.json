@@ -5,12 +5,18 @@
   "type": "module",
   "scripts": {
     "check:text": "node tools/check-mojibake.mjs",
-    "dev": "vite",
+    "dev": "vite --config vite.config.js",
     "prebuild": "npm run check:text",
-    "build": "vite build",
+    "build": "vite build --config vite.config.js",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
-    "test": "node --test"
+    "preview": "vite preview --config vite.config.js",
+    "test": "node --test",
+    "bulk_import": "node scripts/catalog-ingest-runner.cjs --source bulk_import --bulk-import",
+    "daily_import": "node scripts/catalog-ingest-runner.cjs --daily-import",
+    "catalog_cleanup_and_unblock": "node scripts/catalog-cleanup-unblock-runner.cjs",
+    "export_standby_batch": "node scripts/export-standby-batch-runner.cjs",
+    "apply_affiliate_batch": "node scripts/apply-affiliate-batch-runner.cjs",
+    "local_preview": "node scripts/serve-dist-runner.cjs"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.18",

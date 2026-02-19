@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { resolveFinalPriceInfo } from '@/lib/pricing.js';
 
 // Tipagem manual para evitar o erro de 'module not found' caso o arquivo de types do Supabase suma
 export interface Product {
@@ -18,6 +19,8 @@ export interface Product {
   is_active?: boolean | null;
   is_blocked?: boolean | null;
   auto_disabled_reason?: string | null;
+  pix_price?: number | null;
+  pix_price_source?: string | null;
 }
 
 export interface CartItem {
@@ -73,7 +76,7 @@ export const useCart = () => {
         if (product.is_active === false) return true;
         if (product.is_blocked === true) return true;
         if (product.auto_disabled_reason === 'blocked') return true;
-        const price = Number(product.price);
+        const price = Number(resolveFinalPriceInfo(product as any).finalPrice);
         if (!Number.isFinite(price) || price <= 0) return true;
         return false;
       });
@@ -96,16 +99,30 @@ export const useCart = () => {
         }
       }
 
-      const validItems = rawItems.filter((item: CartItem) => {
-        const product = item?.products as Product | null;
-        if (!product) return false;
-        if (product.is_active === false) return false;
-        if (product.is_blocked === true) return false;
-        if (product.auto_disabled_reason === 'blocked') return false;
-        const price = Number(product.price);
-        if (!Number.isFinite(price) || price <= 0) return false;
-        return true;
-      });
+      const validItems = rawItems
+        .filter((item: CartItem) => {
+          const product = item?.products as Product | null;
+          if (!product) return false;
+          if (product.is_active === false) return false;
+          if (product.is_blocked === true) return false;
+          if (product.auto_disabled_reason === 'blocked') return false;
+          const price = Number(resolveFinalPriceInfo(product as any).finalPrice);
+          if (!Number.isFinite(price) || price <= 0) return false;
+          return true;
+        })
+        .map((item: CartItem) => {
+          const product = item?.products as Product | null;
+          if (!product) return item;
+          const pricing = resolveFinalPriceInfo(product as any);
+          return {
+            ...item,
+            products: {
+              ...product,
+              price: pricing.finalPrice,
+              original_price: pricing.listPrice ?? product.original_price ?? null,
+            },
+          };
+        });
 
       setCartItems(validItems as CartItem[]);
     } catch (error) {
