@@ -106,13 +106,13 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
         ? new Date(product.ultima_verificacao)
         : null;
 
-  const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
-  const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
-  const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
   const pricing = resolveFinalPriceInfo(product);
   const finalPrice = pricing.finalPrice;
   const listPrice = pricing.listPrice;
   const saving = pricing.savings;
+  const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
+  const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
+  const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
   const offerResolution = resolveOfferUrl(product);
   const canOpenOffer = Boolean(offerResolution.canRedirect && product.id);
   const offerUnavailableMessage = getOfferUnavailableMessage(
