@@ -246,19 +246,120 @@ const Cart = () => {
   if (cartItems.length === 0) {
     return (
       <div className="min-h-screen" style={cartThemeVars}>
-        <div className="container flex flex-col items-center justify-center py-40">
-          <motion.div animate={{ y: [0, -10, 0] }} transition={{ repeat: Infinity, duration: 3 }}>
-            <ShoppingBag size={80} className="text-[var(--cart-muted-2)] mb-8" />
-          </motion.div>
-          <h1 className="text-5xl md:text-6xl font-black uppercase italic tracking-tighter mb-8">Arsenal Vazio</h1>
-          <Link to="/">
-            <Button
-              variant="outline"
-              className="h-14 border-[var(--cart-border)] text-[var(--cart-muted)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)] font-black uppercase italic rounded-2xl transition-all"
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para a Vitrine
-            </Button>
-          </Link>
+        <div className="container py-20 px-4">
+          <div className="flex flex-col items-center justify-center py-20">
+            <motion.div animate={{ y: [0, -10, 0] }} transition={{ repeat: Infinity, duration: 3 }}>
+              <ShoppingBag size={80} className="text-[var(--cart-muted-2)] mb-8" />
+            </motion.div>
+            <h1 className="text-5xl md:text-6xl font-black uppercase italic tracking-tighter mb-8">Arsenal Vazio</h1>
+            <Link to="/">
+              <Button
+                variant="outline"
+                className="h-14 border-[var(--cart-border)] text-[var(--cart-muted)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)] font-black uppercase italic rounded-2xl transition-all"
+              >
+                <ArrowLeft className="mr-2 h-4 w-4" /> Voltar para a Vitrine
+              </Button>
+            </Link>
+          </div>
+
+          <div className="max-w-3xl mx-auto">
+            <Collapsible open={monitoredOpen} onOpenChange={setMonitoredOpen}>
+              <Card className="bg-[var(--cart-surface)] border border-[var(--cart-border)] rounded-[28px] overflow-hidden shadow-[var(--cart-shadow)]">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full px-5 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cart-accent-soft)]"
+                    aria-label="Alternar produtos monitorados"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[var(--cart-muted)]">
+                        Produtos monitorados
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--cart-text)]">
+                        {monitoringLoading
+                          ? "Carregando..."
+                          : `${monitoredProducts.length} ativo(s)`}
+                      </p>
+                      <p className="mt-1 text-[11px] text-[var(--cart-muted)]">
+                        Avisamos por e-mail quando o preço cair.
+                      </p>
+                    </div>
+                    <ChevronDown
+                      className={`h-5 w-5 text-[var(--cart-muted)] transition-transform ${
+                        monitoredOpen ? "rotate-180" : ""
+                      }`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </CollapsibleTrigger>
+
+                <CollapsibleContent>
+                  <CardContent className="px-5 pb-6 sm:px-6">
+                    {monitoringLoading ? (
+                      <div className="rounded-2xl border border-[var(--cart-border)] bg-white px-4 py-4 text-sm text-[var(--cart-muted)]">
+                        Carregando monitoramentos...
+                      </div>
+                    ) : monitoredProducts.length === 0 ? (
+                      <div className="rounded-2xl border border-[var(--cart-border)] bg-white px-4 py-4 text-sm text-[var(--cart-muted)]">
+                        <p>Você ainda não monitora nenhum produto.</p>
+                        <Button asChild variant="outline" className="mt-3 h-10 rounded-full border-[var(--cart-border)] bg-white hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)]">
+                          <Link to="/categorias">Ver produtos para monitorar</Link>
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {monitoredProducts.map((item) => (
+                          <div
+                            key={item.product_id}
+                            className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--cart-border)] bg-white p-4"
+                          >
+                            <Link
+                              to={resolveProductHref({ id: item.product_id })}
+                              className="flex min-w-0 items-center gap-3"
+                            >
+                              <div className="h-16 w-16 sm:h-14 sm:w-14 rounded-xl border border-[var(--cart-border)] bg-[var(--cart-surface-2)] p-2 overflow-hidden flex items-center justify-center">
+                                <img
+                                  src={item.image_url || "/placeholder.svg"}
+                                  alt={item.product_title || "Produto"}
+                                  className="h-full w-full object-contain"
+                                  loading="lazy"
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-[var(--cart-text)] line-clamp-2">
+                                  {item.product_title || "Produto"}
+                                </p>
+                                <p className="mt-1 text-[11px] text-[var(--cart-muted)]">
+                                  Base:{" "}
+                                  {typeof item.baseline_price === "number"
+                                    ? `R$ ${formatPrice(item.baseline_price)}`
+                                    : "N/D"}
+                                </p>
+                              </div>
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleToggleMonitoring({
+                                  id: item.product_id,
+                                  title: item.product_title || "Produto",
+                                  imageUrl: item.image_url ?? null,
+                                  price: Number(item.baseline_price) || 0,
+                                })
+                              }
+                              className="shrink-0 inline-flex min-h-[44px] items-center justify-center rounded-full border border-[var(--cart-border)] bg-white px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-[var(--cart-muted)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)] transition-colors"
+                            >
+                              Desativar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+          </div>
         </div>
       </div>
     );
