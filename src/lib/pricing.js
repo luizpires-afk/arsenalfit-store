@@ -233,13 +233,9 @@ export const resolvePricePresentation = (product) => {
   const pricing = resolveFinalPriceInfo(product);
   const currentPrice = pricing.basePrice;
   const pixPrice = pricing.pixPrice;
-  const lastPriceSource = String(product?.last_price_source ?? "").trim().toLowerCase();
-  const allowHistoryCompare = lastPriceSource !== "scraper";
   const listFromSource =
     pricing.listPrice !== null && pricing.listPrice > pricing.finalPrice ? pricing.listPrice : null;
-  const listFromHistory = allowHistoryCompare
-    ? resolveHistoryPreviousPrice(product, pricing.finalPrice)
-    : null;
+  const listFromHistory = resolveHistoryPreviousPrice(product, pricing.finalPrice);
   const strikethroughPrice = listFromSource ?? listFromHistory;
 
   const hasPixSecondary =

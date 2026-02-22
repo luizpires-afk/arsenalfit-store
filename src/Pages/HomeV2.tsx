@@ -58,9 +58,9 @@ const CAROUSEL_LIMIT = 16;
 const CATEGORY_PRIORITY = ["suplement", "equip", "acessor", "roupa"];
 
 const PRODUCT_SELECT_BASE =
-  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, updated_at, image_url, images, affiliate_link, source_url, canonical_offer_url, ml_item_id, is_active, status, auto_disabled_reason, affiliate_verified, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
+  "id, name, slug, price, pix_price, original_price, previous_price, previous_price_source, previous_price_expires_at, detected_at, last_sync, updated_at, image_url, images, affiliate_link, source_url, canonical_offer_url, ml_item_id, is_active, status, auto_disabled_reason, affiliate_verified, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
 const PRODUCT_SELECT_WITH_SOURCE =
-  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, last_price_source, last_price_verified_at, updated_at, image_url, images, affiliate_link, source_url, canonical_offer_url, ml_item_id, is_active, status, auto_disabled_reason, affiliate_verified, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
+  "id, name, slug, price, pix_price, original_price, previous_price, previous_price_source, previous_price_expires_at, detected_at, last_sync, last_price_source, last_price_verified_at, updated_at, image_url, images, affiliate_link, source_url, canonical_offer_url, ml_item_id, is_active, status, auto_disabled_reason, affiliate_verified, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
 
 const HERO_SLIDES = [
   {
@@ -875,6 +875,34 @@ export default function HomeV2() {
       (item) => item.discountPercent >= BEST_DEAL_MIN_DISCOUNT,
     );
 
+    if (rankingSource.length === 0) {
+      const fallbackProducts = [...pool]
+        .map((product: any) => {
+          const pricing = resolvePricePresentation(product);
+          const primaryPrice = toNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
+          return {
+            product,
+            primaryPrice,
+            featured: product?.is_featured === true ? 1 : 0,
+            clicks: Number(product?.clicks_count ?? 0) || 0,
+            lastUpdatedMs: getLastUpdatedMs(product),
+          };
+        })
+        .filter((item) => item.primaryPrice > 0)
+        .sort((a, b) => {
+          if (b.featured !== a.featured) return b.featured - a.featured;
+          if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+          return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
+        })
+        .map((item) => item.product);
+
+      return {
+        items: fallbackProducts.slice(0, CAROUSEL_LIMIT),
+        primaryCount: fallbackProducts.length,
+        fallbackUsed: true,
+      };
+    }
+
     rankingSource.sort((a, b) => {
       const pixA = a.usesPix ? 1 : 0;
       const pixB = b.usesPix ? 1 : 0;
@@ -995,7 +1023,32 @@ export default function HomeV2() {
       })
       .map((item) => item.product);
 
-    return fallbackPromos;
+    if (fallbackPromos.length > 0) return fallbackPromos;
+
+    const fallbackRecent = allDropsCandidates
+      .map((product: any) => {
+        const pricing = resolvePricePresentation(product);
+        const primaryPrice = Number(pricing.displayPricePrimary || pricing.finalPrice || 0);
+        const lastUpdated =
+          product.detected_at || product.last_sync || product.updated_at || null;
+        const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
+        return {
+          product,
+          primaryPrice,
+          featured: product?.is_featured === true ? 1 : 0,
+          clicks: Number(product?.clicks_count ?? 0) || 0,
+          lastUpdatedMs,
+        };
+      })
+      .filter((item) => item.primaryPrice > 0)
+      .sort((a, b) => {
+        if (b.featured !== a.featured) return b.featured - a.featured;
+        if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+        return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
+      })
+      .map((item) => item.product);
+
+    return fallbackRecent;
   }, [dropsData]);
 
   const { data: eliteData = [], isLoading: eliteLoading } = useQuery({

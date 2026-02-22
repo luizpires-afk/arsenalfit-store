@@ -45,10 +45,10 @@ const DEFAULT_LOCK_TTL_SECONDS = Number(
   Deno?.env?.get?.("PRICE_SYNC_LOCK_TTL_SECONDS") ?? "900",
 );
 const PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS = Number(
-  Deno?.env?.get?.("PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS") ?? "12",
+  Deno?.env?.get?.("PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS") ?? "8",
 );
 const PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS = Number(
-  Deno?.env?.get?.("PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS") ?? "20",
+  Deno?.env?.get?.("PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS") ?? "12",
 );
 const PRICE_SYNC_DOMAIN = Deno?.env?.get?.("PRICE_SYNC_DOMAIN") ?? "mercadolivre.com.br";
 const PRICE_SYNC_CIRCUIT_ERROR_THRESHOLD = Number(
@@ -65,6 +65,24 @@ const PRICE_SYNC_OUTLIER_ABS_THRESHOLD = Number(
 );
 const PRICE_SYNC_OUTLIER_RECHECK_MINUTES = Number(
   Deno?.env?.get?.("PRICE_SYNC_OUTLIER_RECHECK_MINUTES") ?? "10",
+);
+const PRICE_SYNC_UNTRUSTED_DROP_PERCENT_THRESHOLD = Number(
+  Deno?.env?.get?.("PRICE_SYNC_UNTRUSTED_DROP_PERCENT_THRESHOLD") ?? "0.25",
+);
+const PRICE_SYNC_UNTRUSTED_DROP_ABS_THRESHOLD = Number(
+  Deno?.env?.get?.("PRICE_SYNC_UNTRUSTED_DROP_ABS_THRESHOLD") ?? "40",
+);
+const PRICE_SYNC_FREEZE_HOURS_DEFAULT = Number(
+  Deno?.env?.get?.("PRICE_SYNC_FREEZE_HOURS") ?? "4",
+);
+const PRICE_SYNC_FREEZE_RECHECK_MINUTES_DEFAULT = Number(
+  Deno?.env?.get?.("PRICE_SYNC_FREEZE_RECHECK_MINUTES") ?? "10",
+);
+const PREVIOUS_PRICE_HISTORY_TTL_HOURS = Number(
+  Deno?.env?.get?.("PRICE_SYNC_PREVIOUS_PRICE_TTL_HOURS") ?? "48",
+);
+const PRICE_SYNC_TTL_HIGH_VOLATILITY_MINUTES = Number(
+  Deno?.env?.get?.("PRICE_SYNC_TTL_HIGH_VOLATILITY_MINUTES") ?? "45",
 );
 const ENABLE_PIX_PRICE =
   (Deno?.env?.get?.("PIX_PRICE_ENABLED") ?? "true").toLowerCase() !== "false";
@@ -102,13 +120,8 @@ const UNTRUSTED_PRICE_MIN_RATIO = Number(
 const UNTRUSTED_PRICE_MAX_RATIO = Number(
   Deno?.env?.get?.("UNTRUSTED_PRICE_MAX_RATIO") ?? "1.8",
 );
-const ORIGINAL_KEEP_MAX_RATIO_TRUSTED = Number(
-  Deno?.env?.get?.("ORIGINAL_KEEP_MAX_RATIO_TRUSTED") ?? "4.0",
-);
-const ORIGINAL_KEEP_MAX_RATIO_UNTRUSTED = Number(
-  Deno?.env?.get?.("ORIGINAL_KEEP_MAX_RATIO_UNTRUSTED") ?? "1.8",
-);
-
+const PRICE_SYNC_STRICT_OFFER_MATCH =
+  (Deno?.env?.get?.("PRICE_SYNC_STRICT_OFFER_MATCH") ?? "true").toLowerCase() !== "false";
 const JSON_HEADERS = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -142,6 +155,11 @@ const toBoolean = (value: unknown, fallback: boolean) => {
 };
 
 const addMs = (now: Date, ms: number) => new Date(now.getTime() + ms);
+const parseDateMs = (value: unknown) => {
+  if (!value) return null;
+  const ms = new Date(String(value)).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
 
 type MeliFetchResult = {
   response: Response | null;
@@ -231,8 +249,9 @@ const extractItemIdFromUrl = (value?: string | null) => {
   if (!value) return null;
   const str = String(value);
   const patterns = [
-    /item_id(?:=|%3A|:)\s*(MLB\d{6,12})/i,
     /wid(?:=|%3D)\s*(MLB\d{6,12})/i,
+    /item_id(?:=|%3A|:)\s*(MLB\d{6,12})/i,
+    /pdp_filters=[^&#]*item_id(?:%3A|:)\s*(MLB\d{6,12})/i,
   ];
   for (const pattern of patterns) {
     const match = str.match(pattern);
@@ -411,13 +430,54 @@ const resolveOriginalPrice = (params: {
   price: number;
   source: string | null | undefined;
 }) => {
+  const source = String(params.source ?? "").trim().toLowerCase();
+  const canTrustOriginalFromSource = source === "auth" || source === "public";
+  const canTrustScraperOriginal = source === "scraper";
   const normalizedIncoming = toNumber(params.incomingOriginal);
+  const normalizeOriginalByRules = (
+    candidate: number,
+    price: number,
+    options?: { minDiscountRatio?: number; maxDiscountRatio?: number; maxRatio?: number },
+  ) => {
+    if (!(Number.isFinite(candidate) && Number.isFinite(price) && candidate > 0 && price > 0)) return null;
+    if (candidate <= price) return null;
+    const discountRatio = (candidate - price) / candidate;
+    const minDiscountRatio = Math.max(0, options?.minDiscountRatio ?? 0.005);
+    const maxDiscountRatio = Math.min(0.95, Math.max(minDiscountRatio, options?.maxDiscountRatio ?? 0.9));
+    const maxRatio = Math.max(1.1, options?.maxRatio ?? 5);
+    if (discountRatio < minDiscountRatio || discountRatio > maxDiscountRatio) return null;
+    if (candidate > price * maxRatio) return null;
+    return candidate;
+  };
   if (
+    canTrustOriginalFromSource &&
     typeof normalizedIncoming === "number" &&
-    Number.isFinite(normalizedIncoming) &&
-    normalizedIncoming > params.price
+    Number.isFinite(normalizedIncoming)
   ) {
-    return normalizedIncoming;
+    const trustedOriginal = normalizeOriginalByRules(normalizedIncoming, params.price, {
+      minDiscountRatio: 0.005,
+      maxDiscountRatio: 0.9,
+      maxRatio: 5,
+    });
+    if (trustedOriginal !== null) return trustedOriginal;
+  }
+
+  if (
+    canTrustScraperOriginal &&
+    typeof normalizedIncoming === "number" &&
+    Number.isFinite(normalizedIncoming)
+  ) {
+    const scraperOriginal = normalizeOriginalByRules(normalizedIncoming, params.price, {
+      minDiscountRatio: 0.02,
+      maxDiscountRatio: 0.75,
+      maxRatio: 1.8,
+    });
+    if (scraperOriginal !== null) return scraperOriginal;
+  }
+
+  if (!canTrustOriginalFromSource && !canTrustScraperOriginal) {
+    // For scraper/catalog derived prices, never carry stale original_price.
+    return null;
   }
 
   const normalizedStored = toNumber(params.storedOriginal);
@@ -427,12 +487,30 @@ const resolveOriginalPrice = (params: {
     return null;
   }
 
-  const maxRatioRaw = isTrustedPriceSource(params.source)
-    ? ORIGINAL_KEEP_MAX_RATIO_TRUSTED
-    : ORIGINAL_KEEP_MAX_RATIO_UNTRUSTED;
-  const maxRatio = clamp(Number.isFinite(maxRatioRaw) ? maxRatioRaw : 1.8, 1, 10);
-  if (normalizedStored > params.price * maxRatio) return null;
-  return normalizedStored;
+  // Trusted source but no incoming original_price: do not keep old promotional anchor,
+  // otherwise stale discounts can persist after promotion ends.
+  return null;
+};
+
+const normalizeHistoryPromoAnchor = (
+  candidateValue: unknown,
+  finalPrice: number,
+  options?: { minDiscountRatio?: number; maxDiscountRatio?: number; maxRatio?: number },
+): number | null => {
+  const candidate = toNumber(candidateValue);
+  if (!(Number.isFinite(candidate) && Number.isFinite(finalPrice) && candidate > 0 && finalPrice > 0)) {
+    return null;
+  }
+  if (candidate <= finalPrice) return null;
+
+  const discountRatio = (candidate - finalPrice) / candidate;
+  const minDiscountRatio = Math.max(0, options?.minDiscountRatio ?? 0.02);
+  const maxDiscountRatio = Math.min(0.95, Math.max(minDiscountRatio, options?.maxDiscountRatio ?? 0.75));
+  const maxRatio = Math.max(1.1, options?.maxRatio ?? 1.9);
+
+  if (discountRatio < minDiscountRatio || discountRatio > maxDiscountRatio) return null;
+  if (candidate > finalPrice * maxRatio) return null;
+  return candidate;
 };
 
 const stripHtml = (html: string): string => {
@@ -586,8 +664,93 @@ const collectPriceCandidates = (value: unknown, out: number[]) => {
   }
 };
 
-const extractStandardPriceFromHtml = (html: string): number | null => {
+const extractStandardPriceFromHtml = (
+  html: string,
+  referencePrice?: number | null,
+): number | null => {
   if (!html) return null;
+
+  const candidates: Array<{ value: number; score: number }> = [];
+  const pushCandidate = (raw: unknown, score: number) => {
+    const parsed = typeof raw === "number" ? raw : parseMoney(String(raw ?? "")) ?? toNumber(raw);
+    if (!(typeof parsed === "number" && Number.isFinite(parsed) && parsed > 0)) return;
+    candidates.push({ value: parsed, score });
+  };
+
+  const compactHtml = html.replace(/\s+/g, " ");
+  const plainText = stripHtml(html);
+  const normalizedReference =
+    typeof referencePrice === "number" && Number.isFinite(referencePrice) && referencePrice > 0
+      ? referencePrice
+      : null;
+
+  // Highest confidence for Mercado Livre: explicit pair "pix ... ou R$ X em outros meios".
+  const explicitStandardPatterns = [
+    /(?:ou\s*)?r\$\s*([0-9][0-9\s\.,]{0,16})\s*em\s*outros\s*meios/gi,
+    /(?:por|preco|valor)\s*r\$\s*([0-9][0-9\s\.,]{0,16})\s*(?:em\s*outros\s*meios)?/gi,
+    /"total_price"\s*:\s*{[^}]{0,240}?"value"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi,
+  ];
+  for (const pattern of explicitStandardPatterns) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(compactHtml))) {
+      if (!match[1]) continue;
+      pushCandidate(match[1], 120);
+    }
+  }
+
+  // Common HTML split for integer/cents in ML templates.
+  const splitAmountRegexes = [
+    /andes-money-amount__fraction[^>]*>\s*([0-9][0-9\.\s]{0,16})\s*<[\s\S]{0,120}?andes-money-amount__cents[^>]*>\s*([0-9]{2})\s*</gi,
+    /"fraction"\s*:\s*"([0-9][0-9\.\s]{0,16})"[\s\S]{0,60}?"cents"\s*:\s*"([0-9]{2})"/gi,
+  ];
+  for (const pattern of splitAmountRegexes) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(compactHtml))) {
+      const contextStart = Math.max(0, match.index - 160);
+      const contextEnd = Math.min(compactHtml.length, pattern.lastIndex + 160);
+      const context = compactHtml.slice(contextStart, contextEnd).toLowerCase();
+      const looksLikeOldListPrice =
+        context.includes("</s>") ||
+        context.includes("<s ") ||
+        context.includes("<del") ||
+        context.includes("previous-price") ||
+        context.includes("original-value") ||
+        context.includes("line-through");
+      const looksLikeInstallment =
+        context.includes("sem juros") ||
+        context.includes("parcela") ||
+        context.includes("parcelado") ||
+        /\b\d{1,2}\s*x\b/.test(context);
+      if (looksLikeOldListPrice || looksLikeInstallment) continue;
+      const raw = `${match[1] ?? ""},${match[2] ?? ""}`;
+      pushCandidate(raw, 110);
+    }
+  }
+
+  // Generic "R$ ..." capture with context filtering.
+  const genericRegex = /r\$\s*([0-9][0-9\s\.,]{0,16})/gi;
+  genericRegex.lastIndex = 0;
+  let genericMatch: RegExpExecArray | null;
+  while ((genericMatch = genericRegex.exec(plainText))) {
+    if (!genericMatch[1]) continue;
+    const start = Math.max(0, genericMatch.index - 48);
+    const end = Math.min(plainText.length, genericRegex.lastIndex + 48);
+    const context = plainText.slice(start, end).toLowerCase();
+    if (
+      context.includes(" pix") ||
+      context.includes("parcela") ||
+      context.includes("juros") ||
+      context.includes("de r$") ||
+      context.includes("economize") ||
+      context.includes("cupom") ||
+      context.includes("coupon")
+    ) {
+      continue;
+    }
+    pushCandidate(genericMatch[1], 90);
+  }
 
   const jsonLdRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   const jsonCandidates: number[] = [];
@@ -600,35 +763,206 @@ const extractStandardPriceFromHtml = (html: string): number | null => {
     collectPriceCandidates(parsed, jsonCandidates);
   }
 
-  const fromJson = pickMin(jsonCandidates);
-  if (fromJson !== null) return fromJson;
-
-  const regex = /"price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi;
-  const candidates: number[] = [];
-  while ((match = regex.exec(html))) {
-    const parsed = toNumber(match[1]);
-    if (parsed !== null) candidates.push(parsed);
+  for (const candidate of jsonCandidates) {
+    pushCandidate(candidate, 70);
   }
 
-  return pickMin(candidates);
+  const regex = /"price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi;
+  while ((match = regex.exec(html))) {
+    pushCandidate(match[1], 60);
+  }
+
+  if (!candidates.length) return null;
+
+  const bucket = new Map<string, { value: number; score: number; count: number }>();
+  for (const candidate of candidates) {
+    const key = candidate.value.toFixed(2);
+    const current = bucket.get(key);
+    if (!current) {
+      bucket.set(key, { value: candidate.value, score: candidate.score, count: 1 });
+      continue;
+    }
+    current.count += 1;
+    if (candidate.score > current.score) current.score = candidate.score;
+  }
+
+  const ranked = Array.from(bucket.values()).sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (normalizedReference !== null) {
+      const aDistance = Math.abs(a.value - normalizedReference) / normalizedReference;
+      const bDistance = Math.abs(b.value - normalizedReference) / normalizedReference;
+      if (aDistance !== bDistance) return aDistance - bDistance;
+    }
+    if (b.count !== a.count) return b.count - a.count;
+    // Without API reference, prefer highest recurring amount for standard price.
+    return normalizedReference !== null ? a.value - b.value : b.value - a.value;
+  });
+
+  return ranked[0]?.value ?? null;
+};
+
+const extractOriginalPriceFromHtml = (
+  html: string,
+  referencePrice?: number | null,
+): number | null => {
+  if (!html) return null;
+
+  const candidates: Array<{ value: number; score: number }> = [];
+  const pushCandidate = (raw: unknown, score: number) => {
+    const parsed = typeof raw === "number" ? raw : parseMoney(String(raw ?? "")) ?? toNumber(raw);
+    if (!(typeof parsed === "number" && Number.isFinite(parsed) && parsed > 0)) return;
+    candidates.push({ value: parsed, score });
+  };
+
+  const normalizedReference =
+    typeof referencePrice === "number" && Number.isFinite(referencePrice) && referencePrice > 0
+      ? referencePrice
+      : null;
+  const compactHtml = html.replace(/\s+/g, " ");
+  const plainText = stripHtml(html);
+
+  const jsonPatterns = [
+    /"original_price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi,
+    /"list_price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi,
+    /"oldPrice"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi,
+  ];
+  for (const pattern of jsonPatterns) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(compactHtml))) {
+      if (!match[1]) continue;
+      pushCandidate(match[1], 120);
+    }
+  }
+
+  const strikeRegexes = [
+    /<s[^>]*>\s*r\$\s*([0-9][0-9\s\.,]{0,16})\s*<\/s>/gi,
+    /<del[^>]*>\s*r\$\s*([0-9][0-9\s\.,]{0,16})\s*<\/del>/gi,
+  ];
+  for (const pattern of strikeRegexes) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(compactHtml))) {
+      if (!match[1]) continue;
+      pushCandidate(match[1], 110);
+    }
+  }
+
+  const dePriceRegex = /de\s*r\$\s*([0-9][0-9\s\.,]{0,16})/gi;
+  dePriceRegex.lastIndex = 0;
+  let deMatch: RegExpExecArray | null;
+  while ((deMatch = dePriceRegex.exec(plainText))) {
+    if (!deMatch[1]) continue;
+    pushCandidate(deMatch[1], 100);
+  }
+
+  if (!candidates.length) return null;
+
+  const bucket = new Map<string, { value: number; score: number; count: number }>();
+  for (const candidate of candidates) {
+    const key = candidate.value.toFixed(2);
+    const current = bucket.get(key);
+    if (!current) {
+      bucket.set(key, { value: candidate.value, score: candidate.score, count: 1 });
+      continue;
+    }
+    current.count += 1;
+    if (candidate.score > current.score) current.score = candidate.score;
+  }
+
+  const ranked = Array.from(bucket.values())
+    .filter((candidate) => {
+      if (normalizedReference === null) return true;
+      return candidate.value > normalizedReference && candidate.value <= normalizedReference * 3.5;
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (normalizedReference !== null) {
+        const aDistance = a.value - normalizedReference;
+        const bDistance = b.value - normalizedReference;
+        if (aDistance !== bDistance) return aDistance - bDistance;
+      }
+      if (b.count !== a.count) return b.count - a.count;
+      return b.value - a.value;
+    });
+
+  return ranked[0]?.value ?? null;
 };
 
 const resolveScrapeUrl = (
-  product: { source_url?: string | null; affiliate_link?: string | null },
+  product: {
+    source_url?: string | null;
+    affiliate_link?: string | null;
+    affiliate_verified?: boolean | null;
+    status?: string | null;
+    is_active?: boolean | null;
+  },
   normalizedExternalId: string,
   itemBody: any,
 ) => {
+  const sanitizeScrapeUrl = (value: string) => {
+    try {
+      const parsed = new URL(value);
+      const host = parsed.host.toLowerCase();
+      if (!host.includes("mercadolivre.com")) return value;
+
+      parsed.hash = "";
+      const trackingParams = [
+        "matt_tool",
+        "matt_word",
+        "sid",
+        "wid",
+        "origin",
+        "ref",
+        "forceInApp",
+      ];
+      for (const param of trackingParams) {
+        parsed.searchParams.delete(param);
+      }
+
+      if (/\/p\/mlb\d{6,12}/i.test(parsed.pathname)) {
+        parsed.searchParams.delete("pdp_filters");
+      }
+
+      return parsed.toString();
+    } catch {
+      return value;
+    }
+  };
+
+  const isSecAffiliate = (value?: string | null) => {
+    if (!value) return false;
+    try {
+      const url = new URL(String(value));
+      const host = url.host.toLowerCase();
+      if (!(host === "mercadolivre.com" || host === "www.mercadolivre.com")) return false;
+      return /^\/sec\/[a-z0-9]+/i.test(url.pathname || "");
+    } catch {
+      return false;
+    }
+  };
+
+  const affiliateSec = isSecAffiliate(product?.affiliate_link) ? product?.affiliate_link : null;
+  const status = String(product?.status ?? "").trim().toLowerCase();
+  const preferValidatedAffiliate =
+    Boolean(affiliateSec) &&
+    (product?.affiliate_verified === true || product?.is_active === true || status === "active");
   const candidates = [
+    preferValidatedAffiliate ? affiliateSec : null,
     itemBody?.permalink,
+    (product as any)?.canonical_offer_url ?? null,
     product?.source_url,
+    !preferValidatedAffiliate ? affiliateSec : null,
     product?.affiliate_link,
   ];
   for (const candidate of candidates) {
     if (typeof candidate === "string" && candidate.startsWith("http")) {
-      return candidate;
+      return sanitizeScrapeUrl(candidate);
     }
   }
-  return normalizedExternalId ? `https://www.mercadolivre.com.br/${normalizedExternalId}` : null;
+  const fallbackMlItemId =
+    normalizeExternalId((product as any)?.ml_item_id) ?? normalizedExternalId;
+  return fallbackMlItemId ? `https://produto.mercadolivre.com.br/${fallbackMlItemId}` : null;
 };
 
 const fetchScrapedHtml = async (
@@ -801,13 +1135,13 @@ const resolveApiStandardPrice = (
   itemBody: any,
   priceSignals: { standard: number | null },
 ) => {
-  const basePrice = toNumber(itemBody?.price);
-  if (typeof basePrice === "number" && Number.isFinite(basePrice) && basePrice > 0) {
-    return basePrice;
-  }
   const signalPrice = toNumber(priceSignals?.standard);
   if (typeof signalPrice === "number" && Number.isFinite(signalPrice) && signalPrice > 0) {
     return signalPrice;
+  }
+  const basePrice = toNumber(itemBody?.price);
+  if (typeof basePrice === "number" && Number.isFinite(basePrice) && basePrice > 0) {
+    return basePrice;
   }
   return null;
 };
@@ -1024,17 +1358,10 @@ const fetchMeliPublicItem = async (
 const pickBestProductItem = (
   data: Record<string, unknown>,
   preferredItemId?: string | null,
+  options?: { strictOfferMatch?: boolean; fallbackItemId?: string | null },
 ) => {
   const results = Array.isArray((data as any)?.results) ? (data as any).results : [];
   if (!results.length) return null;
-
-  if (preferredItemId) {
-    const exact = results.find(
-      (item: any) =>
-        String(item?.item_id || item?.id || "").toUpperCase() === preferredItemId,
-    );
-    return exact ?? null;
-  }
 
   const withPrice = results.filter(
     (item: any) => typeof item?.price === "number" && Number(item.price) > 0,
@@ -1046,8 +1373,55 @@ const pickBestProductItem = (
     const available = toNumber(item?.available_quantity);
     return status !== "paused" && status !== "closed" && (available === null || available > 0);
   });
-  if (activeInStock.length) return activeInStock[0];
-  return withPrice[0];
+
+  const sortByBestPrice = (items: any[]) =>
+    [...items].sort((a, b) => {
+      const priceA = toNumber(a?.price) ?? Number.POSITIVE_INFINITY;
+      const priceB = toNumber(b?.price) ?? Number.POSITIVE_INFINITY;
+      if (priceA !== priceB) return priceA - priceB;
+      const soldA = toNumber(a?.sold_quantity) ?? 0;
+      const soldB = toNumber(b?.sold_quantity) ?? 0;
+      if (soldA !== soldB) return soldB - soldA;
+      const idA = String(a?.id ?? a?.item_id ?? "");
+      const idB = String(b?.id ?? b?.item_id ?? "");
+      return idA.localeCompare(idB);
+    });
+
+  const pool = activeInStock.length ? sortByBestPrice(activeInStock) : sortByBestPrice(withPrice);
+  const bestMarket = pool[0] ?? null;
+  if (!bestMarket) return null;
+
+  const targetItemId = normalizeExternalId(
+    preferredItemId ?? options?.fallbackItemId ?? null,
+  );
+  if (!targetItemId) return bestMarket;
+
+  const exact = pool.find(
+    (item: any) => normalizeExternalId(item?.item_id || item?.id || null) === targetItemId,
+  );
+  if (!exact) {
+    if (options?.strictOfferMatch) return null;
+    return bestMarket;
+  }
+
+  if (options?.strictOfferMatch) return exact;
+
+  const exactPrice = toNumber((exact as any)?.price);
+  const bestPrice = toNumber((bestMarket as any)?.price);
+  if (
+    typeof exactPrice === "number" &&
+    Number.isFinite(exactPrice) &&
+    exactPrice > 0 &&
+    typeof bestPrice === "number" &&
+    Number.isFinite(bestPrice) &&
+    bestPrice > 0
+  ) {
+    // Keep preferred item only when close to market-best.
+    if (exactPrice <= bestPrice * 1.08) return exact;
+    return bestMarket;
+  }
+
+  return bestMarket;
 };
 
 Deno.serve(async (req: Request) => {
@@ -1134,7 +1508,7 @@ Deno.serve(async (req: Request) => {
     const { data: product, error: productError } = await supabase
       .from("products")
       .select(
-        "id, marketplace, external_id, price, pix_price, source_url, affiliate_link",
+        "id, marketplace, external_id, ml_item_id, canonical_offer_url, price, pix_price, source_url, affiliate_link",
       )
       .eq("id", productId)
       .single();
@@ -1153,11 +1527,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const adUrl = product.source_url || product.affiliate_link || null;
+    const adUrl =
+      product.canonical_offer_url || product.source_url || product.affiliate_link || null;
     const normalizedExternalId =
       normalizeExternalId(product.external_id) || extractItemIdFromUrl(adUrl) || null;
-    const catalogId = extractCatalogIdFromUrl(adUrl);
-    const preferredItemId = extractItemIdFromUrl(adUrl);
+    const catalogId =
+      extractCatalogIdFromUrl(product.canonical_offer_url) ||
+      extractCatalogIdFromUrl(product.source_url) ||
+      extractCatalogIdFromUrl(product.affiliate_link);
+    const preferredItemId =
+      normalizeExternalId((product as any)?.ml_item_id) ||
+      extractItemIdFromUrl(product.canonical_offer_url) ||
+      extractItemIdFromUrl(product.source_url) ||
+      extractItemIdFromUrl(product.affiliate_link);
     const fetchItemId = preferredItemId || normalizedExternalId;
 
     if (!fetchItemId && !catalogId) {
@@ -1277,7 +1659,9 @@ Deno.serve(async (req: Request) => {
         );
 
         if (productItemsResp.status === 200) {
-          const best = pickBestProductItem(productItemsResp.body as any, preferredItemId);
+          const best = pickBestProductItem(productItemsResp.body as any, preferredItemId, {
+            strictOfferMatch: PRICE_SYNC_STRICT_OFFER_MATCH && Boolean(preferredItemId),
+          });
           if (best) {
             const bestId = (best as any)?.id ?? (best as any)?.item_id ?? null;
             itemResp = {
@@ -1447,25 +1831,41 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const extractPriceFromHtml = (html: string | null) =>
-      html ? extractStandardPriceFromHtml(html) : null;
+    const extractPriceFromHtml = (html: string | null) => {
+      if (!html) return { price: null as number | null, original: null as number | null };
+      const price = extractStandardPriceFromHtml(html);
+      const original =
+        typeof price === "number" && Number.isFinite(price) && price > 0
+          ? extractOriginalPriceFromHtml(html, price)
+          : null;
+      return { price, original };
+    };
 
     let price: number | null = null;
+    let originalPrice: number | null = null;
     let source: "scraper" | "direct" | "jina" | "none" = "none";
 
     const html = await fetchScrapedHtml(adUrl);
-    price = extractPriceFromHtml(html);
+    {
+      const parsed = extractPriceFromHtml(html);
+      price = parsed.price;
+      originalPrice = parsed.original;
+    }
     if (price !== null) source = SCRAPER_API_KEY || SCRAPER_API_URL_TEMPLATE ? "scraper" : "direct";
 
     if (price === null) {
       const directHtml = await fetchScrapedHtml(adUrl, undefined, true);
-      price = extractPriceFromHtml(directHtml);
+      const parsed = extractPriceFromHtml(directHtml);
+      price = parsed.price;
+      originalPrice = parsed.original;
       if (price !== null) source = "direct";
     }
 
     if (price === null) {
       const jinaHtml = await fetchJinaHtml(adUrl);
-      price = extractPriceFromHtml(jinaHtml);
+      const parsed = extractPriceFromHtml(jinaHtml);
+      price = parsed.price;
+      originalPrice = parsed.original;
       if (price !== null) source = "jina";
     }
 
@@ -1480,7 +1880,7 @@ Deno.serve(async (req: Request) => {
     const currentOriginal = typeof product.original_price === "number" ? product.original_price : null;
     const stabilizedPrice = stabilizeIncomingPriceForSource(price, currentPrice, "scraper");
     const nextOriginal = resolveOriginalPrice({
-      incomingOriginal: null,
+      incomingOriginal: originalPrice,
       storedOriginal: currentOriginal,
       price: stabilizedPrice,
       source: "scraper",
@@ -1491,11 +1891,19 @@ Deno.serve(async (req: Request) => {
         : 0;
     const nowIso = new Date().toISOString();
     const normalizedPriceSource = source === "none" ? null : "scraper";
+    const hasManualDrop =
+      typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > stabilizedPrice;
+    const previousHistoryTtlHours = Math.max(1, Math.floor(PREVIOUS_PRICE_HISTORY_TTL_HOURS || 48));
+    const previousHistoryExpiryIso = hasManualDrop
+      ? addMs(new Date(), previousHistoryTtlHours * 60 * 60 * 1000).toISOString()
+      : null;
 
     const { error: updateError } = await supabase
       .from("products")
       .update({
-        previous_price: currentPrice,
+        previous_price: hasManualDrop ? currentPrice : null,
+        previous_price_source: hasManualDrop ? "HISTORY" : null,
+        previous_price_expires_at: previousHistoryExpiryIso,
         price: stabilizedPrice,
         detected_price: stabilizedPrice,
         detected_at: nowIso,
@@ -1601,10 +2009,61 @@ Deno.serve(async (req: Request) => {
     (payload as any)?.enforce_scraper_when_no_pix ?? (payload as any)?.enforceScraperWhenNoPix,
     true,
   );
+  const { data: priceCheckConfig } = await supabase
+    .from("price_check_config")
+    .select(
+      "ttl_high_minutes, ttl_med_minutes, ttl_low_minutes, min_interval_seconds, max_interval_seconds, outlier_percent_threshold, outlier_abs_threshold, outlier_recheck_minutes, circuit_error_threshold, circuit_open_seconds, price_freeze_hours, price_freeze_recheck_minutes",
+    )
+    .eq("id", true)
+    .maybeSingle();
+  const ttlByPriority = {
+    HIGH: toPositiveInt((priceCheckConfig as any)?.ttl_high_minutes, 120),
+    MED: toPositiveInt((priceCheckConfig as any)?.ttl_med_minutes, 720),
+    LOW: toPositiveInt((priceCheckConfig as any)?.ttl_low_minutes, 2160),
+    HIGH_VOLATILITY: toPositiveInt(
+      (payload as any)?.ttl_high_volatility_minutes ??
+        (payload as any)?.ttlHighVolatilityMinutes ??
+        PRICE_SYNC_TTL_HIGH_VOLATILITY_MINUTES,
+      PRICE_SYNC_TTL_HIGH_VOLATILITY_MINUTES,
+    ),
+  };
+  const outlierPercentThreshold = Math.max(
+    0,
+    Number((priceCheckConfig as any)?.outlier_percent_threshold ?? PRICE_SYNC_OUTLIER_PERCENT_THRESHOLD),
+  );
+  const outlierAbsoluteThreshold = Math.max(
+    0,
+    Number((priceCheckConfig as any)?.outlier_abs_threshold ?? PRICE_SYNC_OUTLIER_ABS_THRESHOLD),
+  );
+  const outlierRecheckMinutes = Math.max(
+    1,
+    toPositiveInt((priceCheckConfig as any)?.outlier_recheck_minutes, PRICE_SYNC_OUTLIER_RECHECK_MINUTES),
+  );
+  const priceFreezeHours = clamp(
+    toPositiveInt((priceCheckConfig as any)?.price_freeze_hours, PRICE_SYNC_FREEZE_HOURS_DEFAULT),
+    2,
+    6,
+  );
+  const priceFreezeRecheckMinutes = clamp(
+    toPositiveInt(
+      (priceCheckConfig as any)?.price_freeze_recheck_minutes,
+      PRICE_SYNC_FREEZE_RECHECK_MINUTES_DEFAULT,
+    ),
+    5,
+    60,
+  );
+  const circuitErrorThreshold = Math.max(
+    1,
+    toPositiveInt((priceCheckConfig as any)?.circuit_error_threshold, PRICE_SYNC_CIRCUIT_ERROR_THRESHOLD),
+  );
+  const circuitOpenSeconds = Math.max(
+    30,
+    toPositiveInt((priceCheckConfig as any)?.circuit_open_seconds, PRICE_SYNC_CIRCUIT_OPEN_SECONDS),
+  );
   const domainMinIntervalSeconds = clamp(
     toPositiveInt(
       (payload as any)?.min_interval_between_requests_seconds ?? (payload as any)?.minIntervalBetweenRequestsSeconds,
-      PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS,
+      toPositiveInt((priceCheckConfig as any)?.min_interval_seconds, PRICE_SYNC_RATE_MIN_INTERVAL_SECONDS),
     ),
     1,
     120,
@@ -1612,7 +2071,7 @@ Deno.serve(async (req: Request) => {
   const domainMaxIntervalSeconds = clamp(
     toPositiveInt(
       (payload as any)?.max_interval_between_requests_seconds ?? (payload as any)?.maxIntervalBetweenRequestsSeconds,
-      PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS,
+      toPositiveInt((priceCheckConfig as any)?.max_interval_seconds, PRICE_SYNC_RATE_MAX_INTERVAL_SECONDS),
     ),
     domainMinIntervalSeconds,
     180,
@@ -2118,7 +2577,7 @@ Deno.serve(async (req: Request) => {
     const { data: queuedProducts, error: queueProductsError } = await supabase
       .from("products")
       .select(
-        "id, marketplace, external_id, name, created_at, is_featured, clicks_count, price, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link, specifications",
+        "id, marketplace, external_id, ml_item_id, canonical_offer_url, name, created_at, is_featured, clicks_count, price, previous_price, previous_price_source, previous_price_expires_at, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link, specifications, price_freeze_until, price_pending_candidate, price_pending_count, price_pending_source, price_pending_seen_at",
       )
       .in("id", orderedIds)
       .eq("marketplace", "mercadolivre")
@@ -2146,10 +2605,12 @@ Deno.serve(async (req: Request) => {
     let query = supabase
       .from("products")
       .select(
-        "id, marketplace, external_id, name, created_at, is_featured, clicks_count, price, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link, specifications",
+        "id, marketplace, external_id, ml_item_id, canonical_offer_url, name, created_at, is_featured, clicks_count, price, previous_price, previous_price_source, previous_price_expires_at, pix_price, pix_price_source, pix_price_checked_at, original_price, etag, status, last_sync, next_check_at, is_active, auto_disabled_reason, auto_disabled_at, stock_quantity, source_url, affiliate_link, specifications, price_freeze_until, price_pending_candidate, price_pending_count, price_pending_source, price_pending_seen_at",
       )
       .eq("marketplace", "mercadolivre")
-      .not("external_id", "is", null)
+      .or(
+        "external_id.not.is.null,ml_item_id.not.is.null,canonical_offer_url.not.is.null,source_url.not.is.null,affiliate_link.not.is.null",
+      )
       .neq("status", "paused")
       .neq("status", "standby");
 
@@ -2241,12 +2702,16 @@ Deno.serve(async (req: Request) => {
     const nextCheck = product?.next_check_at ? new Date(product.next_check_at) : null;
     const normalizedExternalId = normalizeExternalId(product.external_id);
     const catalogId =
+      extractCatalogIdFromUrl((product as any)?.canonical_offer_url) ||
       extractCatalogIdFromUrl(product?.source_url) ||
       extractCatalogIdFromUrl(product?.affiliate_link);
     const preferredItemId =
+      normalizeExternalId((product as any)?.ml_item_id) ||
+      extractItemIdFromUrl((product as any)?.canonical_offer_url) ||
       extractItemIdFromUrl(product?.source_url) ||
       extractItemIdFromUrl(product?.affiliate_link);
     const fetchItemId = preferredItemId || normalizedExternalId;
+    const enforceSameOffer = PRICE_SYNC_STRICT_OFFER_MATCH && Boolean(preferredItemId);
     const queueJob = queueJobByProductId.get(product.id) ?? null;
     const catalogPriority = extractCatalogPriority((product as any)?.specifications ?? null);
     const priorityPlan = resolvePriorityAndTtl({
@@ -2254,8 +2719,11 @@ Deno.serve(async (req: Request) => {
       createdAt: product?.created_at ?? null,
       isFeatured: product?.is_featured ?? false,
       clicksCount: product?.clicks_count ?? 0,
+      isOnSale: product?.is_on_sale ?? false,
+      discountPercentage: product?.discount_percentage ?? 0,
       productName: product?.name ?? normalizedExternalId ?? "",
       catalogPriority,
+      ttlByPriority,
     });
 
     if (
@@ -2305,7 +2773,10 @@ Deno.serve(async (req: Request) => {
     let errorMessage: string | null = null;
     let usedPublicFallback = false;
     let usedProductFallback = false;
+    let usedCatalogReconciliation = false;
     let catalogFallbackPrice: number | null = null;
+    let catalogFallbackOriginal: number | null = null;
+    let preferredItemMissingInCatalog = false;
     let usedScraperFallback = false;
     let policyUnauthorized = false;
     let catalogLookupFailed = false;
@@ -2386,23 +2857,21 @@ Deno.serve(async (req: Request) => {
               const results = Array.isArray((productItemsResp.body as any)?.results)
                 ? (productItemsResp.body as any).results
                 : [];
-              const best = pickBestProductItem(
-                productItemsResp.body as any,
-                preferredItemId,
-              );
+              const best = pickBestProductItem(productItemsResp.body as any, preferredItemId, {
+                strictOfferMatch: enforceSameOffer,
+              });
 
               let minPrice: number | null = null;
-              let minItemId: string | null = null;
               for (const item of results) {
                 if (typeof item?.price === "number") {
                   if (minPrice === null || item.price < minPrice) {
                     minPrice = item.price;
-                    minItemId = (item as any)?.item_id ?? (item as any)?.id ?? null;
                   }
                 }
               }
 
               if (preferredItemId && !best && minPrice !== null) {
+                preferredItemMissingInCatalog = true;
                 priceAnomalies.push({
                   run_id: runId,
                   product_id: product.id,
@@ -2436,6 +2905,7 @@ Deno.serve(async (req: Request) => {
                 };
                 usedProductFallback = true;
                 catalogFallbackPrice = typeof best.price === "number" ? best.price : null;
+                catalogFallbackOriginal = toNumber((best as any)?.original_price);
               } else if (!preferredItemId && minPrice !== null) {
                 // Sem item preferido, mantemos o menor preço do catálogo como fallback.
                 catalogFallbackPrice = minPrice;
@@ -2475,6 +2945,62 @@ Deno.serve(async (req: Request) => {
       let priceSignalsFromItem = { pix: null as number | null, standard: null as number | null };
       let priceSignalsFromPrices = { pix: null as number | null, standard: null as number | null };
 
+      if (itemResp.status === 200 && catalogId && !usedProductFallback && !enforceSameOffer) {
+        const itemHasPrice = typeof toNumber((itemResp.body as any)?.price) === "number";
+        if (itemHasPrice) {
+          const catalogProductsResp = await meliFetch(
+            `${API_BASE}/products/${encodeURIComponent(catalogId)}/items`,
+            {
+              method: "GET",
+              signal: controller.signal,
+            },
+          );
+
+          if (catalogProductsResp.status === 200) {
+            const bestCatalogItem = pickBestProductItem(
+              catalogProductsResp.body as any,
+              preferredItemId,
+              { strictOfferMatch: false },
+            );
+            const bestCatalogPrice = toNumber((bestCatalogItem as any)?.price);
+            const bestCatalogOriginal = toNumber((bestCatalogItem as any)?.original_price);
+            const itemPrice = toNumber((itemResp.body as any)?.price);
+
+            if (
+              typeof bestCatalogPrice === "number" &&
+              Number.isFinite(bestCatalogPrice) &&
+              bestCatalogPrice > 0
+            ) {
+              catalogFallbackPrice = bestCatalogPrice;
+              catalogFallbackOriginal = bestCatalogOriginal;
+
+              if (
+                typeof itemPrice === "number" &&
+                Number.isFinite(itemPrice) &&
+                itemPrice > 0 &&
+                bestCatalogPrice < itemPrice * 0.9
+              ) {
+                usedCatalogReconciliation = true;
+                priceAnomalies.push({
+                  run_id: runId,
+                  product_id: product.id,
+                  marketplace: product.marketplace ?? null,
+                  external_id: normalizedExternalId,
+                  catalog_id: catalogId ?? null,
+                  preferred_item_id: preferredItemId ?? null,
+                  source_url: product?.source_url ?? null,
+                  affiliate_link: product?.affiliate_link ?? null,
+                  price_from_catalog: bestCatalogPrice,
+                  price_from_item: itemPrice,
+                  note: "catalog_price_preferred_over_item",
+                  detected_at: now.toISOString(),
+                });
+              }
+            }
+          }
+        }
+      }
+
       if (itemResp.status === 200 && ENABLE_PIX_PRICE) {
         priceSignalsFromItem = extractPriceSignals(itemResp.body);
 
@@ -2502,7 +3028,16 @@ Deno.serve(async (req: Request) => {
 
       clearTimeout(timer);
 
-      let scrapedFallback: { price: number; pix_price: number | null } | null = null;
+      let scrapedFallback: {
+        price: number;
+        pix_price: number | null;
+        original_price: number | null;
+      } | null = null;
+      const scraperReferencePrice =
+        priceSignalsFromPrices.standard ??
+        priceSignalsFromItem.standard ??
+        toNumber((itemResp.body as any)?.price) ??
+        null;
 
       if (
         SCRAPER_ENABLED &&
@@ -2522,24 +3057,67 @@ Deno.serve(async (req: Request) => {
           }
           const extractFromHtml = (html: string | null) => {
             if (!html) return null;
-            const scrapedPrice = extractStandardPriceFromHtml(html);
+            const scrapedPrice = extractStandardPriceFromHtml(html, scraperReferencePrice);
             if (typeof scrapedPrice === "number" && Number.isFinite(scrapedPrice) && scrapedPrice > 0) {
-              return { price: scrapedPrice, pix_price: null };
+              const scrapedOriginalRaw = extractOriginalPriceFromHtml(html, scrapedPrice);
+              const scrapedOriginal =
+                typeof scrapedOriginalRaw === "number" &&
+                Number.isFinite(scrapedOriginalRaw) &&
+                scrapedOriginalRaw > scrapedPrice
+                  ? scrapedOriginalRaw
+                  : null;
+              return { price: scrapedPrice, pix_price: null, original_price: scrapedOriginal };
             }
             return null;
           };
 
-          const html = await fetchScrapedHtml(scrapeUrl);
-          scrapedFallback = extractFromHtml(html);
-
-          if (!scrapedFallback) {
-            const directHtml = await fetchScrapedHtml(scrapeUrl, undefined, true);
-            scrapedFallback = extractFromHtml(directHtml);
+          const preferJinaFirst = itemResp.status !== 200;
+          if (preferJinaFirst) {
+            const jinaFirstHtml = await fetchJinaHtml(scrapeUrl);
+            scrapedFallback = extractFromHtml(jinaFirstHtml);
           }
 
+          const usesScraperProxy = Boolean(SCRAPER_API_KEY || SCRAPER_API_URL_TEMPLATE);
+          const html = scrapedFallback ? null : await fetchScrapedHtml(scrapeUrl);
+          const scraperParsed = extractFromHtml(html);
+
+          let directParsed: { price: number; pix_price: number | null; original_price: number | null } | null = null;
+          if (usesScraperProxy) {
+            const directHtml = await fetchScrapedHtml(scrapeUrl, undefined, true);
+            directParsed = extractFromHtml(directHtml);
+          }
+
+          const proxyOrDirectParsed = directParsed ?? scraperParsed;
           if (!scrapedFallback) {
+            scrapedFallback = proxyOrDirectParsed;
+          } else if (
+            proxyOrDirectParsed &&
+            proxyOrDirectParsed.price <= scrapedFallback.price * 0.92
+          ) {
+            scrapedFallback = proxyOrDirectParsed;
+          }
+
+          const shouldTryJina =
+            !scrapedFallback ||
+            scrapedFallback.original_price === null ||
+            (typeof scraperReferencePrice === "number" &&
+              Number.isFinite(scraperReferencePrice) &&
+              scrapedFallback.price >= scraperReferencePrice * 1.1);
+
+          if (shouldTryJina) {
             const jinaHtml = await fetchJinaHtml(scrapeUrl);
-            scrapedFallback = extractFromHtml(jinaHtml);
+            const jinaParsed = extractFromHtml(jinaHtml);
+            if (!scrapedFallback) {
+              scrapedFallback = jinaParsed;
+            } else if (
+              jinaParsed &&
+              (jinaParsed.price <= scrapedFallback.price * 0.92 ||
+                (scrapedFallback.original_price === null &&
+                  jinaParsed.original_price !== null &&
+                  jinaParsed.price <= scrapedFallback.price * 1.1))
+            ) {
+              scrapedFallback = jinaParsed;
+            }
           }
         }
       }
@@ -2553,13 +3131,18 @@ Deno.serve(async (req: Request) => {
         const pixCandidate = ENABLE_PIX_PRICE
           ? priceSignalsFromItem.pix ?? priceSignalsFromPrices.pix ?? null
           : null;
-        const resolvedPrice = resolveApiStandardPrice(itemResp.body, {
+        const resolvedApiPrice = resolveApiStandardPrice(itemResp.body, {
           standard: standardPrice,
         });
-        let resolvedPix = pickBestPixCandidate([pixCandidate], resolvedPrice);
+        const reconciledStandardPrice = resolvedApiPrice;
+        let resolvedPix = pickBestPixCandidate([pixCandidate], reconciledStandardPrice);
         let pixSource: "api" | null = resolvedPix !== null ? "api" : null;
 
-        if (resolvedPix !== null && typeof resolvedPrice === "number" && resolvedPix >= resolvedPrice) {
+        if (
+          resolvedPix !== null &&
+          typeof reconciledStandardPrice === "number" &&
+          resolvedPix >= reconciledStandardPrice
+        ) {
           resolvedPix = null;
           pixSource = null;
         }
@@ -2567,7 +3150,7 @@ Deno.serve(async (req: Request) => {
         rawApiPrice = toNumber((itemResp.body as any)?.price);
         rawApiPix = pixCandidate;
         const finalPriceInfo = resolveFinalPriceFromSignals({
-          apiPrice: resolvedPrice,
+          apiPrice: reconciledStandardPrice,
           apiPixPrice: resolvedPix,
           scrapedPrice: scrapedFallback?.price ?? null,
           requireScraperWhenNoPix: enforceScraperWhenNoPix,
@@ -2575,11 +3158,20 @@ Deno.serve(async (req: Request) => {
         finalSource = finalPriceInfo.source;
         usedScraperFallback = finalPriceInfo.source === PRICE_SOURCE.SCRAPER;
         rawScrapedPrice = usedScraperFallback ? scrapedFallback?.price ?? null : null;
+        const originalFromApi = toNumber((itemResp.body as any)?.original_price);
+        const originalFromScraper = scrapedFallback?.original_price ?? null;
+        const originalFromCatalog = catalogFallbackOriginal;
+        const resolvedOriginalPrice =
+          finalPriceInfo.source === PRICE_SOURCE.SCRAPER
+            ? originalFromScraper
+            : !enforceSameOffer && usedCatalogReconciliation
+              ? originalFromCatalog ?? originalFromApi
+              : originalFromApi;
 
         result = {
           statusCode: 200,
-          price: finalPriceInfo.finalPrice ?? resolvedPrice,
-          original_price: toNumber((itemResp.body as any)?.original_price),
+          price: finalPriceInfo.finalPrice ?? reconciledStandardPrice,
+          original_price: resolvedOriginalPrice,
           pix_price: finalPriceInfo.source === PRICE_SOURCE.API_PIX ? (finalPriceInfo.finalPrice ?? null) : null,
           pix_source: finalPriceInfo.source === PRICE_SOURCE.API_PIX ? pixSource : null,
           raw_price_api: rawApiPrice,
@@ -2597,6 +3189,7 @@ Deno.serve(async (req: Request) => {
         result = {
           statusCode: 200,
           price: scrapedFallback.price,
+          original_price: scrapedFallback.original_price ?? null,
           pix_price: scrapedFallback.pix_price,
           pix_source: scrapedFallback.pix_price ? "scraper" : null,
           raw_price_api: null,
@@ -2639,8 +3232,8 @@ Deno.serve(async (req: Request) => {
       },
       statusCode: statusForCircuit,
       now: new Date(),
-      errorThreshold: Math.max(1, PRICE_SYNC_CIRCUIT_ERROR_THRESHOLD),
-      openSeconds: Math.max(30, PRICE_SYNC_CIRCUIT_OPEN_SECONDS),
+      errorThreshold: circuitErrorThreshold,
+      openSeconds: circuitOpenSeconds,
     });
     domainState = {
       domain: PRICE_SYNC_DOMAIN,
@@ -2670,6 +3263,8 @@ Deno.serve(async (req: Request) => {
       const wasAutoBlocked = product?.auto_disabled_reason === "blocked";
       const source: PriceChangeRow["source"] = usedScraperFallback
         ? "scraper"
+        : usedCatalogReconciliation
+          ? "catalog"
         : usedProductFallback
           ? "catalog"
           : usedPublicFallback
@@ -2693,6 +3288,9 @@ Deno.serve(async (req: Request) => {
         last_price_verified_at: now.toISOString(),
         next_check_at: nextCheckAt,
         last_health_check_at: now.toISOString(),
+        ...(String((product as any)?.data_health_status ?? "").toUpperCase() === "SUSPECT_PRICE"
+          ? { data_health_status: "HEALTHY", price_mismatch_reason: null }
+          : {}),
         etag: result?.etag ?? product?.etag ?? null,
         pix_price: canKeepPix304 ? existingPix304 : null,
         pix_price_source: canKeepPix304 ? existingPixSource304 : null,
@@ -2726,6 +3324,13 @@ Deno.serve(async (req: Request) => {
       const currentPrice = typeof product?.price === "number" ? product.price : null;
       const stabilizedPrice = stabilizeIncomingPriceForSource(result.price, currentPrice, source);
       const didStabilizePrice = stabilizedPrice !== result.price;
+      const finalPriceSource =
+        (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE;
+      const pendingCandidate = toNumber((product as any)?.price_pending_candidate);
+      const pendingCount = Math.max(0, toNonNegativeInt((product as any)?.price_pending_count, 0));
+      const hasSamePendingCandidate =
+        pendingCandidate !== null && Math.abs(pendingCandidate - stabilizedPrice) < 0.01;
+      const pendingConfirmations = hasSamePendingCandidate ? pendingCount + 1 : 1;
       if (didStabilizePrice) {
         priceAnomalies.push({
           run_id: runId,
@@ -2758,11 +3363,12 @@ Deno.serve(async (req: Request) => {
       const outlier = detectPriceOutlier({
         previousPrice: currentPrice,
         newPrice: stabilizedPrice,
-        percentThreshold: Math.max(0, PRICE_SYNC_OUTLIER_PERCENT_THRESHOLD),
-        absoluteThreshold: Math.max(0, PRICE_SYNC_OUTLIER_ABS_THRESHOLD),
+        percentThreshold: outlierPercentThreshold,
+        absoluteThreshold: outlierAbsoluteThreshold,
       });
-      if (outlier.isOutlier) {
-        const retryMinutes = Math.max(1, PRICE_SYNC_OUTLIER_RECHECK_MINUTES);
+      const outlierConfirmedBySecondRead = outlier.isOutlier && pendingConfirmations >= 2;
+      if (outlier.isOutlier && !outlierConfirmedBySecondRead) {
+        const retryMinutes = outlierRecheckMinutes;
         const retrySeconds = retryMinutes * 60;
         nextCheckAt = addMs(now, retryMinutes * 60 * 1000).toISOString();
         update = {
@@ -2772,6 +3378,10 @@ Deno.serve(async (req: Request) => {
           data_health_status: "SUSPECT_PRICE",
           deactivation_reason: "suspect_outlier",
           last_health_check_at: now.toISOString(),
+          price_pending_candidate: stabilizedPrice,
+          price_pending_count: pendingConfirmations,
+          price_pending_source: finalPriceSource,
+          price_pending_seen_at: now.toISOString(),
         };
         await supabase.from("products").update(update).eq("id", product.id);
         await upsertPriceCheckState({
@@ -2797,6 +3407,7 @@ Deno.serve(async (req: Request) => {
             suspect_price: stabilizedPrice,
             absolute_delta: outlier.absoluteDelta,
             percent_delta: outlier.percentDelta,
+            pending_confirmations: pendingConfirmations,
           },
         });
         await insertPriceCheckEvent({
@@ -2822,8 +3433,223 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      const isUntrustedSource = source === "catalog" || source === "scraper";
+      const hasDropFromCurrent =
+        typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > stabilizedPrice;
+      const untrustedDropAbsolute = hasDropFromCurrent ? currentPrice - stabilizedPrice : 0;
+      const untrustedDropPercent = hasDropFromCurrent && currentPrice > 0
+        ? (currentPrice - stabilizedPrice) / currentPrice
+        : 0;
+      const untrustedDropGuardTriggered =
+        isUntrustedSource &&
+        hasDropFromCurrent &&
+        (untrustedDropAbsolute >= PRICE_SYNC_UNTRUSTED_DROP_ABS_THRESHOLD ||
+          untrustedDropPercent >= PRICE_SYNC_UNTRUSTED_DROP_PERCENT_THRESHOLD);
+
+      if (untrustedDropGuardTriggered) {
+        const retryMinutes = Math.max(outlierRecheckMinutes, 15);
+        const retrySeconds = retryMinutes * 60;
+        nextCheckAt = addMs(now, retryMinutes * 60 * 1000).toISOString();
+        update = {
+          last_sync: now.toISOString(),
+          last_price_verified_at: now.toISOString(),
+          next_check_at: nextCheckAt,
+          data_health_status: "SUSPECT_PRICE",
+          deactivation_reason: "suspect_untrusted_drop",
+          last_health_check_at: now.toISOString(),
+          price_pending_candidate: stabilizedPrice,
+          price_pending_count: pendingConfirmations,
+          price_pending_source: finalPriceSource,
+          price_pending_seen_at: now.toISOString(),
+        };
+        await supabase.from("products").update(update).eq("id", product.id);
+        await upsertPriceCheckState({
+          productId: product.id,
+          finalPrice: currentPrice,
+          finalSource: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+          nextCheckAt,
+          checkedAt: now.toISOString(),
+          failCount: Number(queueJob?.attempts ?? 0) + 1,
+          errorCode: "suspect_untrusted_drop",
+          backoffUntil: nextCheckAt,
+          priority: priorityPlan.priority,
+          staleTtlMinutes: priorityPlan.ttlMinutes,
+          suspectPrice: stabilizedPrice,
+          suspectReason: "catalog_or_scraper_drop_requires_trusted_confirmation",
+          suspectDetectedAt: now.toISOString(),
+        });
+        await completeQueueJob(queueJob?.job_id, "retry", {
+          errorCode: "suspect_untrusted_drop",
+          retrySeconds,
+          metaPatch: {
+            previous_price: currentPrice,
+            suspect_price: stabilizedPrice,
+            absolute_delta: untrustedDropAbsolute,
+            percent_delta: untrustedDropPercent,
+            pending_confirmations: pendingConfirmations,
+            source,
+          },
+        });
+        await insertPriceCheckEvent({
+          run_id: runId,
+          job_id: queueJob?.job_id ?? null,
+          product_id: product.id,
+          domain: PRICE_SYNC_DOMAIN,
+          status_code: result?.statusCode ?? null,
+          raw_api_price: rawApiPrice,
+          raw_api_pix: rawApiPix,
+          raw_scraped_price: rawScrapedPrice,
+          final_price: stabilizedPrice,
+          final_price_source: (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE,
+          duration_ms: Date.now() - itemStartedAt,
+          event_status: "suspect",
+          error_code: "suspect_untrusted_drop",
+          created_at: now.toISOString(),
+        });
+        eventStatus = "suspect";
+        stats.total_verificados += 1;
+        stats.total_skipped += 1;
+        await sleep(randomInt(itemDelayMin, itemDelayMax));
+        continue;
+      }
+
+      if (preferredItemId && enforceSameOffer && preferredItemMissingInCatalog) {
+        const retryMinutes = outlierRecheckMinutes;
+        const retrySeconds = retryMinutes * 60;
+        nextCheckAt = addMs(now, retryMinutes * 60 * 1000).toISOString();
+        update = {
+          last_sync: now.toISOString(),
+          last_price_verified_at: now.toISOString(),
+          next_check_at: nextCheckAt,
+          data_health_status: "SUSPECT_PRICE",
+          deactivation_reason: "suspect_offer_binding",
+          last_health_check_at: now.toISOString(),
+          price_pending_candidate: stabilizedPrice,
+          price_pending_count: pendingConfirmations,
+          price_pending_source: finalPriceSource,
+          price_pending_seen_at: now.toISOString(),
+        };
+        await supabase.from("products").update(update).eq("id", product.id);
+        await upsertPriceCheckState({
+          productId: product.id,
+          finalPrice: currentPrice,
+          finalSource: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+          nextCheckAt,
+          checkedAt: now.toISOString(),
+          failCount: Number(queueJob?.attempts ?? 0) + 1,
+          errorCode: "preferred_item_missing_in_catalog",
+          backoffUntil: nextCheckAt,
+          priority: priorityPlan.priority,
+          staleTtlMinutes: priorityPlan.ttlMinutes,
+          suspectPrice: stabilizedPrice,
+          suspectReason: "offer_binding_unresolved",
+          suspectDetectedAt: now.toISOString(),
+        });
+        await completeQueueJob(queueJob?.job_id, "retry", {
+          errorCode: "preferred_item_missing_in_catalog",
+          retrySeconds,
+          metaPatch: {
+            preferred_item_id: preferredItemId,
+            catalog_id: catalogId,
+            suspect_price: stabilizedPrice,
+          },
+        });
+        await insertPriceCheckEvent({
+          run_id: runId,
+          job_id: queueJob?.job_id ?? null,
+          product_id: product.id,
+          domain: PRICE_SYNC_DOMAIN,
+          status_code: result?.statusCode ?? null,
+          raw_api_price: rawApiPrice,
+          raw_api_pix: rawApiPix,
+          raw_scraped_price: rawScrapedPrice,
+          final_price: stabilizedPrice,
+          final_price_source: (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE,
+          duration_ms: Date.now() - itemStartedAt,
+          event_status: "suspect",
+          error_code: "preferred_item_missing_in_catalog",
+          created_at: now.toISOString(),
+        });
+        eventStatus = "suspect";
+        stats.total_verificados += 1;
+        stats.total_skipped += 1;
+        await sleep(randomInt(itemDelayMin, itemDelayMax));
+        continue;
+      }
+
+      if (usedProductFallback && !preferredItemId && typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0) {
+        const retryMinutes = Math.max(outlierRecheckMinutes, 15);
+        const retrySeconds = retryMinutes * 60;
+        nextCheckAt = addMs(now, retryMinutes * 60 * 1000).toISOString();
+        update = {
+          last_sync: now.toISOString(),
+          last_price_verified_at: now.toISOString(),
+          next_check_at: nextCheckAt,
+          data_health_status: "SUSPECT_PRICE",
+          deactivation_reason: "suspect_catalog_without_preferred_item",
+          last_health_check_at: now.toISOString(),
+          price_pending_candidate: stabilizedPrice,
+          price_pending_count: pendingConfirmations,
+          price_pending_source: finalPriceSource,
+          price_pending_seen_at: now.toISOString(),
+        };
+        await supabase.from("products").update(update).eq("id", product.id);
+        await upsertPriceCheckState({
+          productId: product.id,
+          finalPrice: currentPrice,
+          finalSource: mapPriceSourceToState((product as any)?.last_price_source ?? null),
+          nextCheckAt,
+          checkedAt: now.toISOString(),
+          failCount: Number(queueJob?.attempts ?? 0) + 1,
+          errorCode: "catalog_without_preferred_item",
+          backoffUntil: nextCheckAt,
+          priority: priorityPlan.priority,
+          staleTtlMinutes: priorityPlan.ttlMinutes,
+          suspectPrice: stabilizedPrice,
+          suspectReason: "catalog_fallback_without_item_binding",
+          suspectDetectedAt: now.toISOString(),
+        });
+        await completeQueueJob(queueJob?.job_id, "retry", {
+          errorCode: "catalog_without_preferred_item",
+          retrySeconds,
+          metaPatch: {
+            preferred_item_id: preferredItemId,
+            catalog_id: catalogId,
+            previous_price: currentPrice,
+            suspect_price: stabilizedPrice,
+            source,
+          },
+        });
+        await insertPriceCheckEvent({
+          run_id: runId,
+          job_id: queueJob?.job_id ?? null,
+          product_id: product.id,
+          domain: PRICE_SYNC_DOMAIN,
+          status_code: result?.statusCode ?? null,
+          raw_api_price: rawApiPrice,
+          raw_api_pix: rawApiPix,
+          raw_scraped_price: rawScrapedPrice,
+          final_price: stabilizedPrice,
+          final_price_source: (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE,
+          duration_ms: Date.now() - itemStartedAt,
+          event_status: "suspect",
+          error_code: "catalog_without_preferred_item",
+          created_at: now.toISOString(),
+        });
+        eventStatus = "suspect";
+        stats.total_verificados += 1;
+        stats.total_skipped += 1;
+        await sleep(randomInt(itemDelayMin, itemDelayMax));
+        continue;
+      }
+
       const hasPriceChange =
         product?.price === null || product?.price === undefined || stabilizedPrice !== product.price;
+      const hasDropChange =
+        hasPriceChange &&
+        typeof product?.price === "number" &&
+        Number.isFinite(product.price) &&
+        product.price > stabilizedPrice;
       const isOnSale = discountPercentage > 0;
       const isReliableSource = source === "auth" || source === "public";
       const shouldReactivate =
@@ -2907,14 +3733,87 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const finalPriceSource =
-        (result as any)?.final_price_source ?? finalSource ?? PRICE_SOURCE.API_BASE;
+      const freezeUntilMs = parseDateMs((product as any)?.price_freeze_until);
+      const isPriceFreezeActive = freezeUntilMs !== null && freezeUntilMs > now.getTime();
+      const freezeAllowsConfirmedChange =
+        isPriceFreezeActive && hasPriceChange && pendingConfirmations >= 2;
+      const freezeBlocksChange = isPriceFreezeActive && hasPriceChange && !freezeAllowsConfirmedChange;
+
+      if (freezeBlocksChange) {
+        const freezeRecheckAtMs = Math.min(
+          freezeUntilMs ?? addMs(now, priceFreezeRecheckMinutes * 60 * 1000).getTime(),
+          now.getTime() + priceFreezeRecheckMinutes * 60 * 1000,
+        );
+        nextCheckAt = new Date(freezeRecheckAtMs).toISOString();
+        update = {
+          last_sync: now.toISOString(),
+          next_check_at: nextCheckAt,
+          last_health_check_at: now.toISOString(),
+          price_pending_candidate: stabilizedPrice,
+          price_pending_count: pendingConfirmations,
+          price_pending_source: finalPriceSource,
+          price_pending_seen_at: now.toISOString(),
+          ...(String((product as any)?.data_health_status ?? "").toUpperCase() === "SUSPECT_PRICE"
+            ? { data_health_status: "HEALTHY", deactivation_reason: null, price_mismatch_reason: null }
+            : {}),
+        };
+        eventStatus = "frozen";
+        stateFinalPrice = typeof product?.price === "number" ? product.price : null;
+        stateFinalSource = mapPriceSourceToState((product as any)?.last_price_source ?? null);
+        stateFailCount = 0;
+        queueCompletionStatus = "retry";
+        queueRetrySeconds = Math.max(
+          60,
+          Math.floor((new Date(nextCheckAt).getTime() - now.getTime()) / 1000),
+        );
+        stats.total_200 += 1;
+        stats.total_skipped += 1;
+      } else {
       const resolvedPix = finalPriceSource === PRICE_SOURCE.API_PIX ? stabilizedPrice : null;
       const resolvedPixSource = resolvedPix !== null ? "api" : null;
       const resolvedPixCheckedAt = resolvedPix !== null ? now.toISOString() : null;
+      const previousHistoryTtlHours = Math.max(1, Math.floor(PREVIOUS_PRICE_HISTORY_TTL_HOURS || 48));
+      const catalogIncomingHistoryTtlHours = Math.max(1, Math.min(previousHistoryTtlHours, 24));
+      const incomingListPromoAnchor = normalizeHistoryPromoAnchor(
+        (result as any)?.original_price ?? null,
+        stabilizedPrice,
+        {
+          minDiscountRatio: 0.02,
+          maxDiscountRatio: 0.75,
+          maxRatio: 1.9,
+        },
+      );
+      const existingHistoryExpiryMs = parseDateMs((product as any)?.previous_price_expires_at);
+      const hasValidStoredHistory =
+        String((product as any)?.previous_price_source ?? "").toUpperCase() === "HISTORY" &&
+        typeof (product as any)?.previous_price === "number" &&
+        (product as any).previous_price > stabilizedPrice &&
+        existingHistoryExpiryMs !== null &&
+        existingHistoryExpiryMs > now.getTime();
+      const canUseCatalogIncomingPromoAnchor =
+        source === "catalog" &&
+        incomingListPromoAnchor !== null &&
+        !hasDropChange;
+      const resolvedHistoryPreviousPrice = hasDropChange
+        ? product.price
+        : canUseCatalogIncomingPromoAnchor
+          ? incomingListPromoAnchor
+        : hasValidStoredHistory
+          ? (product as any).previous_price
+          : null;
+      const resolvedHistoryPreviousSource = resolvedHistoryPreviousPrice !== null ? "HISTORY" : null;
+      const resolvedHistoryPreviousExpiry = resolvedHistoryPreviousPrice !== null
+        ? (hasDropChange
+          ? addMs(now, previousHistoryTtlHours * 60 * 60 * 1000).toISOString()
+          : canUseCatalogIncomingPromoAnchor
+            ? addMs(now, catalogIncomingHistoryTtlHours * 60 * 60 * 1000).toISOString()
+            : ((product as any)?.previous_price_expires_at ?? null))
+        : null;
 
       update = {
-        previous_price: product?.price ?? null,
+        previous_price: resolvedHistoryPreviousPrice,
+        previous_price_source: resolvedHistoryPreviousSource,
+        previous_price_expires_at: resolvedHistoryPreviousExpiry,
         original_price: nextOriginal,
         price: stabilizedPrice,
         last_price_source: source,
@@ -2928,6 +3827,10 @@ Deno.serve(async (req: Request) => {
         discount_percentage: discountPercentage,
         is_on_sale: isOnSale,
         is_active: isActive,
+        price_pending_candidate: null,
+        price_pending_count: 0,
+        price_pending_source: null,
+        price_pending_seen_at: null,
         ...(shouldReactivate ? { auto_disabled_reason: null, auto_disabled_at: null } : {}),
         ...(resolvedStockQty !== null ? { stock_quantity: resolvedStockQty } : {}),
         ...(hasPriceChange ? { detected_price: stabilizedPrice, detected_at: now.toISOString() } : {}),
@@ -2941,8 +3844,9 @@ Deno.serve(async (req: Request) => {
       stateFinalSource = mapPriceSourceToState(finalPriceSource);
       stateFailCount = 0;
       stats.total_200 += 1;
+      }
 
-        if (hasPriceChange) {
+        if (hasPriceChange && eventStatus !== "frozen") {
           priceChanges.push({
             run_id: runId,
             product_id: product.id,
@@ -2969,6 +3873,23 @@ Deno.serve(async (req: Request) => {
             price_from_catalog: catalogFallbackPrice,
             price_from_item: null,
             note: "catalog_fallback",
+            detected_at: now.toISOString(),
+          });
+        }
+
+        if (usedCatalogReconciliation && catalogFallbackPrice !== null) {
+          priceAnomalies.push({
+            run_id: runId,
+            product_id: product.id,
+            marketplace: product.marketplace ?? null,
+            external_id: normalizedExternalId,
+            catalog_id: catalogId ?? null,
+            preferred_item_id: preferredItemId ?? null,
+            source_url: product?.source_url ?? null,
+            affiliate_link: product?.affiliate_link ?? null,
+            price_from_catalog: catalogFallbackPrice,
+            price_from_item: toNumber((itemResp.body as any)?.price),
+            note: "catalog_reconciliation_applied",
             detected_at: now.toISOString(),
           });
         }
