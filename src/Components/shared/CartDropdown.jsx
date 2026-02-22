@@ -16,7 +16,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ScrollArea } from "@/Components/ui/scroll-area";
 
-export default function CartDropdown({ cartItems = [], products = [], scrolled }) {
+export default function CartDropdown({
+  cartItems = [],
+  products = [],
+  scrolled,
+  monitoredProducts = [],
+  monitoringLoading = false,
+  onToggleMonitoring,
+}) {
   const queryClient = useQueryClient();
   
   const cartProducts = cartItems.map(item => {
@@ -95,16 +102,71 @@ export default function CartDropdown({ cartItems = [], products = [], scrolled }
         </SheetHeader>
         
         {cartProducts.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-            <div className="w-16 h-16 rounded-full bg-zinc-100 flex items-center justify-center mb-4">
-              <ShoppingBag className="w-8 h-8 text-zinc-400" />
+          <div className="flex-1 flex flex-col py-6">
+            <div className="flex flex-col items-center justify-center text-center py-8">
+              <div className="w-16 h-16 rounded-full bg-zinc-100 flex items-center justify-center mb-4">
+                <ShoppingBag className="w-8 h-8 text-zinc-400" />
+              </div>
+              <p className="text-zinc-500 mb-4">Seu carrinho está vazio</p>
+              <Link to={createPageUrl('Products')}>
+                <Button className="bg-zinc-900 hover:bg-zinc-800">
+                  Explorar Produtos
+                </Button>
+              </Link>
             </div>
-            <p className="text-zinc-500 mb-4">Seu carrinho está vazio</p>
-            <Link to={createPageUrl('Products')}>
-              <Button className="bg-zinc-900 hover:bg-zinc-800">
-                Explorar Produtos
-              </Button>
-            </Link>
+
+            <div className="border-t pt-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-3">
+                Produtos monitorados
+              </p>
+
+              {monitoringLoading ? (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-500">
+                  Carregando monitoramentos...
+                </div>
+              ) : monitoredProducts.length === 0 ? (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-500">
+                  Você ainda não monitora nenhum produto.
+                </div>
+              ) : (
+                <ScrollArea className="max-h-[220px] pr-1">
+                  <div className="space-y-2">
+                    {monitoredProducts.map((item) => (
+                      <div key={item.product_id} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                        <Link
+                          to={createPageUrl('ProductDetail') + `?id=${item.product_id}`}
+                          className="flex min-w-0 items-center gap-2"
+                        >
+                          <div className="h-10 w-10 rounded-lg overflow-hidden bg-white border border-zinc-200 flex items-center justify-center">
+                            <img
+                              src={item.image_url || '/placeholder.svg'}
+                              alt={item.product_title || 'Produto'}
+                              className="h-full w-full object-contain"
+                              loading="lazy"
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-zinc-900 line-clamp-2">
+                              {item.product_title || 'Produto'}
+                            </p>
+                          </div>
+                        </Link>
+
+                        {typeof onToggleMonitoring === 'function' ? (
+                          <button
+                            type="button"
+                            onClick={() => onToggleMonitoring(item)}
+                            className="shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500 hover:text-zinc-900"
+                          >
+                            Desativar
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
           </div>
         ) : (
           <>
