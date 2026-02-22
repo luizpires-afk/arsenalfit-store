@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   RefreshCw,
   Link2,
-  ArrowDown,
   Dumbbell,
   FlaskConical,
   Pill,
@@ -25,47 +24,79 @@ import SEOHead from "@/Components/SEOHead";
 import { ProductCard } from "@/Components/ProductCard";
 import { Button } from "@/Components/ui/button";
 import SearchBarSticky from "@/Components/SearchBarSticky";
+import { openMonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog";
 import {
-  compareBySubFilter,
   dedupeCatalogProducts,
-  isBestValueCurationProduct,
-  isEliteCurationProduct,
-  isPopularCurationProduct,
 } from "@/lib/catalog";
-import { resolveFinalPriceInfo } from "@/lib/pricing.js";
+import { resolvePricePresentation } from "@/lib/pricing.js";
+import { useAuth } from "@/hooks/useAuth";
 
 const BEST_DEAL_MIN_DISCOUNT = 20;
 const BEST_DEAL_MAX_VERIFY_AGE_HOURS = 12;
 const BEST_DEAL_MAX_VERIFY_AGE_MS = BEST_DEAL_MAX_VERIFY_AGE_HOURS * 60 * 60 * 1000;
 const BEST_DEAL_FALLBACK_MAX_AGE_HOURS = 24;
 const BEST_DEAL_FALLBACK_MAX_AGE_MS = BEST_DEAL_FALLBACK_MAX_AGE_HOURS * 60 * 60 * 1000;
-const RELIABLE_PRICE_SOURCES = new Set(["auth", "public"]);
+const RELIABLE_PRICE_SOURCES = new Set([
+  "auth",
+  "public",
+  "manual",
+  "api",
+  "api_base",
+  "api_pix",
+  "catalog",
+  "catalog_ingest",
+  "scraper",
+]);
 const CAROUSEL_ITEM_CLASS =
   "shrink-0 basis-[calc((100%_-_16px)/2)] md:basis-[calc((100%_-_32px)/3)] lg:basis-[calc((100%_-_48px)/4)]";
 const CAROUSEL_SKELETON_HEIGHT = "h-56";
 const CAROUSEL_BUTTON_CLASS =
   "h-11 w-11 sm:h-14 sm:w-14 rounded-full border-2 border-zinc-300 bg-white text-zinc-700 shadow-[0_18px_36px_rgba(15,23,42,0.22)] backdrop-blur transition duration-300 hover:-translate-y-0.5 hover:scale-[1.05] hover:bg-zinc-100 hover:text-zinc-900 hover:shadow-[0_22px_40px_rgba(15,23,42,0.26)]";
-const ACTIVE_FILTER = "is_active.is.null,is_active.eq.true";
-const NON_BLOCKED_FILTER = "auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked";
+const VISIBLE_PRODUCTS_FILTER =
+  "and(is_active.eq.true,status.eq.active,data_health_status.eq.HEALTHY,auto_disabled_reason.is.null),and(is_active.eq.true,status.eq.active,data_health_status.eq.HEALTHY,auto_disabled_reason.neq.blocked)";
 const CAROUSEL_LIMIT = 16;
 const CATEGORY_PRIORITY = ["suplement", "equip", "acessor", "roupa"];
 
 const PRODUCT_SELECT_BASE =
-  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, updated_at, image_url, images, affiliate_link, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
+  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, updated_at, image_url, images, affiliate_link, source_url, canonical_offer_url, ml_item_id, is_active, status, auto_disabled_reason, affiliate_verified, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
 const PRODUCT_SELECT_WITH_SOURCE =
-  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, last_price_source, last_price_verified_at, updated_at, image_url, images, affiliate_link, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
+  "id, name, slug, price, pix_price, original_price, previous_price, detected_at, last_sync, last_price_source, last_price_verified_at, updated_at, image_url, images, affiliate_link, source_url, canonical_offer_url, ml_item_id, is_active, status, auto_disabled_reason, affiliate_verified, is_featured, is_on_sale, discount_percentage, free_shipping, marketplace, category_id, clicks_count, curation_badges";
 
-const HERO_BANNERS = [
+const HERO_SLIDES = [
   {
-    src: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=2000&q=80",
-    position: "50% 35%",
+    id: "monitor",
+    eyebrow: "Monitoramento inteligente",
+    title: "Ative o alerta e seja avisado quando o preço baixar",
+    description:
+      "Acompanhe seus produtos sem esforço e receba e-mail somente quando houver queda real.",
+    primaryCta: "Monitorar preço",
+    secondary: "Sem spam: alerta apenas com queda confirmada",
+    imageSrc: "/hero/hero-2.jpg",
+    imageClass: "object-[50%_24%] md:object-[50%_30%]",
   },
-  { src: "/hero/hero-1.jpg", position: "50% 35%" },
-  { src: "/hero/hero-2.jpg", position: "50% 30%" },
-  { src: "/hero/hero-3.jpg", position: "55% 35%" },
-  { src: "/hero/hero-4.jpg", position: "50% 25%" },
-  { src: "/hero/hero-5.jpg", position: "55% 30%" },
-];
+  {
+    id: "ofertas",
+    eyebrow: "Curadoria ArsenalFit",
+    title: "As melhores ofertas reais do dia, direto das lojas oficiais",
+    description:
+      "Preços monitorados e links oficiais pra comprar com confiança.",
+    primaryCta: "Ver as melhores ofertas",
+    secondary: "Atualizações frequentes ao longo do dia",
+    imageSrc: "/hero/hero-4.jpg",
+    imageClass: "object-[52%_32%] md:object-[50%_38%]",
+  },
+  {
+    id: "fidelidade",
+    eyebrow: "Perfil e fidelidade ArsenalFit",
+    title: "Seu painel de atleta para evoluir com o time de elite",
+    description:
+      "Tenha histórico, preferências e monitoramentos salvos para comprar melhor todos os dias.",
+    primaryCta: "Criar conta agora",
+    secondary: "Acesso rápido ao seu painel de atleta",
+    imageSrc: "/hero/hero-5.jpg",
+    imageClass: "object-[54%_30%] md:object-[52%_34%]",
+  },
+] as const;
 
 type CategoryRow = {
   id: string;
@@ -95,11 +126,6 @@ const mergeUnique = <T extends { id: string }>(...lists: (T[] | undefined)[]) =>
   }
   return merged;
 };
-
-const sortByCurationPriority = <T extends { id: string }>(items: T[]) =>
-  [...items].sort((a, b) =>
-    compareBySubFilter(a as any, b as any, "melhores"),
-  );
 
 const dedupeByCatalog = <T extends { id: string }>(items: T[]) =>
   dedupeCatalogProducts(items as any[]) as T[];
@@ -369,8 +395,10 @@ const useCarouselState = (
 
 export default function HomeV2() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isLoggedIn = Boolean(user?.id);
 
-  const heroRef = useRef<HTMLDivElement | null>(null);
   const bestDealsCarouselRef = useRef<HTMLDivElement | null>(null);
   const priceDropsCarouselRef = useRef<HTMLDivElement | null>(null);
   const eliteCarouselRef = useRef<HTMLDivElement | null>(null);
@@ -390,54 +418,74 @@ export default function HomeV2() {
   const productsRef = useRef<HTMLDivElement | null>(null);
 
   const showHighlights = true;
-  const reduceMotion = useReducedMotion();
-  const [heroBannerIndex, setHeroBannerIndex] = useState(0);
+  const prefersReducedMotion = useReducedMotion();
+  const [heroSlideIndex, setHeroSlideIndex] = useState(0);
+  const [heroTouchStartX, setHeroTouchStartX] = useState<number | null>(null);
+  const [isHeroHovered, setIsHeroHovered] = useState(false);
+  const [isHeroFocused, setIsHeroFocused] = useState(false);
+  const [isHeroInteracted, setIsHeroInteracted] = useState(false);
+  const heroInteractionTimeoutRef = useRef<number | null>(null);
   const [priceSourceSupported, setPriceSourceSupported] = useState<boolean | null>(null);
+  const heroSlide = HERO_SLIDES[heroSlideIndex % HERO_SLIDES.length];
+  const isOffersSlide = heroSlide.id === "ofertas";
 
-  const heroBanner = HERO_BANNERS[heroBannerIndex % HERO_BANNERS.length];
-  const heroMotion = useMemo(() => {
-    const duration = reduceMotion ? 0 : 0.26;
-    const stagger = reduceMotion ? 0 : 0.075;
+  const registerHeroInteraction = () => {
+    setIsHeroInteracted(true);
+    if (heroInteractionTimeoutRef.current) {
+      window.clearTimeout(heroInteractionTimeoutRef.current);
+    }
+    heroInteractionTimeoutRef.current = window.setTimeout(() => {
+      setIsHeroInteracted(false);
+      heroInteractionTimeoutRef.current = null;
+    }, 12000);
+  };
 
-    return {
-      container: {
-        hidden: {},
-        show: {
-          transition: {
-            staggerChildren: stagger,
-            delayChildren: reduceMotion ? 0 : 0.04,
-          },
-        },
-      },
-      item: {
-        hidden: { opacity: 0, y: 12 },
-        show: {
-          opacity: 1,
-          y: 0,
-          transition: { duration, ease: "easeOut" as const },
-        },
-      },
-    };
-  }, [reduceMotion]);
+  const goToHeroSlide = (targetIndex: number, fromInteraction = false) => {
+    const count = HERO_SLIDES.length;
+    const normalized = ((targetIndex % count) + count) % count;
+    if (fromInteraction) registerHeroInteraction();
+    setHeroSlideIndex(normalized);
+  };
+
+  const goToNextHeroSlide = (fromInteraction = false) => {
+    goToHeroSlide(heroSlideIndex + 1, fromInteraction);
+  };
+
+  const goToPrevHeroSlide = (fromInteraction = false) => {
+    goToHeroSlide(heroSlideIndex - 1, fromInteraction);
+  };
 
   useEffect(() => {
-    if (reduceMotion) return;
-    if (HERO_BANNERS.length <= 1) return;
+    if (HERO_SLIDES.length <= 1) return;
+    if (prefersReducedMotion) return;
+    if (isHeroHovered || isHeroFocused || isHeroInteracted) return;
 
     const id = window.setInterval(() => {
-      setHeroBannerIndex((current) => (current + 1) % HERO_BANNERS.length);
-    }, 6500);
+      setHeroSlideIndex((current) => (current + 1) % HERO_SLIDES.length);
+    }, 8000);
 
     return () => window.clearInterval(id);
-  }, [reduceMotion]);
+  }, [prefersReducedMotion, isHeroHovered, isHeroFocused, isHeroInteracted]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (HERO_BANNERS.length <= 1) return;
-    const next = HERO_BANNERS[(heroBannerIndex + 1) % HERO_BANNERS.length];
-    const img = new Image();
-    img.src = next.src;
-  }, [heroBannerIndex]);
+    if (HERO_SLIDES.length <= 1) return;
+
+    const next = HERO_SLIDES[(heroSlideIndex + 1) % HERO_SLIDES.length];
+    const prev = HERO_SLIDES[(heroSlideIndex - 1 + HERO_SLIDES.length) % HERO_SLIDES.length];
+    const nextImg = new Image();
+    const prevImg = new Image();
+    nextImg.src = next.imageSrc;
+    prevImg.src = prev.imageSrc;
+  }, [heroSlideIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (heroInteractionTimeoutRef.current) {
+        window.clearTimeout(heroInteractionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -516,8 +564,7 @@ export default function HomeV2() {
         .from("products")
         .select("id", { count: "exact", head: true })
         .eq("is_blocked", false)
-        .or(ACTIVE_FILTER)
-        .or(NON_BLOCKED_FILTER);
+        .or(VISIBLE_PRODUCTS_FILTER);
       if (error) throw error;
       return count ?? 0;
     },
@@ -601,8 +648,7 @@ export default function HomeV2() {
       const { data, error } = await supabase
         .from("products")
         .select("id, category_id, clicks_count, updated_at")
-        .or(ACTIVE_FILTER)
-        .or(NON_BLOCKED_FILTER)
+        .or(VISIBLE_PRODUCTS_FILTER)
         .gte("updated_at", since)
         .order("clicks_count", { ascending: false })
         .limit(200);
@@ -719,10 +765,9 @@ export default function HomeV2() {
           .from("products")
           .select(select)
           .eq("is_blocked", false)
-          .or(ACTIVE_FILTER)
-          .or(NON_BLOCKED_FILTER)
+          .or(VISIBLE_PRODUCTS_FILTER)
           .order("updated_at", { ascending: false })
-          .limit(8),
+          .limit(CAROUSEL_LIMIT),
       );
     },
   });
@@ -735,8 +780,7 @@ export default function HomeV2() {
           .from("products")
           .select(select)
           .eq("is_blocked", false)
-          .or(ACTIVE_FILTER)
-          .or(NON_BLOCKED_FILTER)
+          .or(VISIBLE_PRODUCTS_FILTER)
           .order("updated_at", { ascending: false })
           .limit(80),
       );
@@ -806,24 +850,13 @@ export default function HomeV2() {
 
     const candidates = pool
       .map((product: any) => {
-        const pricing = resolveFinalPriceInfo(product);
-        const price = toNumber(pricing.finalPrice) ?? 0;
-        const prev =
-          toNumber(product.previous_price) ??
-          toNumber(pricing.listPrice) ??
-          toNumber(pricing.originalPrice);
+        const pricing = resolvePricePresentation(product);
+        const price = toNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
+        const prev = toNumber(pricing.displayStrikethrough);
         const discountValue = prev ? Math.max(prev - price, 0) : 0;
-        const discountFromPrev =
+        const discountPercent =
           prev && prev > 0 ? (discountValue / prev) * 100 : 0;
-        const discountRaw = toNumber(product.discount_percentage);
-        const discountFromField =
-          typeof discountRaw === "number"
-            ? discountRaw <= 1
-              ? discountRaw * 100
-              : discountRaw
-            : 0;
-        const discountPercent = Math.max(discountFromPrev, discountFromField);
-        const usesPix = Boolean(pricing.usedPix);
+        const usesPix = Boolean(pricing.pixPrice);
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
@@ -838,11 +871,11 @@ export default function HomeV2() {
       })
       .filter((item) => item.discountPercent > 0);
 
-    const shortlisted = candidates.filter(
+    const rankingSource = candidates.filter(
       (item) => item.discountPercent >= BEST_DEAL_MIN_DISCOUNT,
     );
 
-    shortlisted.sort((a, b) => {
+    rankingSource.sort((a, b) => {
       const pixA = a.usesPix ? 1 : 0;
       const pixB = b.usesPix ? 1 : 0;
       if (pixA !== pixB) return pixB - pixA;
@@ -852,10 +885,10 @@ export default function HomeV2() {
     });
 
     const usedCategories = new Set<string>();
-    const diversified: typeof shortlisted = [];
-    const fallback: typeof shortlisted = [];
+    const diversified: typeof rankingSource = [];
+    const fallback: typeof rankingSource = [];
 
-    for (const item of shortlisted) {
+    for (const item of rankingSource) {
       const categoryId = item.product.category_id || "sem-categoria";
       if (!usedCategories.has(categoryId)) {
         usedCategories.add(categoryId);
@@ -887,8 +920,7 @@ export default function HomeV2() {
           .from("products")
           .select(select)
           .eq("is_blocked", false)
-          .or(ACTIVE_FILTER)
-          .or(NON_BLOCKED_FILTER)
+          .or(VISIBLE_PRODUCTS_FILTER)
           .order("updated_at", { ascending: false })
           .limit(120),
       );
@@ -903,8 +935,7 @@ export default function HomeV2() {
           .from("products")
           .select(select)
           .eq("is_blocked", false)
-          .or(ACTIVE_FILTER)
-          .or(NON_BLOCKED_FILTER)
+          .or(VISIBLE_PRODUCTS_FILTER)
           .order("price", { ascending: true })
           .limit(16),
       );
@@ -912,24 +943,25 @@ export default function HomeV2() {
   });
 
   const priceDropsToday = useMemo(() => {
-    const primary = dedupeByCatalog(dropsData || [])
+    const allDropsCandidates = dedupeByCatalog(dropsData || []);
+
+    const primary = allDropsCandidates
       .filter((product: any) => {
-        const price = Number(product.price || 0);
-        const prev = typeof product.previous_price === "number" ? product.previous_price : null;
-        const original =
-          typeof product.original_price === "number" ? product.original_price : null;
+        const pricing = resolvePricePresentation(product);
+        const price = Number(pricing.displayPricePrimary || 0);
+        const prev = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
+        const original = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
         const hasDrop =
           (prev !== null && prev > price) ||
-          (original !== null && original > price) ||
-          (typeof product.discount_percentage === "number" && product.discount_percentage > 0);
+          (original !== null && original > price);
         return hasDrop;
       })
       .map((product: any) => {
-        const price = Number(product.price || 0);
+        const pricing = resolvePricePresentation(product);
+        const price = Number(pricing.displayPricePrimary || 0);
         const prev =
-          typeof product.previous_price === "number" ? product.previous_price : null;
-        const original =
-          typeof product.original_price === "number" ? product.original_price : null;
+          typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
+        const original = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
         const base = prev ?? original ?? price;
         const dropValue = Math.max(base - price, 0);
         const lastUpdated =
@@ -944,7 +976,26 @@ export default function HomeV2() {
       })
       .map((item) => item.product);
 
-    return primary;
+    if (primary.length > 0) return primary;
+
+    const fallbackPromos = allDropsCandidates
+      .map((product: any) => {
+        const pricing = resolvePricePresentation(product);
+        const discountPercent = Number(pricing.discountPercent || 0);
+        const lastUpdated =
+          product.detected_at || product.last_sync || product.updated_at || null;
+        const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
+        return { product, discountPercent, lastUpdatedMs };
+      })
+      .filter((item) => item.discountPercent > 0)
+      .sort((a, b) => {
+        if (b.discountPercent !== a.discountPercent)
+          return b.discountPercent - a.discountPercent;
+        return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
+      })
+      .map((item) => item.product);
+
+    return fallbackPromos;
   }, [dropsData]);
 
   const { data: eliteData = [], isLoading: eliteLoading } = useQuery({
@@ -955,8 +1006,7 @@ export default function HomeV2() {
           .from("products")
           .select(select)
           .eq("is_blocked", false)
-          .or(ACTIVE_FILTER)
-          .or(NON_BLOCKED_FILTER)
+          .or(VISIBLE_PRODUCTS_FILTER)
           .order("price", { ascending: false })
           .limit(120),
       );
@@ -971,8 +1021,7 @@ export default function HomeV2() {
             .from("products")
             .select(select)
             .eq("is_blocked", false)
-            .or(ACTIVE_FILTER)
-            .or(NON_BLOCKED_FILTER)
+            .or(VISIBLE_PRODUCTS_FILTER)
             .order("is_featured", { ascending: false })
             .order("clicks_count", { ascending: false })
             .order("updated_at", { ascending: false })
@@ -982,42 +1031,52 @@ export default function HomeV2() {
     });
 
   const eliteProducts = useMemo(() => {
-    const pool = sortByCurationPriority(
-      dedupeByCatalog(
-        (eliteData || []).filter((product: any) => product.is_active !== false),
+    const pool = dedupeByCatalog(
+      mergeUnique(eliteData, eliteFallbackData, bestDealsData, previewData).filter(
+        (product: any) => product?.is_active !== false,
       ),
     );
 
-    const elitePrimary = pool.filter((product: any) =>
-      isEliteCurationProduct(product as any),
-    );
-    const bestValueSecondary = pool.filter(
-      (product: any) =>
-        !isEliteCurationProduct(product as any) &&
-        isBestValueCurationProduct(product as any),
-    );
-    const popularSecondary = pool.filter(
-      (product: any) =>
-        !isEliteCurationProduct(product as any) &&
-        !isBestValueCurationProduct(product as any) &&
-        isPopularCurationProduct(product as any),
-    );
+    const getUpdatedMs = (product: any) => {
+      const ref = product?.detected_at || product?.last_sync || product?.updated_at || null;
+      const ms = ref ? new Date(ref).getTime() : 0;
+      return Number.isFinite(ms) ? ms : 0;
+    };
 
-    const fallback = sortByCurationPriority(
-      dedupeByCatalog(
-        mergeUnique(eliteFallbackData, bestDealsData, previewData).filter(
-          (product: any) => product?.is_active !== false,
-        ),
-      ),
-    );
+    const sorted = [...pool].sort((a: any, b: any) => {
+      const aPricing = resolvePricePresentation(a);
+      const bPricing = resolvePricePresentation(b);
 
-    const merged = mergeUnique(
-      elitePrimary,
-      bestValueSecondary,
-      popularSecondary,
-      fallback,
-    );
-    return merged.slice(0, CAROUSEL_LIMIT);
+      const aPrice = Number(aPricing.displayPricePrimary || a.price || 0);
+      const bPrice = Number(bPricing.displayPricePrimary || b.price || 0);
+      if (bPrice !== aPrice) return bPrice - aPrice;
+
+      const aList =
+        typeof aPricing.displayStrikethrough === "number" ? aPricing.displayStrikethrough : null;
+      const bList =
+        typeof bPricing.displayStrikethrough === "number" ? bPricing.displayStrikethrough : null;
+      const aDiscount = aList && aList > 0 ? ((aList - aPrice) / aList) * 100 : 0;
+      const bDiscount = bList && bList > 0 ? ((bList - bPrice) / bList) * 100 : 0;
+      if (bDiscount !== aDiscount) return bDiscount - aDiscount;
+
+      return getUpdatedMs(b) - getUpdatedMs(a);
+    });
+
+    const usedCategories = new Set<string>();
+    const diversified: any[] = [];
+    const overflow: any[] = [];
+
+    for (const product of sorted) {
+      const categoryId = product?.category_id || "sem-categoria";
+      if (!usedCategories.has(categoryId)) {
+        usedCategories.add(categoryId);
+        diversified.push(product);
+      } else {
+        overflow.push(product);
+      }
+    }
+
+    return [...diversified, ...overflow].slice(0, CAROUSEL_LIMIT);
   }, [eliteData, eliteFallbackData, bestDealsData, previewData]);
 
   const previewProducts = useMemo(() => {
@@ -1026,8 +1085,12 @@ export default function HomeV2() {
         (product: any) => product?.is_active !== false,
       ),
     );
-    const sorted = sortByCurationPriority(merged);
-    return sorted.slice(0, 8);
+    const sorted = [...merged].sort((a: any, b: any) => {
+      const aMs = new Date(a?.updated_at || a?.last_sync || a?.detected_at || 0).getTime();
+      const bMs = new Date(b?.updated_at || b?.last_sync || b?.detected_at || 0).getTime();
+      return (Number.isFinite(bMs) ? bMs : 0) - (Number.isFinite(aMs) ? aMs : 0);
+    });
+    return sorted.slice(0, CAROUSEL_LIMIT);
   }, [previewData, bestDealsData, eliteData, lowPriceData]);
 
   const previewProductsLimited = useMemo(
@@ -1036,7 +1099,7 @@ export default function HomeV2() {
   );
 
   const previewSlots = useMemo(
-    () => Math.max(0, 8 - previewProductsLimited.length),
+    () => Math.max(0, CAROUSEL_LIMIT - previewProductsLimited.length),
     [previewProductsLimited],
   );
 
@@ -1048,7 +1111,7 @@ export default function HomeV2() {
   );
 
   const bestDealsSlots = useMemo(
-    () => Math.max(0, 6 - bestDealsShowLimited.length),
+    () => Math.max(0, CAROUSEL_LIMIT - bestDealsShowLimited.length),
     [bestDealsShowLimited],
   );
 
@@ -1060,23 +1123,17 @@ export default function HomeV2() {
     for (const product of pool as any[]) {
       const categoryId = product?.category_id;
       if (!categoryId) continue;
-      const price = Number(product.price || 0);
+      const pricing = resolvePricePresentation(product);
+      const price = Number(pricing.displayPricePrimary || 0);
       const prevRaw =
-        typeof product.previous_price === "number"
-          ? product.previous_price
-          : typeof product.original_price === "number"
-            ? product.original_price
-            : null;
+        typeof pricing.displayStrikethrough === "number"
+          ? pricing.displayStrikethrough
+          : null;
       const prev = typeof prevRaw === "number" ? prevRaw : null;
       const hasDrop = prev !== null && prev > price;
-      const isPromo =
-        product.is_on_sale === true ||
-        (typeof product.discount_percentage === "number" && product.discount_percentage > 0);
+      const isPromo = prev !== null && prev > price;
       const isFeatured = product.is_featured === true;
-      const isCuratedPriority =
-        isEliteCurationProduct(product as any) ||
-        isBestValueCurationProduct(product as any) ||
-        isPopularCurationProduct(product as any);
+      const isCuratedPriority = Number(pricing.displayPricePrimary || product.price || 0) > 0;
       const isBestDeal = bestDealIds.has(product.id);
 
       if (isBestDeal || isPromo || hasDrop || isFeatured || isCuratedPriority) {
@@ -1108,12 +1165,62 @@ export default function HomeV2() {
   );
 
   const eliteSlots = useMemo(
-    () => Math.max(0, 6 - eliteShowLimited.length),
+    () => Math.max(0, CAROUSEL_LIMIT - eliteShowLimited.length),
     [eliteShowLimited],
   );
 
   const handleScrollToBestDeals = () => {
     document.getElementById("best-deals")?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleHeroPrimaryAction = () => {
+    if (heroSlide.id === "ofertas") {
+      handleScrollToBestDeals();
+      return;
+    }
+
+    if (heroSlide.id === "monitor") {
+      openMonitorInfoDialog();
+      return;
+    }
+
+    if (isLoggedIn) {
+      navigate("/perfil");
+      return;
+    }
+
+    navigate("/auth?mode=signup");
+  };
+
+  const handleHeroTouchStart = (event: React.TouchEvent<HTMLElement>) => {
+    setHeroTouchStartX(event.touches[0]?.clientX ?? null);
+  };
+
+  const handleHeroTouchEnd = (event: React.TouchEvent<HTMLElement>) => {
+    if (heroTouchStartX === null) return;
+    const touchEndX = event.changedTouches[0]?.clientX ?? heroTouchStartX;
+    const delta = touchEndX - heroTouchStartX;
+    setHeroTouchStartX(null);
+
+    if (Math.abs(delta) < 30) return;
+    if (delta < 0) {
+      goToNextHeroSlide(true);
+      return;
+    }
+    goToPrevHeroSlide(true);
+  };
+
+  const handleHeroKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      goToPrevHeroSlide(true);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      goToNextHeroSlide(true);
+    }
   };
 
   const scrollCarousel = (
@@ -1156,105 +1263,189 @@ export default function HomeV2() {
 
       <SearchBarSticky />
       <section
-        ref={heroRef}
-        className="relative overflow-hidden bg-zinc-950 text-white max-h-[70vh] md:max-h-none"
+        className="relative h-[480px] md:h-[600px] overflow-hidden text-white"
+        onMouseEnter={() => setIsHeroHovered(true)}
+        onMouseLeave={() => setIsHeroHovered(false)}
+        onFocusCapture={() => setIsHeroFocused(true)}
+        onBlurCapture={() => setIsHeroFocused(false)}
+        onTouchStart={handleHeroTouchStart}
+        onTouchEnd={handleHeroTouchEnd}
+        onKeyDown={handleHeroKeyDown}
+        tabIndex={0}
+        style={{ touchAction: "manipulation" }}
+        aria-label="Banners principais ArsenalFit"
+        aria-roledescription="carousel"
       >
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <AnimatePresence initial={false}>
-            <motion.img
-              key={heroBanner.src}
-              src={heroBanner.src}
-              alt=""
-              aria-hidden="true"
-              className="absolute inset-0 h-full w-full object-cover grayscale contrast-110 brightness-[1.05]"
-              style={{ objectPosition: heroBanner.position }}
-              initial={
-                reduceMotion
-                  ? { opacity: 0.6 }
-                  : { opacity: 0, scale: 1.03 }
-              }
-              animate={{ opacity: 0.6, scale: 1 }}
-              exit={
-                reduceMotion
-                  ? { opacity: 0.6 }
-                  : { opacity: 0, scale: 1.01 }
-              }
-              transition={
-                reduceMotion
-                  ? { duration: 0 }
-                  : { duration: 1.1, ease: "easeInOut" }
-              }
-            />
+        <div className="absolute inset-0 z-0 bg-zinc-950" />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.img
+            key={`${heroSlide.id}-bg`}
+            src={heroSlide.imageSrc}
+            alt=""
+            aria-hidden="true"
+            className={`pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover ${heroSlide.imageClass}`}
+            style={{ filter: "blur(3px) saturate(1.08)" }}
+            initial={{ opacity: 0.12, scale: 1.04 }}
+            animate={{ opacity: 0.5, scale: 1 }}
+            exit={{ opacity: 0.12, scale: 1.02 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.6, ease: "easeInOut" }}
+          />
+        </AnimatePresence>
+        <div
+          className={`absolute inset-0 z-[2] ${
+            isOffersSlide
+              ? "bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.06)_0%,rgba(0,0,0,0.42)_68%,rgba(0,0,0,0.74)_100%)]"
+              : "bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.10)_0%,rgba(0,0,0,0.55)_68%,rgba(0,0,0,0.78)_100%)]"
+          }`}
+        />
+        <div
+          className={`absolute inset-0 z-[2] ${
+            isOffersSlide
+              ? "bg-gradient-to-r from-black/68 via-black/24 to-black/68"
+              : "bg-gradient-to-r from-black/70 via-black/35 to-black/70"
+          }`}
+        />
+        <div
+          className={`absolute inset-0 z-[2] ${
+            isOffersSlide
+              ? "bg-gradient-to-b from-black/30 via-black/14 to-black/70"
+              : "bg-gradient-to-b from-black/35 via-black/20 to-black/72"
+          }`}
+        />
+
+        <div className="relative z-[3] mx-auto flex h-full w-full max-w-[1040px] items-center justify-center px-4 sm:px-6 lg:px-8">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={heroSlide.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.6, ease: "easeInOut" }}
+              className="mx-auto w-full text-center"
+              role="group"
+              aria-label={`Slide ${heroSlideIndex + 1} de ${HERO_SLIDES.length}`}
+            >
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-4 py-2 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-100">
+                {heroSlide.eyebrow}
+              </div>
+
+              <h1
+                className="mx-auto mt-5 max-w-[860px] min-h-[76px] sm:min-h-[96px] text-[30px] sm:text-[38px] md:text-[52px] font-black tracking-tight leading-[1.06]"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {heroSlide.id === "fidelidade" && isLoggedIn
+                  ? "Você já faz parte do time de elite"
+                  : heroSlide.title}
+              </h1>
+
+              <p
+                className="mx-auto mt-4 max-w-[820px] min-h-[44px] sm:min-h-[52px] text-sm sm:text-base md:text-[18px] text-zinc-100/90 leading-relaxed"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {heroSlide.id === "fidelidade" && isLoggedIn
+                  ? "Seu perfil já está ativo. Continue evoluindo com monitoramentos e ofertas personalizadas."
+                  : heroSlide.description}
+              </p>
+
+              <div className="mt-7 flex flex-col items-center gap-3">
+                <Button
+                  onClick={handleHeroPrimaryAction}
+                  className="h-14 sm:h-16 px-8 sm:px-11 rounded-full bg-[#FF6A00] text-white hover:bg-[#e85f00] text-base sm:text-lg font-black shadow-[0_16px_40px_rgba(255,106,0,0.34)] hover:shadow-[0_22px_46px_rgba(255,106,0,0.40)] focus-visible:ring-4 focus-visible:ring-[#ff6a00]/40"
+                >
+                  {heroSlide.id === "fidelidade" && isLoggedIn ? "Ir para meu perfil" : heroSlide.primaryCta}
+                  <ChevronRight className="ml-2 h-5 w-5" />
+                </Button>
+
+                {heroSlide.id === "monitor" && (
+                  <button
+                    type="button"
+                    onClick={openMonitorInfoDialog}
+                    className="text-[11px] font-bold text-zinc-100/90 hover:text-white underline underline-offset-4"
+                  >
+                    Como funciona?
+                  </button>
+                )}
+
+                <div className="inline-flex items-center justify-center rounded-full border border-white/20 bg-black/25 px-4 py-2 text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-100/90">
+                  {heroSlide.id === "ofertas" ? (
+                    <>
+                      <span className="inline-flex h-2 w-2 rounded-full bg-[#FF6A00] animate-pulse mr-2" />
+                      {activeOffersLoading ? "85 ofertas ativas" : `${formattedActiveOffers} ofertas ativas`}
+                    </>
+                  ) : (
+                    heroSlide.secondary
+                  )}
+                </div>
+              </div>
+            </motion.div>
           </AnimatePresence>
-        </div>
-        <div className="absolute inset-0 z-[1] bg-[radial-gradient(320px_220px_at_20%_10%,rgba(163,230,53,0.22),transparent_65%)]" />
-        <div className="absolute inset-0 z-[1] bg-[radial-gradient(420px_240px_at_82%_0%,rgba(249,115,22,0.2),transparent_65%)]" />
-        <div className="absolute inset-0 z-[2] bg-gradient-to-r from-zinc-950/75 via-zinc-950/45 to-zinc-950/20" />
-        <div className="absolute inset-0 z-[2] bg-gradient-to-b from-zinc-950/15 via-zinc-950/55 to-zinc-950/75" />
-        <div className="relative z-[3] max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12 md:py-20 lg:py-24">
-          <motion.div variants={heroMotion.container} initial="hidden" animate="show">
-            <motion.div variants={heroMotion.item}>
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/5 border border-white/10 px-4 py-2 text-xs text-zinc-200">
-                Curadoria fitness com preços monitorados
-              </div>
-            </motion.div>
 
-            <motion.h1
-              variants={heroMotion.item}
-              className="mt-5 text-3xl sm:text-4xl md:text-5xl font-black tracking-tight leading-[1.05]"
+          <div className="absolute bottom-6 left-1/2 z-[4] -translate-x-1/2 flex items-center gap-2" role="tablist" aria-label="Paginação dos banners">
+            {HERO_SLIDES.map((slide, index) => (
+              <button
+                key={slide.id}
+                type="button"
+                onClick={() => goToHeroSlide(index, true)}
+                aria-label={`Ir para banner ${index + 1}`}
+                aria-selected={index === heroSlideIndex}
+                className={`h-2.5 rounded-full transition-all duration-300 ${
+                  index === heroSlideIndex
+                    ? "w-8 bg-[#FF6A00]"
+                    : "w-2.5 bg-white/50 hover:bg-white/80"
+                } focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45`}
+              />
+            ))}
+          </div>
+
+          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-[4] hidden md:flex items-center justify-between px-2 lg:px-0">
+            <button
+              type="button"
+              onClick={() => goToPrevHeroSlide(true)}
+              className="pointer-events-auto inline-flex h-14 w-14 lg:h-16 lg:w-16 items-center justify-center rounded-full border border-white/30 bg-black/42 text-white hover:bg-black/60 hover:scale-[1.03] shadow-[0_14px_34px_rgba(0,0,0,0.35)] transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/50"
+              aria-label="Slide anterior"
             >
-              Curadoria fitness com os melhores preços reais de hoje
-            </motion.h1>
+              <ChevronLeft size={24} />
+            </button>
 
-            <motion.p
-              variants={heroMotion.item}
-              className="mt-4 text-base md:text-lg text-zinc-300 max-w-2xl"
+            <button
+              type="button"
+              onClick={() => goToNextHeroSlide(true)}
+              className="pointer-events-auto inline-flex h-14 w-14 lg:h-16 lg:w-16 items-center justify-center rounded-full border border-white/30 bg-black/42 text-white hover:bg-black/60 hover:scale-[1.03] shadow-[0_14px_34px_rgba(0,0,0,0.35)] transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/50"
+              aria-label="Próximo slide"
             >
-              Monitoramos preços automaticamente e te levamos direto às lojas oficiais, sem intermediários.
-            </motion.p>
+              <ChevronRight size={24} />
+            </button>
+          </div>
 
-            <motion.div
-              variants={heroMotion.item}
-              className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3"
+          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-[4] flex items-center justify-between px-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => goToPrevHeroSlide(true)}
+              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white/90 hover:bg-black/50 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45"
+              aria-label="Banner anterior"
             >
-              <Button
-                onClick={handleScrollToBestDeals}
-                className="w-full sm:w-auto bg-lime-400 text-zinc-900 hover:bg-lime-300 font-black px-6 py-6 rounded-full gap-2"
-              >
-                <span>Ver ofertas de hoje</span>
-                <ArrowDown className="ml-2 h-4 w-4" />
-              </Button>
+              <ChevronLeft size={18} />
+            </button>
 
-              <div
-                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-2 rounded-full bg-white/5 border border-white/10 px-4 py-3 text-xs text-zinc-200"
-                aria-live="polite"
-              >
-                <span className="inline-flex h-2 w-2 rounded-full bg-lime-300/90 animate-pulse" />
-                <span className="font-semibold text-white">
-                  {activeOffersLoading ? "Atualizando..." : formattedActiveOffers}
-                </span>
-                <span>ofertas ativas</span>
-              </div>
-            </motion.div>
-
-            <motion.div
-              variants={heroMotion.item}
-              className="mt-6 flex gap-4 overflow-x-auto no-scrollbar pb-2 text-xs text-zinc-300 md:flex-nowrap md:overflow-visible md:whitespace-nowrap"
+            <button
+              type="button"
+              onClick={() => goToNextHeroSlide(true)}
+              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white/90 hover:bg-black/50 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45"
+              aria-label="Próximo banner"
             >
-              <div className="flex items-center gap-2 shrink-0">
-                <ShieldCheck size={14} className="text-lime-300" />
-                Preços monitorados automaticamente
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <RefreshCw size={14} className="text-lime-300" />
-                Atualizações frequentes ao longo do dia
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Link2 size={14} className="text-lime-300" />
-                Links diretos para lojas oficiais
-              </div>
-            </motion.div>
-          </motion.div>
+              <ChevronRight size={18} />
+            </button>
+          </div>
         </div>
       </section>
 
