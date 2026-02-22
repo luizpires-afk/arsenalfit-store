@@ -1316,7 +1316,7 @@ export default function HomeV2() {
 
       <SearchBarSticky />
       <section
-        className="relative h-[480px] md:h-[600px] overflow-hidden text-white"
+        className="relative min-h-[560px] sm:h-[480px] md:h-[600px] overflow-hidden text-white"
         onMouseEnter={() => setIsHeroHovered(true)}
         onMouseLeave={() => setIsHeroHovered(false)}
         onFocusCapture={() => setIsHeroFocused(true)}
@@ -1325,7 +1325,7 @@ export default function HomeV2() {
         onTouchEnd={handleHeroTouchEnd}
         onKeyDown={handleHeroKeyDown}
         tabIndex={0}
-        style={{ touchAction: "manipulation" }}
+        style={{ touchAction: "pan-y" }}
         aria-label="Banners principais ArsenalFit"
         aria-roledescription="carousel"
       >
@@ -1366,7 +1366,7 @@ export default function HomeV2() {
           }`}
         />
 
-        <div className="relative z-[3] mx-auto flex h-full w-full max-w-[1040px] items-center justify-center px-4 sm:px-6 lg:px-8">
+        <div className="relative z-[3] mx-auto flex h-full w-full max-w-[1040px] items-start justify-center px-4 pt-14 pb-28 sm:px-6 sm:pt-16 sm:pb-24 md:items-center md:px-6 md:pt-0 md:pb-0 lg:px-8">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={heroSlide.id}
@@ -1382,29 +1382,13 @@ export default function HomeV2() {
                 {heroSlide.eyebrow}
               </div>
 
-              <h1
-                className="mx-auto mt-5 max-w-[860px] min-h-[76px] sm:min-h-[96px] text-[30px] sm:text-[38px] md:text-[52px] font-black tracking-tight leading-[1.06]"
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
+              <h1 className="mx-auto mt-5 max-w-[860px] text-[28px] sm:text-[34px] md:text-[52px] font-black tracking-tight leading-[1.08]">
                 {heroSlide.id === "fidelidade" && isLoggedIn
                   ? "Você já faz parte do time de elite"
                   : heroSlide.title}
               </h1>
 
-              <p
-                className="mx-auto mt-4 max-w-[820px] min-h-[44px] sm:min-h-[52px] text-sm sm:text-base md:text-[18px] text-zinc-100/90 leading-relaxed"
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
+              <p className="mx-auto mt-4 max-w-[820px] text-[18px] sm:text-base md:text-[18px] text-zinc-100/90 leading-relaxed">
                 {heroSlide.id === "fidelidade" && isLoggedIn
                   ? "Seu perfil já está ativo. Continue evoluindo com monitoramentos e ofertas personalizadas."
                   : heroSlide.description}
@@ -1480,11 +1464,11 @@ export default function HomeV2() {
             </button>
           </div>
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-[4] flex items-center justify-between px-2 md:hidden">
+          <div className="pointer-events-none absolute bottom-32 left-0 right-0 z-[4] flex items-center justify-between px-3 md:hidden">
             <button
               type="button"
               onClick={() => goToPrevHeroSlide(true)}
-              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white/90 hover:bg-black/50 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45"
+              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/25 text-[#FF8A00] backdrop-blur-sm shadow-[0_8px_22px_rgba(255,106,0,0.22)] hover:bg-black/40 hover:text-[#FFA24D] transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45"
               aria-label="Banner anterior"
             >
               <ChevronLeft size={18} />
@@ -1493,7 +1477,7 @@ export default function HomeV2() {
             <button
               type="button"
               onClick={() => goToNextHeroSlide(true)}
-              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/35 text-white/90 hover:bg-black/50 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45"
+              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/25 text-[#FF8A00] backdrop-blur-sm shadow-[0_8px_22px_rgba(255,106,0,0.22)] hover:bg-black/40 hover:text-[#FFA24D] transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ff6a00]/45"
               aria-label="Próximo banner"
             >
               <ChevronRight size={18} />

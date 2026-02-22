@@ -103,7 +103,7 @@ export function MonitorInfoDialog() {
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-6 grid gap-3 md:flex md:flex-wrap">
           <button
             type="button"
             onClick={() => {
@@ -112,7 +112,7 @@ export function MonitorInfoDialog() {
               }
               setOpen(false);
             }}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[hsl(var(--accent-orange))] px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-white"
+            className="inline-flex w-full md:flex-1 items-center justify-center gap-2 rounded-full bg-[hsl(var(--accent-orange))] px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-white"
           >
             Ativar monitoramento <ArrowRight className="h-4 w-4" />
           </button>
@@ -128,14 +128,14 @@ export function MonitorInfoDialog() {
             href="/como-monitorar"
             target="_blank"
             rel="noreferrer"
-            className="w-full text-center text-[11px] font-bold text-[hsl(var(--accent-orange))] underline underline-offset-4 md:hidden"
+            className="inline-flex w-full items-center justify-center rounded-full border border-[hsl(var(--accent-orange))]/35 bg-[hsl(var(--accent-orange))]/10 px-4 py-2 text-[12px] font-black uppercase tracking-[0.14em] text-[hsl(var(--accent-orange))] md:hidden"
           >
             Ver tutorial completo
           </a>
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="inline-flex flex-1 items-center justify-center rounded-full border border-zinc-200 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:border-primary/40 hover:text-primary transition-colors"
+            className="inline-flex w-full md:flex-1 items-center justify-center rounded-full border border-zinc-200 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:border-primary/40 hover:text-primary transition-colors"
           >
             Fechar
           </button>
