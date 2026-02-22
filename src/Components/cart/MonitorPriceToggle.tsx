@@ -39,7 +39,7 @@ export function MonitorPriceToggle({
               type="button"
               className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--cart-muted)] hover:text-[var(--cart-accent)] hover:underline hover:underline-offset-4 transition-colors"
             >
-              Saiba mais
+              Como monitorar
             </button>
           </PopoverTrigger>
           <PopoverContent
@@ -87,7 +87,9 @@ export function MonitorPriceToggle({
           <span className="font-bold">{active ? "Monitoramento ativado" : "Monitoramento desativado"}</span>
         </span>
       </div>
-      <span className="text-[10px] text-[var(--cart-muted)]">Avisamos por e-mail quando baixar.</span>
+      <span className="text-[10px] text-[var(--cart-muted)]">
+        Ative e acompanhe no carrinho. Você recebe e-mail só quando cair.
+      </span>
     </div>
   );
 }

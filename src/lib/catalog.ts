@@ -1,6 +1,7 @@
 import {
   hasMeaningfulPixDiscount as hasMeaningfulPixDiscountBase,
   resolveFinalPriceInfo,
+  resolvePricePresentation,
 } from "./pricing.js";
 
 export type CatalogCategory =
@@ -55,6 +56,10 @@ export type CatalogProduct = {
   external_id?: string | null;
   source_url?: string | null;
   affiliate_link?: string | null;
+  affiliate_verified?: boolean | null;
+  is_active?: boolean | null;
+  status?: string | null;
+  auto_disabled_reason?: string | null;
   brand?: string | null;
   subcategory?: string | null;
   specifications?: Record<string, unknown> | null;
@@ -63,6 +68,28 @@ export type CatalogProduct = {
   clicks_count?: number | null;
   rating?: number | null;
   reviews_count?: number | null;
+};
+
+const isMercadoLivreSecAffiliate = (value?: string | null) => {
+  if (!value) return false;
+  try {
+    const url = new URL(String(value).trim());
+    const host = url.host.toLowerCase();
+    if (!(host === "mercadolivre.com" || host === "www.mercadolivre.com")) return false;
+    return /^\/sec\/[a-z0-9]+/i.test(url.pathname || "");
+  } catch {
+    return false;
+  }
+};
+
+const hasValidatedMlAffiliate = (product: CatalogProduct) => {
+  const marketplace = normalizeText(product.marketplace || "");
+  if (!marketplace.includes("mercado")) return false;
+  const hasSec = isMercadoLivreSecAffiliate(product.affiliate_link);
+  if (!hasSec) return false;
+  if (product.affiliate_verified === true) return true;
+  const status = normalizeText(product.status || "");
+  return product.is_active === true || status === "active";
 };
 
 const CURATION_BADGE_ELITE = "ELITE";
@@ -110,14 +137,9 @@ export const getProductCategory = (product: CatalogProduct): CatalogCategory | n
 };
 
 export const getDiscountPercent = (product: CatalogProduct) => {
-  if (typeof product.discount_percentage === "number" && product.discount_percentage > 0) {
-    return Math.round(product.discount_percentage);
-  }
-  const original =
-    typeof product.original_price === "number" ? product.original_price : null;
-  const price = typeof product.price === "number" ? product.price : null;
-  if (original && price && original > price) {
-    return Math.round(((original - price) / original) * 100);
+  const pricing = resolvePricePresentation(product);
+  if (typeof pricing.discountPercent === "number" && pricing.discountPercent > 0) {
+    return Math.round(pricing.discountPercent);
   }
   return 0;
 };
@@ -135,33 +157,29 @@ export const getEffectivePrice = (product: CatalogProduct) => {
 };
 
 export const isPromoProduct = (product: CatalogProduct) => {
-  const discount = getDiscountPercent(product);
-  if (discount >= 1) return true;
-  const original =
-    typeof product.original_price === "number" ? product.original_price : null;
-  return Boolean(product.is_on_sale || (original && original > product.price));
+  return getDiscountPercent(product) >= 1;
 };
 
 export const hasPixPrice = (product: CatalogProduct) => getPixPrice(product) !== null;
 
 export const getPriorityScore = (product: CatalogProduct) => {
-  const price = Number(product.price || 0);
+  const pricing = resolvePricePresentation(product);
+  const price = Number(pricing.displayPricePrimary || pricing.finalPrice || 0);
   const prevRaw =
     typeof product.previous_price === "number"
       ? product.previous_price
-      : typeof product.original_price === "number"
-        ? product.original_price
+      : typeof pricing.displayStrikethrough === "number"
+        ? pricing.displayStrikethrough
         : null;
   const prev = typeof prevRaw === "number" ? prevRaw : null;
   const hasDrop = prev !== null && prev > price;
-  const discountPercent =
-    typeof product.discount_percentage === "number"
-      ? product.discount_percentage
-      : hasDrop && prev
-        ? Math.round(((prev - price) / prev) * 100)
-        : 0;
+  const discountPercent = typeof pricing.discountPercent === "number"
+    ? pricing.discountPercent
+    : hasDrop && prev
+      ? Math.round(((prev - price) / prev) * 100)
+      : 0;
   const isBestDeal = discountPercent >= 15;
-  const isPromo = product.is_on_sale === true || discountPercent > 0;
+  const isPromo = discountPercent > 0;
   const isFeatured = product.is_featured === true;
 
   if (isBestDeal) return 4;
@@ -517,6 +535,14 @@ const getCanonicalCatalogKey = (product: CatalogProduct) => {
 };
 
 const pickBestCatalogProduct = <T extends CatalogProduct>(a: T, b: T) => {
+  const aBlocked = normalizeText(a.auto_disabled_reason || "") === "blocked";
+  const bBlocked = normalizeText(b.auto_disabled_reason || "") === "blocked";
+  if (aBlocked !== bBlocked) return aBlocked ? b : a;
+
+  const aValidatedMl = hasValidatedMlAffiliate(a);
+  const bValidatedMl = hasValidatedMlAffiliate(b);
+  if (aValidatedMl !== bValidatedMl) return aValidatedMl ? a : b;
+
   const byPriority = compareByCurationPriority(a, b);
   if (byPriority < 0) return a;
   if (byPriority > 0) return b;

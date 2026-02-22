@@ -21,11 +21,12 @@ import { Skeleton } from "@/Components/ui/skeleton";
 import { Dialog, DialogContent, DialogTrigger } from "@/Components/ui/dialog";
 import SEOHead from "@/Components/SEOHead";
 import { StickyMobileCTA } from "@/Components/product/StickyMobileCTA";
+import { openMonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog";
 
 import { normalizeMarketplaceProduct } from "@/lib/productNormalizer";
 import { formatPrice } from "@/lib/validators";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
-import { resolveFinalPriceInfo } from "@/lib/pricing.js";
+import { resolvePricePresentation } from "@/lib/pricing.js";
 import {
   buildOutProductPath,
   getOfferUnavailableMessage,
@@ -56,6 +57,8 @@ interface ExtendedProduct {
   subcategory?: string | null;
   affiliate_link?: string | null;
   source_url?: string | null;
+  canonical_offer_url?: string | null;
+  ml_item_id?: string | null;
   free_shipping?: boolean | null;
   marketplace?: string | null;
   status?: string | null;
@@ -198,6 +201,8 @@ const ProductGallery = ({
 
 const BuyBoxSticky = ({
   price,
+  secondaryPrice,
+  hasPixPrice,
   originalPrice,
   savings,
   discountPercent,
@@ -217,6 +222,8 @@ const BuyBoxSticky = ({
   monitorDisabled,
 }: {
   price: number;
+  secondaryPrice?: number | null;
+  hasPixPrice?: boolean;
   originalPrice?: number | null;
   savings?: number | null;
   discountPercent?: number | null;
@@ -250,27 +257,41 @@ const BuyBoxSticky = ({
         </div>
 
         {onToggleMonitor && (
-          <button
-            type="button"
-            onClick={onToggleMonitor}
-            disabled={monitorDisabled}
-            aria-pressed={Boolean(monitorActive)}
-            aria-label={monitorActive ? "Desativar monitoramento de preço" : "Ativar monitoramento de preço"}
-            className={`inline-flex h-11 items-center gap-2 rounded-full border px-4 text-[12px] font-bold text-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/30 ${
-              monitorActive
-                ? "border-orange-200 bg-orange-50 text-orange-700"
-                : "border-zinc-200 bg-white hover:border-[hsl(var(--accent-orange))]/40 hover:text-[hsl(var(--accent-orange))]"
-            } ${monitorDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
-          >
-            <Search size={16} className="text-[hsl(var(--accent-orange))]" />
-            {monitorActive ? "Monitorando" : "Monitorar preço"}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onToggleMonitor}
+              disabled={monitorDisabled}
+              aria-pressed={Boolean(monitorActive)}
+              aria-label={monitorActive ? "Desativar monitoramento de preco" : "Ativar monitoramento de preco"}
+              className={`inline-flex h-11 items-center gap-2 rounded-full border px-4 text-[12px] font-bold text-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-orange))]/30 ${
+                monitorActive
+                  ? "border-orange-200 bg-orange-50 text-orange-700"
+                  : "border-zinc-200 bg-white hover:border-[hsl(var(--accent-orange))]/40 hover:text-[hsl(var(--accent-orange))]"
+              } ${monitorDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+            >
+              <Search size={16} className="text-[hsl(var(--accent-orange))]" />
+              {monitorActive ? "Monitorando" : "Monitorar produto"}
+            </button>
+            <button
+              type="button"
+              onClick={openMonitorInfoDialog}
+              className="inline-flex h-11 items-center rounded-full border border-zinc-200 bg-white px-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600 transition-colors hover:border-[hsl(var(--accent-orange))]/35 hover:text-[hsl(var(--accent-orange))]"
+            >
+              Como monitorar
+            </button>
+            <p className="w-full text-right text-[11px] text-zinc-500">
+              Ative e acompanhe no carrinho. Você recebe e-mail só quando cair.
+            </p>
+          </div>
         )}
       </div>
 
       <div className="space-y-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-400">
-          Preço ArsenalFit
+          {hasPixPrice && secondaryPrice !== null && secondaryPrice > price
+            ? "Preco no Pix"
+            : "Preco ArsenalFit"}
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <span className="text-3xl sm:text-4xl font-black tracking-tight text-zinc-900">
@@ -282,6 +303,11 @@ const BuyBoxSticky = ({
             </span>
           )}
         </div>
+        {secondaryPrice !== null && secondaryPrice > price && (
+          <p className="text-sm text-zinc-600">
+            ou {formatPrice(secondaryPrice)} em outros meios
+          </p>
+        )}
         {savings && savings > 0 && discountPercent ? (
           <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
             Economia de {formatPrice(savings)} ({discountPercent}%)
@@ -337,8 +363,102 @@ const BuyBoxSticky = ({
   </div>
 );
 
+const DESCRIPTION_ALLOWED_TAGS = new Set([
+  "p",
+  "br",
+  "ul",
+  "ol",
+  "li",
+  "strong",
+  "b",
+  "em",
+  "i",
+  "h2",
+  "h3",
+  "h4",
+  "blockquote",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
+  "a",
+]);
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const sanitizeDescriptionHtml = (raw: string) => {
+  if (!raw.trim()) return "";
+  if (typeof window === "undefined" || typeof DOMParser === "undefined") {
+    return `<p>${escapeHtml(raw).replace(/\n/g, "<br/>")}</p>`;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(raw, "text/html");
+
+  const sanitizeNode = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) return;
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      node.parentNode?.removeChild(node);
+      return;
+    }
+
+    const element = node as HTMLElement;
+    const tagName = element.tagName.toLowerCase();
+
+    if (!DESCRIPTION_ALLOWED_TAGS.has(tagName)) {
+      const fragment = doc.createDocumentFragment();
+      while (element.firstChild) {
+        fragment.appendChild(element.firstChild);
+      }
+      element.replaceWith(fragment);
+      return;
+    }
+
+    const attributes = [...element.attributes];
+    for (const attr of attributes) {
+      const attrName = attr.name.toLowerCase();
+      if (tagName === "a") {
+        if (!["href", "target", "rel", "title"].includes(attrName)) {
+          element.removeAttribute(attr.name);
+          continue;
+        }
+        if (attrName === "href") {
+          const href = element.getAttribute("href") || "";
+          const isSafe = /^https?:\/\//i.test(href);
+          if (!isSafe) element.removeAttribute("href");
+        }
+      } else {
+        element.removeAttribute(attr.name);
+      }
+    }
+
+    for (const child of [...element.childNodes]) {
+      sanitizeNode(child);
+    }
+  };
+
+  for (const child of [...doc.body.childNodes]) {
+    sanitizeNode(child);
+  }
+
+  return doc.body.innerHTML.trim();
+};
+
 const CollapsibleDescription = ({ text }: { text: string }) => {
   const [expanded, setExpanded] = useState(false);
+  const hasHtmlMarkup = /<\/?[a-z][\s\S]*>/i.test(text);
+  const sanitizedHtml = useMemo(
+    () => (hasHtmlMarkup ? sanitizeDescriptionHtml(text) : ""),
+    [hasHtmlMarkup, text],
+  );
   const canCollapse = text.length > 240;
   const previewLength = Math.max(240, Math.floor(text.length * 0.38));
   const previewText =
@@ -346,6 +466,15 @@ const CollapsibleDescription = ({ text }: { text: string }) => {
       ? text.slice(0, previewLength).replace(/\s+\S*$/, "")
       : text;
   const displayText = expanded ? text : previewText;
+
+  if (hasHtmlMarkup) {
+    return (
+      <div
+        className="prose prose-zinc max-w-none text-sm leading-relaxed prose-p:my-2 prose-li:my-0.5 prose-a:text-[hsl(var(--accent-orange))]"
+        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -487,7 +616,16 @@ export default function ProductDetails() {
   const isMonitored = Boolean(p?.id && isMonitoring(p.id));
 
   const galleryImages = useMemo(() => {
-    const images = [p?.image_url, ...(p?.images || [])].filter(Boolean) as string[];
+    const extraImages = Array.isArray(p?.images) ? p.images : [];
+    const seen = new Set<string>();
+    const images = [p?.image_url, ...extraImages]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim())
+      .filter((value) => {
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
     return images.length ? images : ["/placeholder.svg"];
   }, [p?.image_url, p?.images]);
 
@@ -495,25 +633,57 @@ export default function ProductDetails() {
     setActiveImage(0);
   }, [p?.id, galleryImages.length]);
 
-  const normalized = useMemo(() => (p ? normalizeMarketplaceProduct(p) : null), [p]);
+  const normalized = useMemo(() => {
+    if (!p) return null;
+    try {
+      return normalizeMarketplaceProduct(p);
+    } catch (error) {
+      console.error("product_normalizer_failed", { productId: p.id, error });
+      return {
+        specs: [],
+        ingredients: [],
+        allergens: [],
+        usage: [],
+        howToUse: [],
+        warnings: [],
+        benefits: [],
+        faq: [],
+        headline: typeof p.short_description === "string" ? p.short_description : "",
+        subheadline: "",
+        isCreatine100g: false,
+        technicalRating: {
+          scores: [],
+          finalScore: null,
+          finalLabel: "N/A",
+          note: "Dados técnicos indisponíveis.",
+        },
+      };
+    }
+  }, [p]);
   const shortDescription = normalized?.headline || "";
-  const tagline = shortDescription;
   const originLine = normalized?.subheadline || null;
   const longDescription = useMemo(() => {
-    if (!p?.description) return "";
-    const trimmed = p.description.trim();
+    const rawDescription =
+      typeof p?.description === "string"
+        ? p.description
+        : p?.description != null
+          ? String(p.description)
+          : "";
+    if (!rawDescription) return "";
+    const trimmed = rawDescription.trim();
     if (!trimmed) return "";
     if (shortDescription && trimmed === shortDescription.trim()) return "";
     return trimmed;
   }, [p?.description, shortDescription]);
-  const pricing = useMemo(() => (p ? resolveFinalPriceInfo(p) : null), [p]);
-  const finalPrice = pricing?.finalPrice ?? p?.price ?? 0;
+  const pricing = useMemo(() => (p ? resolvePricePresentation(p) : null), [p]);
+  const finalPrice = pricing?.displayPricePrimary ?? p?.price ?? 0;
+  const secondaryPrice = pricing?.displayPriceSecondary ?? null;
   const offerResolution = useMemo(() => (p ? resolveOfferUrl(p) : null), [p]);
   const canBuyNow = Boolean(p?.id && offerResolution?.canRedirect);
   const buyDisabledText = offerResolution
     ? getOfferUnavailableMessage(offerResolution, p?.marketplace ?? "")
     : null;
-  const listPrice = pricing?.listPrice ?? null;
+  const listPrice = pricing?.displayStrikethrough ?? null;
   const savings = pricing?.savings ?? null;
   const lastUpdated = p?.updated_at
     ? new Date(p.updated_at)
@@ -529,13 +699,7 @@ export default function ProductDetails() {
         ? "https://schema.org/InStock"
         : undefined;
 
-  const discountPercent =
-    pricing?.discountPercent ??
-    (typeof p?.discount_percentage === "number" && p.discount_percentage > 0
-      ? Math.round(p.discount_percentage)
-      : listPrice && listPrice > finalPrice
-        ? Math.round(((listPrice - finalPrice) / listPrice) * 100)
-        : null);
+  const discountPercent = pricing?.discountPercent ?? null;
   const effectiveDiscountPercent = discountPercent;
 
   const lastUpdatedLabel = lastUpdated
@@ -593,18 +757,28 @@ export default function ProductDetails() {
 
   useEffect(() => {
     if (!p?.id) return;
-    supabase
-      .rpc("enqueue_price_check_refresh", {
+    void Promise.resolve(
+      supabase.rpc("enqueue_price_check_refresh", {
         p_product_id: p.id,
         p_force: false,
         p_reason: "product_page_view",
       })
-      .catch(() => {});
+    ).catch(() => {});
   }, [p?.id]);
 
   const handleToggleMonitoring = async () => {
     if (!p) return;
     if (monitorBusy) return;
+    if (!isLoggedIn) {
+      toast.info("Entre para monitorar este produto.", {
+        description: "Crie sua conta para receber alerta por e-mail quando o preco cair.",
+        action: {
+          label: "Entrar",
+          onClick: () => navigate("/auth"),
+        },
+      });
+      return;
+    }
 
     setMonitorBusy(true);
     try {
@@ -614,7 +788,11 @@ export default function ProductDetails() {
         imageUrl: p.image_url ?? null,
         price: Number(finalPrice) || 0,
       });
-      toast.success(enabled ? "Produto monitorado para alertas" : "Monitoramento removido");
+      toast.success(
+        enabled
+          ? "Monitoramento ativado. Veja em Carrinho > Produtos monitorados."
+          : "Monitoramento removido",
+      );
     } finally {
       setMonitorBusy(false);
     }
@@ -625,15 +803,15 @@ export default function ProductDetails() {
       toast.error(buyDisabledText || "Oferta indisponivel no momento.");
       return;
     }
-    supabase
-      .rpc("enqueue_price_check_refresh", {
+    void Promise.resolve(
+      supabase.rpc("enqueue_price_check_refresh", {
         p_product_id: p.id,
         p_force: false,
         p_reason: "offer_click",
       })
-      .catch(() => {});
+    ).catch(() => {});
     setIsBuying(true);
-    window.open(buildOutProductPath(p.id, "product_details"), "_blank", "noopener,noreferrer");
+    window.location.assign(buildOutProductPath(p.id, "product_details"));
     window.setTimeout(() => setIsBuying(false), 800);
   };
 
@@ -760,13 +938,15 @@ export default function ProductDetails() {
                   </span>
                 )}
                 {p.subcategory && <span>{p.subcategory}</span>}
-                <span className="text-zinc-400">REF: {p.id?.slice(0, 8)}</span>
+                <span className="text-zinc-400">REF: {String(p.id ?? "").slice(0, 8)}</span>
               </div>
               {originLine && <p className="text-xs text-zinc-500">{originLine}</p>}
             </div>
 
             <BuyBoxSticky
               price={finalPrice}
+              secondaryPrice={secondaryPrice}
+              hasPixPrice={Boolean(pricing?.pixPrice)}
               originalPrice={listPrice}
               savings={savings}
               discountPercent={effectiveDiscountPercent}
@@ -785,13 +965,6 @@ export default function ProductDetails() {
               onToggleMonitor={handleToggleMonitoring}
               monitorDisabled={monitorBusy || monitoringLoading}
             />
-
-            {tagline && (
-              <div className="rounded-[20px] border border-zinc-200 bg-white p-4 shadow-[0_12px_24px_rgba(15,23,42,0.06)]">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-zinc-500">Resumo</p>
-                <p className="text-sm text-zinc-600 mt-2">{tagline}</p>
-              </div>
-            )}
 
           </motion.div>
         </div>
@@ -825,7 +998,7 @@ export default function ProductDetails() {
                     {item.name || item.title}
                   </p>
                   <p className="text-primary font-bold text-lg">
-                    {formatPrice(resolveFinalPriceInfo(item).finalPrice)}
+                    {formatPrice(resolvePricePresentation(item as any).displayPricePrimary ?? item.price)}
                   </p>
                 </a>
               ))}
@@ -837,6 +1010,8 @@ export default function ProductDetails() {
       <StickyMobileCTA
         visible={showStickyCTA}
         price={finalPrice}
+        secondaryPrice={secondaryPrice}
+        hasPixPrice={Boolean(pricing?.pixPrice)}
         onBuyNow={handleBuyNow}
         disabled={!canBuyNow}
       />

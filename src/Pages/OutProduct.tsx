@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { getAllowRedirectWhileStandby } from "@/lib/offer.js";
+import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
+import {
+  getAllowRedirectWhileStandby,
+  getOfferUnavailableMessage,
+  resolveOfferUrl,
+} from "@/lib/offer.js";
 
 type ResolvePayload = {
   can_redirect?: boolean;
@@ -44,38 +49,67 @@ export default function OutProduct() {
       }
 
       try {
-        const { data, error } = await supabase.rpc("resolve_product_offer_url", {
-          p_product_id: id,
-          p_allow_redirect_while_standby: getAllowRedirectWhileStandby(false),
-          p_click_source: clickSource,
-          p_metadata: {
-            runtime: "spa_route",
-            pathname: window.location.pathname,
-            search: window.location.search,
-            user_agent: navigator.userAgent,
-          },
-        });
-        if (error) throw error;
+        const allowStandby = getAllowRedirectWhileStandby(false);
+        let destination: string | null = null;
+        let canRedirect = false;
+        let reason: string | null = null;
 
-        const payload: ResolvePayload = Array.isArray(data) ? data[0] : data;
-        const destination = payload?.url ?? null;
-        const canRedirect = Boolean(payload?.can_redirect && destination);
+        try {
+          const { data, error } = await supabase.rpc("resolve_product_offer_url", {
+            p_product_id: id,
+            p_allow_redirect_while_standby: allowStandby,
+            p_click_source: clickSource,
+            p_metadata: {
+              runtime: "spa_route",
+              pathname: window.location.pathname,
+              search: window.location.search,
+              user_agent: navigator.userAgent,
+            },
+          });
+          if (error) throw error;
+
+          const payload: ResolvePayload = Array.isArray(data) ? data[0] : data;
+          destination = payload?.url ?? null;
+          canRedirect = Boolean(payload?.can_redirect && destination);
+          reason = payload?.reason ?? null;
+        } catch {
+          // Fallback local: se RPC nao estiver disponivel, resolve pelo helper local.
+          const { data: productData } = await supabase
+            .from("products")
+            .select(
+              "id, marketplace, status, is_active, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason",
+            )
+            .eq("id", id)
+            .maybeSingle();
+
+          if (productData) {
+            const localResolution = resolveOfferUrl(productData as any, {
+              allowRedirectWhileStandby: allowStandby,
+            });
+            destination = localResolution.url ?? null;
+            canRedirect = Boolean(localResolution.canRedirect && destination);
+            reason = localResolution.reason ?? null;
+          }
+        }
 
         if (!canRedirect || !destination) {
           if (!cancelled) {
-            setMessage(getFriendlyMessage(payload?.reason ?? null));
+            const localMessage = reason
+              ? getOfferUnavailableMessage({ reason }, "mercadolivre")
+              : getFriendlyMessage(reason);
+            setMessage(localMessage);
             setLoading(false);
           }
           return;
         }
 
-        supabase
-          .rpc("enqueue_price_check_refresh", {
+        void Promise.resolve(
+          supabase.rpc("enqueue_price_check_refresh", {
             p_product_id: id,
             p_force: false,
             p_reason: clickSource,
           })
-          .catch(() => {});
+        ).catch(() => {});
 
         window.location.replace(destination);
       } catch (err: any) {
@@ -93,24 +127,70 @@ export default function OutProduct() {
   }, [id, clickSource]);
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center px-6">
-      <div className="max-w-lg w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-8 text-center space-y-4">
-        <h1 className="text-xl font-bold">Abrindo oferta</h1>
-        {loading ? (
-          <p className="text-sm text-zinc-400">
-            Estamos validando o destino seguro da oferta.
-          </p>
-        ) : (
-          <>
-            <p className="text-sm text-zinc-300">{message || "Oferta indisponivel."}</p>
-            <Link
-              to="/"
-              className="inline-flex items-center rounded-xl bg-lime-400 px-4 py-2 text-sm font-semibold text-zinc-900"
-            >
-              Voltar para a loja
-            </Link>
-          </>
-        )}
+    <main className="relative min-h-[72vh] md:min-h-[80vh] bg-[radial-gradient(circle_at_20%_0%,rgba(249,115,22,0.14),transparent_45%),radial-gradient(circle_at_100%_20%,rgba(163,230,53,0.08),transparent_42%),#09090b] text-zinc-100 flex items-center justify-center px-4 py-8 sm:px-6">
+      <div className="w-full max-w-xl">
+        <div className="relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/90 shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+          <div className="absolute -top-14 -right-10 h-32 w-32 rounded-full bg-orange-500/20 blur-2xl" />
+          <div className="absolute -bottom-16 -left-10 h-36 w-36 rounded-full bg-lime-400/10 blur-2xl" />
+
+          <div className="relative p-5 sm:p-8">
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-black shadow-[0_8px_20px_rgba(249,115,22,0.35)]">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Verificacao segura
+              </span>
+              <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-300">
+                ArsenalFit redirect
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+              Abrindo oferta
+            </h1>
+
+            {loading ? (
+              <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 sm:p-5">
+                <div className="flex items-center gap-3 text-zinc-200">
+                  <Loader2 className="h-5 w-5 animate-spin text-orange-400" />
+                  <p className="text-sm sm:text-base font-medium">
+                    Validando destino oficial da oferta...
+                  </p>
+                </div>
+                <p className="mt-3 text-xs sm:text-sm text-zinc-400">
+                  A verificacao protege seu clique e garante o link correto da vitrine.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 sm:p-5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 text-orange-400" />
+                  <p className="text-sm sm:text-base text-zinc-200">
+                    {message || "Oferta indisponivel."}
+                  </p>
+                </div>
+                <div className="mt-5 flex flex-col sm:flex-row gap-3">
+                  <Link
+                    to="/"
+                    className="inline-flex items-center justify-center rounded-xl bg-lime-400 px-4 py-2.5 text-sm font-black uppercase tracking-wide text-zinc-900 transition hover:bg-lime-300"
+                  >
+                    Voltar para a loja
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="inline-flex items-center justify-center rounded-xl border border-zinc-600 bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-700"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <p className="mt-4 text-center text-[11px] sm:text-xs text-zinc-500">
+          Voce sera redirecionado para o site oficial quando a validacao for concluida.
+        </p>
       </div>
     </main>
   );

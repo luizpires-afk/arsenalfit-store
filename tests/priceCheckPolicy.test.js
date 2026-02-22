@@ -56,6 +56,72 @@ test("priority/ttl: regular old product falls back to MED", () => {
   assert.equal(result.ttlMinutes, 360);
 });
 
+test("priority/ttl: promotional product is elevated to HIGH", () => {
+  const now = new Date("2026-02-19T12:00:00.000Z");
+  const createdAt = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString();
+
+  const result = resolvePriorityAndTtl({
+    now,
+    createdAt,
+    isFeatured: false,
+    clicksCount: 2,
+    isOnSale: true,
+    discountPercentage: 18,
+    productName: "Creatina monohidratada",
+    ttlByPriority: {
+      HIGH: 60,
+      MED: 360,
+      LOW: 1440,
+    },
+  });
+
+  assert.equal(result.priority, PRICE_PRIORITY.HIGH);
+  assert.equal(result.ttlMinutes, 60);
+});
+
+test("priority/ttl: high-volatility tech product is HIGH", () => {
+  const now = new Date("2026-02-19T12:00:00.000Z");
+  const createdAt = new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
+
+  const result = resolvePriorityAndTtl({
+    now,
+    createdAt,
+    isFeatured: false,
+    clicksCount: 15,
+    productName: "Smartwatch Xiaomi Redmi Watch 5 Active",
+    ttlByPriority: {
+      HIGH: 45,
+      MED: 720,
+      LOW: 2160,
+    },
+  });
+
+  assert.equal(result.priority, PRICE_PRIORITY.HIGH);
+  assert.equal(result.ttlMinutes, 45);
+});
+
+test("priority/ttl: high-volatility can run faster than HIGH default", () => {
+  const now = new Date("2026-02-19T12:00:00.000Z");
+  const createdAt = new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString();
+
+  const result = resolvePriorityAndTtl({
+    now,
+    createdAt,
+    isFeatured: false,
+    clicksCount: 5,
+    productName: "Smartwatch Samsung Galaxy Fit3",
+    ttlByPriority: {
+      HIGH: 120,
+      HIGH_VOLATILITY: 35,
+      MED: 720,
+      LOW: 2160,
+    },
+  });
+
+  assert.equal(result.priority, PRICE_PRIORITY.HIGH);
+  assert.equal(result.ttlMinutes, 35);
+});
+
 test("priority/ttl: catalog priority LOW is respected for older products", () => {
   const now = new Date("2026-02-19T12:00:00.000Z");
   const createdAt = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString();
@@ -90,7 +156,7 @@ test("price precedence: valid API pix wins as unique final price", () => {
   assert.equal(result.source, PRICE_SOURCE.API_PIX);
 });
 
-test("price precedence: no pix uses scraper", () => {
+test("price precedence: no pix uses API base", () => {
   const result = resolveFinalPriceFromSignals({
     apiPrice: 78.9,
     apiPixPrice: null,
@@ -98,8 +164,32 @@ test("price precedence: no pix uses scraper", () => {
     requireScraperWhenNoPix: true,
   });
 
-  assert.equal(result.finalPrice, 77.4);
-  assert.equal(result.source, PRICE_SOURCE.SCRAPER);
+  assert.equal(result.finalPrice, 78.9);
+  assert.equal(result.source, PRICE_SOURCE.API_BASE);
+});
+
+test("price precedence: ignores scraper when it looks like stale list price", () => {
+  const result = resolveFinalPriceFromSignals({
+    apiPrice: 68.9,
+    apiPixPrice: null,
+    scrapedPrice: 239.9,
+    requireScraperWhenNoPix: true,
+  });
+
+  assert.equal(result.finalPrice, 68.9);
+  assert.equal(result.source, PRICE_SOURCE.API_BASE);
+});
+
+test("price precedence: ignores scraper when it is far below API without pix confirmation", () => {
+  const result = resolveFinalPriceFromSignals({
+    apiPrice: 349,
+    apiPixPrice: null,
+    scrapedPrice: 171.9,
+    requireScraperWhenNoPix: true,
+  });
+
+  assert.equal(result.finalPrice, 349);
+  assert.equal(result.source, PRICE_SOURCE.API_BASE);
 });
 
 test("price precedence: fallback API_BASE when scraper unavailable", () => {

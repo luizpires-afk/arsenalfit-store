@@ -10,6 +10,7 @@ Observacoes:
 - O comando ja envia `bulk_import=true`.
 - Os alvos por categoria ativam filtro por `site_categories` automaticamente.
 - Produtos novos entram em `standby` (pendente de validacao afiliado), sem desativar ativos antigos.
+- O filtro central vem de `config/catalog_search_filter.json` e rejeita itens fora do escopo.
 
 ## Flags uteis
 
@@ -23,6 +24,11 @@ Exemplo:
 ```bash
 npm run bulk_import -- --dry-run --supplements 20 --accessories 10 --equipment 10 --men_clothing 10 --women_clothing 10
 ```
+
+Verificar no retorno do dry-run:
+- `filter_summary.accepted_count` e `filter_summary.rejected_count`
+- `filter_summary.top_rejection_reasons`
+- `insufficient_accepted_candidates` (quando faltarem candidatos aceitos)
 
 ## Ajuste seguro de limites de preco
 

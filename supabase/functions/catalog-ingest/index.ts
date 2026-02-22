@@ -4,7 +4,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   SITE_CATEGORIES,
   evaluateFitnessGate,
+  loadFilterConfig,
   normalizeFitnessText,
+  shouldAcceptCandidate,
 } from "./fitness_gate.ts";
 import {
   resolveDailyQuotaRange,
@@ -278,6 +280,7 @@ type OfferCandidate = {
   freeShipping: boolean;
   itemCondition: string | null;
   itemStatus: string | null;
+  discoveryQuery: string | null;
   rawPayload: Record<string, unknown>;
 };
 
@@ -292,6 +295,8 @@ type ExistingOfferRow = {
 type ExistingProductRow = {
   id: string;
   external_id: string | null;
+  ml_item_id: string | null;
+  canonical_offer_url: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -326,6 +331,7 @@ type ExistingProductRow = {
   discount_percentage: number | null;
   is_on_sale: boolean | null;
   free_shipping: boolean | null;
+  deactivation_reason: string | null;
 };
 
 type MappingUpdateRow = {
@@ -408,9 +414,27 @@ type QualityResult = {
   badges: string[];
 };
 
+type FilterAuditEntry = {
+  stage: "discovery" | "selection" | "resync";
+  query: string | null;
+  target_category: string;
+  title: string;
+  reason: string;
+  decision: "allow" | "standby" | "reject";
+  score: number;
+};
+
+type FilterAuditState = {
+  accepted_count: number;
+  rejected_count: number;
+  reasons: Map<string, number>;
+  samples: FilterAuditEntry[];
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const addMs = (date: Date, deltaMs: number) => new Date(date.getTime() + deltaMs);
 
 const toNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -451,6 +475,50 @@ const parseBody = async (req: Request) => {
   } catch {
     return {};
   }
+};
+
+const createFilterAuditState = (): FilterAuditState => ({
+  accepted_count: 0,
+  rejected_count: 0,
+  reasons: new Map<string, number>(),
+  samples: [],
+});
+
+const pushFilterReason = (audit: FilterAuditState, reason: string) => {
+  const normalized = String(reason || "unknown_reason").trim() || "unknown_reason";
+  audit.reasons.set(normalized, (audit.reasons.get(normalized) ?? 0) + 1);
+};
+
+const recordFilterAudit = (
+  audit: FilterAuditState,
+  entry: Omit<FilterAuditEntry, "reason"> & { reason: string | null | undefined },
+) => {
+  const reason = String(entry.reason ?? "unknown_reason").trim() || "unknown_reason";
+  if (entry.decision === "reject") {
+    audit.rejected_count += 1;
+    pushFilterReason(audit, reason);
+    if (audit.samples.length < 120) {
+      audit.samples.push({
+        ...entry,
+        reason,
+      });
+    }
+    return;
+  }
+  audit.accepted_count += 1;
+};
+
+const summarizeFilterAudit = (audit: FilterAuditState, top = 10) => {
+  const top_reasons = Array.from(audit.reasons.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, Math.max(1, Math.floor(top)))
+    .map(([reason, count]) => ({ reason, count }));
+  return {
+    accepted_count: audit.accepted_count,
+    rejected_count: audit.rejected_count,
+    top_rejection_reasons: top_reasons,
+    sample_rejections: audit.samples,
+  };
 };
 
 const parseJsonSafe = (text: string) => {
@@ -750,6 +818,12 @@ const normalizeExternalId = (value: unknown): string | null => {
   return match[0].toUpperCase();
 };
 
+const buildCanonicalOfferUrl = (externalId: string | null | undefined) => {
+  const normalized = normalizeExternalId(externalId);
+  if (!normalized) return null;
+  return `https://produto.mercadolivre.com.br/${normalized}`;
+};
+
 const normalizeText = (value = "") =>
   value
     .normalize("NFD")
@@ -859,6 +933,37 @@ const DAILY_GROWTH_SITE_CATEGORY_ORDER = [
   SITE_CATEGORIES.EQUIPAMENTOS,
 ];
 
+const QUERY_FALLBACKS_BY_SITE_CATEGORY: Record<string, string[]> = {
+  [SITE_CATEGORIES.SUPLEMENTOS]: [
+    "whey protein concentrado",
+    "creatina monohidratada",
+    "pre treino",
+    "multivitaminico",
+  ],
+  [SITE_CATEGORIES.ACESSORIOS]: [
+    "squeeze academia garrafa esportiva",
+    "shaker coqueteleira whey",
+    "strap musculacao",
+    "luva musculacao academia",
+  ],
+  [SITE_CATEGORIES.EQUIPAMENTOS]: [
+    "mini band faixa elastica treino",
+    "halter academia",
+    "corda de pular speed",
+    "roda abdominal",
+  ],
+  [SITE_CATEGORIES.ROUPAS_MASC]: [
+    "camiseta dry fit masculina academia",
+    "bermuda masculina treino fitness",
+    "regata masculina treino musculacao",
+  ],
+  [SITE_CATEGORIES.ROUPAS_FEM]: [
+    "legging fitness feminina academia",
+    "top fitness feminino alta sustentacao",
+    "short feminino treino academia",
+  ],
+};
+
 const dayOfYear = (date: Date) => {
   const utcStart = Date.UTC(date.getUTCFullYear(), 0, 1);
   const utcCurrent = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -958,10 +1063,246 @@ const resolveDailyGrowthTargets = (payload: Record<string, unknown>, now: Date) 
   };
 };
 
-const toSaoPauloDateKey = (date: Date) =>
-  new Intl.DateTimeFormat("en-CA", {
+const toSaoPauloDateKey = (date: Date) => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
-  }).format(date);
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  if (year && month && day) {
+    return `${year}-${month}-${day}`;
+  }
+  return formatter.format(date).replace(/\//g, "-");
+};
+
+const safeCount = async (queryPromise: Promise<{ count: number | null; error: { message: string } | null }>) => {
+  try {
+    const { count, error } = await queryPromise;
+    if (error) return null;
+    return Number(count ?? 0);
+  } catch {
+    return null;
+  }
+};
+
+const buildDailyRunChecklist = async ({
+  supabase,
+  runId,
+  now,
+  stats,
+  dailyTargetsSummary,
+  insufficientAcceptedCandidates,
+  postSyncTrigger,
+  affiliateGate,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  runId: string;
+  now: Date;
+  stats: Record<string, number>;
+  dailyTargetsSummary: Record<string, { target: number; accepted_new: number }> | null;
+  insufficientAcceptedCandidates: Array<{
+    site_category: string;
+    target: number;
+    accepted_new: number;
+    missing: number;
+    reason: string;
+  }>;
+  postSyncTrigger: Record<string, unknown> | null;
+  affiliateGate: {
+    detected_without_affiliate: number;
+    moved_to_standby: number;
+    mode: string;
+  } | null;
+}) => {
+  const sinceIso = addMs(now, -24 * 60 * 60 * 1000).toISOString();
+  const reportDate = toSaoPauloDateKey(now);
+
+  const [
+    validatedLast24h,
+    activeMercadoRows,
+    pixCount,
+    promoCount,
+    suspectCount,
+    checksExecuted,
+    backoffCount,
+    latestReportRow,
+  ] = await Promise.all([
+    safeCount(
+      supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("marketplace", "mercadolivre")
+        .gte("validated_at", sinceIso),
+    ),
+    supabase
+      .from("products")
+      .select("id, affiliate_link")
+      .eq("marketplace", "mercadolivre")
+      .eq("status", "active")
+      .limit(5000),
+    safeCount(
+      supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("marketplace", "mercadolivre")
+        .gt("pix_price", 0),
+    ),
+    safeCount(
+      supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("marketplace", "mercadolivre")
+        .gt("original_price", 0)
+        .lt("price", 999999999),
+    ),
+    safeCount(
+      supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("marketplace", "mercadolivre")
+        .eq("data_health_status", "SUSPECT_PRICE"),
+    ),
+    safeCount(
+      supabase
+        .from("price_check_events")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", sinceIso),
+    ),
+    safeCount(
+      supabase
+        .from("price_check_events")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", sinceIso)
+        .in("event_status", ["backoff", "error"]),
+    ),
+    supabase
+      .from("price_sync_reports")
+      .select("id, report_date, delivery_status, status, sent_at")
+      .eq("report_date", reportDate)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const checksTotal = Number(checksExecuted ?? 0);
+  const checksBackoff = Number(backoffCount ?? 0);
+  const monitoringErrorRate = checksTotal > 0 ? checksBackoff / checksTotal : 0;
+  const activeRows = (activeMercadoRows?.data as Array<{ id: string; affiliate_link: string | null }> | null) ?? [];
+  const activeWithoutAffiliateCount = activeRows.filter((row) =>
+    !isMercadoLivreShortAffiliateLink(row.affiliate_link)
+  ).length;
+  const hasQuotaGap = insufficientAcceptedCandidates.length > 0;
+  const quotasPass = !hasQuotaGap;
+  const standbyPass = stats.inserted_products <= 0 || stats.inserted_standby >= stats.inserted_products;
+  const reportRow = latestReportRow?.data as
+    | { id: string; report_date: string; delivery_status: string | null; status: string | null; sent_at: string | null }
+    | null;
+  const reportDeliveryStatus = reportRow?.delivery_status ?? reportRow?.status ?? null;
+  const reportPass = reportDeliveryStatus === "sent";
+  const offerPass = activeWithoutAffiliateCount === 0;
+  const monitoringPass = checksTotal === 0 ? true : monitoringErrorRate <= 0.4;
+  const priceHealthPass = Number(suspectCount ?? 0) <= 20;
+
+  const items = [
+    {
+      key: "quotas",
+      label: "Quotas planejadas vs inseridas",
+      pass: quotasPass,
+      critical: false,
+      level: quotasPass ? "pass" : "warn",
+      detail: dailyTargetsSummary ?? {},
+      missing: insufficientAcceptedCandidates,
+    },
+    {
+      key: "standby_new_products",
+      label: "Novos produtos mantidos em STANDBY",
+      pass: standbyPass,
+      critical: true,
+      detail: {
+        inserted_products: stats.inserted_products,
+        inserted_standby: stats.inserted_standby,
+        inserted_active: stats.inserted_active,
+      },
+    },
+    {
+      key: "validated_last_24h",
+      label: "Produtos validados via /sec/ nas ultimas 24h",
+      pass: true,
+      critical: false,
+      detail: { validated_last_24h: Number(validatedLast24h ?? 0) },
+    },
+    {
+      key: "offer_consistency",
+      label: "Oferta consistente (ativos com affiliate /sec/)",
+      pass: offerPass,
+      critical: false,
+      level: offerPass ? "pass" : "warn",
+      detail: {
+        active_without_affiliate: activeWithoutAffiliateCount,
+        affiliate_gate: affiliateGate,
+      },
+    },
+    {
+      key: "price_health",
+      label: "Saude de preco (pix/promocao/suspeitos)",
+      pass: priceHealthPass,
+      critical: false,
+      detail: {
+        pix_count: Number(pixCount ?? 0),
+        promotion_count: Number(promoCount ?? 0),
+        suspect_count: Number(suspectCount ?? 0),
+      },
+    },
+    {
+      key: "monitoring_health",
+      label: "Monitoramento e backoff",
+      pass: monitoringPass,
+      critical: true,
+      detail: {
+        checks_executed: checksTotal,
+        backoff_or_error_events: checksBackoff,
+        error_rate: Number(monitoringErrorRate.toFixed(4)),
+      },
+    },
+    {
+      key: "price_report_delivery",
+      label: "Relatorio diario salvo e entregue",
+      pass: reportPass,
+      critical: true,
+      detail: {
+        report_date: reportDate,
+        report_status: reportDeliveryStatus,
+      },
+    },
+    {
+      key: "post_sync_trigger",
+      label: "Trigger de price-sync pos ingest",
+      pass: postSyncTrigger ? Boolean(postSyncTrigger.ok ?? true) : true,
+      critical: false,
+      detail: postSyncTrigger ?? {},
+    },
+  ];
+
+  const criticalFailures = items.filter((item) => item.critical && !item.pass).length;
+  const overallStatus = criticalFailures > 0 ? "FAIL" : "PASS";
+
+  return {
+    run_id: runId,
+    source: "daily_import",
+    report_date: reportDate,
+    overall_status: overallStatus,
+    critical_failures: criticalFailures,
+    checklist: {
+      generated_at: now.toISOString(),
+      items,
+    },
+  };
+};
 
 const normalizeBrandKey = (brand: string | null | undefined) => {
   const normalized = normalizeText(String(brand ?? ""));
@@ -1070,6 +1411,38 @@ const resolveMappingSiteCategory = (mapping: MappingRow): string => {
     `${mapping.category_id} ${mapping.ml_category_id ?? ""}`,
   );
   return fallback ?? SITE_CATEGORIES.ACESSORIOS;
+};
+
+const buildSearchQueryVariants = (mapping: MappingRow) => {
+  const baseQuery = String(mapping.query ?? "").trim();
+  const siteCategory = resolveMappingSiteCategory(mapping);
+  const fallbacks = QUERY_FALLBACKS_BY_SITE_CATEGORY[siteCategory] ?? [];
+  const normalizedBase = normalizeText(baseQuery);
+
+  const rankedFallbacks = [...fallbacks].sort((a, b) => {
+    const aScore = normalizedBase && normalizeText(a).includes(normalizedBase) ? 1 : 0;
+    const bScore = normalizedBase && normalizeText(b).includes(normalizedBase) ? 1 : 0;
+    return bScore - aScore;
+  });
+
+  const deduped = new Set<string>();
+  const variants: string[] = [];
+  const pushVariant = (value: string) => {
+    const normalized = normalizeText(value);
+    if (!normalized) return;
+    if (deduped.has(normalized)) return;
+    deduped.add(normalized);
+    variants.push(value.trim());
+  };
+
+  if (baseQuery) pushVariant(baseQuery);
+  for (const fallback of rankedFallbacks) {
+    pushVariant(fallback);
+    if (variants.length >= 4) break;
+  }
+
+  if (!variants.length) variants.push("");
+  return variants;
 };
 
 const normalizeMlAllowlist = (value: string[] | null | undefined) =>
@@ -1617,20 +1990,6 @@ const resolveAuthUserId = async (
   }
 };
 
-const matchesTerms = (
-  title: string,
-  includeTerms: string[] | null,
-  excludeTerms: string[] | null,
-) => {
-  const normalizedTitle = normalizeText(title);
-  const includes = (includeTerms ?? []).map((term) => normalizeText(term)).filter(Boolean);
-  const excludes = (excludeTerms ?? []).map((term) => normalizeText(term)).filter(Boolean);
-
-  if (includes.length && !includes.some((term) => normalizedTitle.includes(term))) return false;
-  if (excludes.length && excludes.some((term) => normalizedTitle.includes(term))) return false;
-  return true;
-};
-
 const chunkArray = <T,>(items: T[], size: number): T[][] => {
   const safeSize = Math.max(1, Math.floor(size));
   const chunks: T[][] = [];
@@ -1638,6 +1997,58 @@ const chunkArray = <T,>(items: T[], size: number): T[][] => {
     chunks.push(items.slice(i, i + safeSize));
   }
   return chunks;
+};
+
+const enforceAffiliateGateForActiveProducts = async (
+  supabase: ReturnType<typeof createClient>,
+  options: { apply: boolean; nowIso: string },
+) => {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, affiliate_link, status, is_active")
+    .eq("marketplace", "mercadolivre")
+    .or("status.eq.active,is_active.eq.true");
+  if (error) throw new Error(`affiliate_gate_scan_failed:${error.message}`);
+
+  const activeRows = (data as Array<{
+    id: string;
+    affiliate_link: string | null;
+    status: string | null;
+    is_active: boolean | null;
+  }> | null) ?? [];
+  const staleIds = activeRows
+    .filter((row) => !isMercadoLivreShortAffiliateLink(row.affiliate_link))
+    .map((row) => row.id);
+
+  if (!staleIds.length || !options.apply) {
+    return {
+      detected_without_affiliate: staleIds.length,
+      moved_to_standby: 0,
+      mode: options.apply ? "apply" : "dry_run",
+    };
+  }
+
+  let moved = 0;
+  for (const chunk of chunkArray(staleIds, 200)) {
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({
+        status: "standby",
+        is_active: false,
+        data_health_status: "NEEDS_REVIEW",
+        deactivation_reason: "MISSING_AFFILIATE",
+        last_health_check_at: options.nowIso,
+      })
+      .in("id", chunk);
+    if (updateError) throw new Error(`affiliate_gate_update_failed:${updateError.message}`);
+    moved += chunk.length;
+  }
+
+  return {
+    detected_without_affiliate: staleIds.length,
+    moved_to_standby: moved,
+    mode: "apply",
+  };
 };
 
 const fetchWithTimeout = async (url: string, timeoutMs: number, init?: RequestInit) => {
@@ -1985,6 +2396,10 @@ const scoreCategoryCandidates = (
       safeWeights.price * inversePrice +
       safeWeights.reputation * reputationScore,
     );
+    if (candidate.fitnessDecision === "standby") {
+      candidate.scoreCustoBeneficio = normalizeScore(candidate.scoreCustoBeneficio * 0.85);
+      candidate.scorePopularidade = normalizeScore(candidate.scorePopularidade * 0.9);
+    }
 
     const eliteBrand = isKnownBrand(candidate.brand, knownBrands);
     const elitePrice = candidate.price >= expensiveThreshold;
@@ -2011,7 +2426,6 @@ const buildCandidateFromResult = (
 
   const title = String(result.title ?? "").trim();
   if (!title) return null;
-  if (!matchesTerms(title, mapping.include_terms, mapping.exclude_terms)) return null;
 
   const price = toNumber(result.price);
   if (price === null || !(price > 0)) return null;
@@ -2081,6 +2495,7 @@ const buildCandidateFromResult = (
     freeShipping: Boolean(shippingRecord?.free_shipping),
     itemCondition: typeof result.condition === "string" ? result.condition : null,
     itemStatus: typeof result.status === "string" ? result.status : null,
+    discoveryQuery: null,
     rawPayload: result,
   };
 };
@@ -2141,7 +2556,6 @@ const buildCandidateFromProductItem = (
 
   const title = String(product.name ?? item.title ?? "").trim();
   if (!title) return null;
-  if (!matchesTerms(title, mapping.include_terms, mapping.exclude_terms)) return null;
 
   const price = toNumber(item.price);
   if (price === null || !(price > 0)) return null;
@@ -2230,6 +2644,7 @@ const buildCandidateFromProductItem = (
     freeShipping: Boolean(shippingRecord?.free_shipping),
     itemCondition: typeof item.condition === "string" ? item.condition : null,
     itemStatus: typeof item.status === "string" ? item.status : null,
+    discoveryQuery: null,
     rawPayload: {
       product,
       item,
@@ -2243,6 +2658,8 @@ const collectCategoryHighlightsCandidates = async (
   runDeadlineMs: number,
   options: {
     sellerProfileCache: Map<number, SellerProfile | null>;
+    filterPolicyConfig: Record<string, unknown>;
+    filterAudit: FilterAuditState;
     fetchJson: (url: string) => Promise<Record<string, unknown>>;
     stats: {
       discarded_no_free_shipping: number;
@@ -2250,6 +2667,8 @@ const collectCategoryHighlightsCandidates = async (
       discarded_not_new: number;
       discarded_invalid_price: number;
       api_errors: number;
+      accepted_by_filter: number;
+      rejected_by_filter: number;
     };
   },
 ) => {
@@ -2355,6 +2774,34 @@ const collectCategoryHighlightsCandidates = async (
 
       if (!isHighSellerReputation(candidate.sellerReputationScore)) {
         options.stats.discarded_low_reputation += 1;
+        continue;
+      }
+
+      const discoveryGate = evaluateCandidateFitnessGate(
+        candidate,
+        mapping,
+        options.filterPolicyConfig,
+      );
+      candidate.fitnessRelevanceScore = discoveryGate.score;
+      candidate.fitnessDecision = discoveryGate.decision;
+      candidate.discoveryQuery = mapping.query ?? null;
+      const discoveryReason =
+        discoveryGate.policyReason ??
+        (discoveryGate.equipmentPriceRejected
+          ? "equipment_price_limit"
+          : discoveryGate.decision === "standby"
+            ? "borderline_relevance_score"
+            : "accepted");
+      recordFilterAudit(options.filterAudit, {
+        stage: "discovery",
+        query: mapping.query ?? null,
+        target_category: candidate.siteCategory,
+        title: candidate.title,
+        reason: discoveryReason,
+        decision: discoveryGate.decision,
+        score: discoveryGate.score,
+      });
+      if (discoveryGate.decision === "reject" || discoveryGate.equipmentPriceRejected) {
         continue;
       }
 
@@ -2612,6 +3059,8 @@ const collectMappingCandidates = async (
     defaultSellerIds: number[];
     authUserId: number | null;
     useAuthSellerFallback: boolean;
+    filterPolicyConfig: Record<string, unknown>;
+    filterAudit: FilterAuditState;
     fetchJson: (url: string) => Promise<Record<string, unknown>>;
     stats: {
       discarded_no_free_shipping: number;
@@ -2619,6 +3068,8 @@ const collectMappingCandidates = async (
       discarded_not_new: number;
       discarded_invalid_price: number;
       api_errors: number;
+      accepted_by_filter: number;
+      rejected_by_filter: number;
     };
   },
 ) => {
@@ -2653,144 +3104,199 @@ const collectMappingCandidates = async (
 
   const out: OfferCandidate[] = [];
   const sellerErrors: string[] = [];
-  for (let contextIndex = 0; contextIndex < contextCount; contextIndex += 1) {
-    const sellerId = useSiteSearchFallback ? null : sellerContexts[contextIndex] ?? null;
-    let offset = 0;
-    let fetchedInContext = 0;
-    let sellerFailed = false;
+  const queryVariants = buildSearchQueryVariants(mapping);
+  const minimumCoverageBeforeStop = Math.min(
+    effectiveMaxItems,
+    Math.max(10, Math.ceil(effectiveMaxItems * 0.35)),
+  );
 
-    while (fetchedInContext < maxPerContext && Date.now() < runDeadlineMs) {
-      const remaining = maxPerContext - fetchedInContext;
-      const limit = Math.min(SEARCH_PAGE_LIMIT, remaining);
+  for (let queryIndex = 0; queryIndex < queryVariants.length; queryIndex += 1) {
+    if (Date.now() >= runDeadlineMs) break;
+    const searchQuery = String(queryVariants[queryIndex] ?? "").trim();
+    const queryLabel = searchQuery || String(mapping.query ?? "").trim() || null;
 
-      let payload: Record<string, unknown>;
-      if (sellerId !== null) {
-        const sellerUrl = new URL(`${API_BASE}/users/${sellerId}/items/search`);
-        sellerUrl.searchParams.set("limit", String(limit));
-        sellerUrl.searchParams.set("offset", String(offset));
-        if (mapping.query && mapping.query.trim()) {
-          sellerUrl.searchParams.set("search", mapping.query.trim());
-        }
-        if (mapping.ml_category_id && mapping.ml_category_id.trim()) {
-          sellerUrl.searchParams.set("category", mapping.ml_category_id.trim());
-        }
-        if (sort && sort !== "relevance") {
-          sellerUrl.searchParams.set("sort", sort);
-        }
+    for (let contextIndex = 0; contextIndex < contextCount; contextIndex += 1) {
+      if (Date.now() >= runDeadlineMs) break;
+      if (out.length >= effectiveMaxItems) break;
 
-        try {
-          payload = await fetchJsonWithRetry(sellerUrl.toString(), options.fetchJson);
-        } catch (error) {
-          options.stats.api_errors += 1;
-          sellerErrors.push(
-            `seller_${sellerId}:${(error as Error)?.message?.slice(0, 200) ?? "request_failed"}`,
-          );
-          sellerFailed = true;
-          break;
-        }
-      } else {
-        const siteUrl = new URL(`${API_BASE}/sites/${encodeURIComponent(siteId)}/search`);
-        siteUrl.searchParams.set("limit", String(limit));
-        siteUrl.searchParams.set("offset", String(offset));
-        if (mapping.query && mapping.query.trim()) {
-          siteUrl.searchParams.set("q", mapping.query.trim());
-        }
-        if (mapping.ml_category_id && mapping.ml_category_id.trim()) {
-          siteUrl.searchParams.set("category", mapping.ml_category_id.trim());
-        }
-        if (sort) {
-          siteUrl.searchParams.set("sort", sort);
-        }
-        try {
-          payload = await fetchJsonWithRetry(siteUrl.toString(), options.fetchJson);
-        } catch (error) {
-          options.stats.api_errors += 1;
-          throw new Error((error as Error)?.message ?? "site_search_failed");
-        }
-      }
+      const sellerId = useSiteSearchFallback ? null : sellerContexts[contextIndex] ?? null;
+      let offset = 0;
+      let fetchedInContext = 0;
+      let sellerFailed = false;
 
-      const resultRows = Array.isArray(payload?.results) ? payload.results : [];
-      if (!resultRows.length) break;
+      while (fetchedInContext < maxPerContext && Date.now() < runDeadlineMs) {
+        const remaining = maxPerContext - fetchedInContext;
+        const limit = Math.min(SEARCH_PAGE_LIMIT, remaining);
 
-      for (let idx = 0; idx < resultRows.length; idx += 1) {
-        const rawRow = resultRows[idx];
-        let row: Record<string, unknown> | null =
-          rawRow && typeof rawRow === "object" && !Array.isArray(rawRow)
-            ? (rawRow as Record<string, unknown>)
-            : null;
+        let payload: Record<string, unknown>;
+        if (sellerId !== null) {
+          const sellerUrl = new URL(`${API_BASE}/users/${sellerId}/items/search`);
+          sellerUrl.searchParams.set("limit", String(limit));
+          sellerUrl.searchParams.set("offset", String(offset));
+          if (searchQuery) {
+            sellerUrl.searchParams.set("search", searchQuery);
+          }
+          if (mapping.ml_category_id && mapping.ml_category_id.trim()) {
+            sellerUrl.searchParams.set("category", mapping.ml_category_id.trim());
+          }
+          if (sort && sort !== "relevance") {
+            sellerUrl.searchParams.set("sort", sort);
+          }
 
-        const externalId =
-          normalizeExternalId(row?.id ?? rawRow) ??
-          (typeof rawRow === "string" ? normalizeExternalId(rawRow) : null);
-        if (!externalId) continue;
-        const cached = options.itemCache.get(externalId);
-        if (cached) {
-          row = cached;
-        } else {
-          const itemUrl = `${API_BASE}/items/${externalId}`;
           try {
-            const itemPayload = await fetchJsonWithRetry(itemUrl, options.fetchJson);
-            options.itemCache.set(externalId, itemPayload);
-            row = itemPayload;
-          } catch {
+            payload = await fetchJsonWithRetry(sellerUrl.toString(), options.fetchJson);
+          } catch (error) {
             options.stats.api_errors += 1;
+            sellerErrors.push(
+              `seller_${sellerId}:${(error as Error)?.message?.slice(0, 200) ?? "request_failed"}`,
+            );
+            sellerFailed = true;
+            break;
+          }
+        } else {
+          const siteUrl = new URL(`${API_BASE}/sites/${encodeURIComponent(siteId)}/search`);
+          siteUrl.searchParams.set("limit", String(limit));
+          siteUrl.searchParams.set("offset", String(offset));
+          if (searchQuery) {
+            siteUrl.searchParams.set("q", searchQuery);
+          }
+          if (mapping.ml_category_id && mapping.ml_category_id.trim()) {
+            siteUrl.searchParams.set("category", mapping.ml_category_id.trim());
+          }
+          if (sort) {
+            siteUrl.searchParams.set("sort", sort);
+          }
+          try {
+            payload = await fetchJsonWithRetry(siteUrl.toString(), options.fetchJson);
+          } catch (error) {
+            options.stats.api_errors += 1;
+            throw new Error((error as Error)?.message ?? "site_search_failed");
+          }
+        }
+
+        const resultRows = Array.isArray(payload?.results) ? payload.results : [];
+        if (!resultRows.length) break;
+
+        for (let idx = 0; idx < resultRows.length; idx += 1) {
+          const rawRow = resultRows[idx];
+          let row: Record<string, unknown> | null =
+            rawRow && typeof rawRow === "object" && !Array.isArray(rawRow)
+              ? (rawRow as Record<string, unknown>)
+              : null;
+
+          const externalId =
+            normalizeExternalId(row?.id ?? rawRow) ??
+            (typeof rawRow === "string" ? normalizeExternalId(rawRow) : null);
+          if (!externalId) continue;
+          const cached = options.itemCache.get(externalId);
+          if (cached) {
+            row = cached;
+          } else {
+            const itemUrl = `${API_BASE}/items/${externalId}`;
+            try {
+              const itemPayload = await fetchJsonWithRetry(itemUrl, options.fetchJson);
+              options.itemCache.set(externalId, itemPayload);
+              row = itemPayload;
+            } catch {
+              options.stats.api_errors += 1;
+              continue;
+            }
+          }
+
+          if (!row) continue;
+          const rawPrice = toNumber(row.price);
+          if (rawPrice === null || !(rawPrice > 0)) {
+            options.stats.discarded_invalid_price += 1;
             continue;
           }
-        }
 
-        if (!row) continue;
-        const rawPrice = toNumber(row.price);
-        if (rawPrice === null || !(rawPrice > 0)) {
-          options.stats.discarded_invalid_price += 1;
-          continue;
-        }
-
-        const candidate = buildCandidateFromResult(row, mapping, offset + idx + 1);
-        if (!candidate) continue;
-        if (candidate.sellerId === null) {
-          candidate.sellerId = sellerId;
-        }
-
-        if (!candidate.freeShipping) {
-          options.stats.discarded_no_free_shipping += 1;
-          continue;
-        }
-        if (String(candidate.itemCondition ?? "").toLowerCase() !== "new") {
-          options.stats.discarded_not_new += 1;
-          continue;
-        }
-
-        if (!isHighSellerReputation(candidate.sellerReputationScore) && candidate.sellerId !== null) {
-          const profile = await fetchSellerProfile(
-            candidate.sellerId,
-            options.sellerProfileCache,
-            options.fetchJson,
-          );
-          if (profile) {
-            candidate.sellerReputationScore = profile.reputationScore;
-            candidate.sellerReputationLevel = profile.reputationLevel;
-            candidate.sellerPowerStatus = profile.powerStatus;
+          const candidate = buildCandidateFromResult(row, mapping, offset + idx + 1);
+          if (!candidate) continue;
+          if (candidate.sellerId === null) {
+            candidate.sellerId = sellerId;
           }
+
+          if (!candidate.freeShipping) {
+            options.stats.discarded_no_free_shipping += 1;
+            continue;
+          }
+          if (String(candidate.itemCondition ?? "").toLowerCase() !== "new") {
+            options.stats.discarded_not_new += 1;
+            continue;
+          }
+
+          if (!isHighSellerReputation(candidate.sellerReputationScore) && candidate.sellerId !== null) {
+            const profile = await fetchSellerProfile(
+              candidate.sellerId,
+              options.sellerProfileCache,
+              options.fetchJson,
+            );
+            if (profile) {
+              candidate.sellerReputationScore = profile.reputationScore;
+              candidate.sellerReputationLevel = profile.reputationLevel;
+              candidate.sellerPowerStatus = profile.powerStatus;
+            }
+          }
+
+          if (!isHighSellerReputation(candidate.sellerReputationScore)) {
+            options.stats.discarded_low_reputation += 1;
+            continue;
+          }
+
+          const discoveryGate = evaluateCandidateFitnessGate(
+            candidate,
+            mapping,
+            options.filterPolicyConfig,
+            {
+              query: queryLabel ?? "",
+              includeTerms:
+                normalizeText(queryLabel ?? "") !== normalizeText(String(mapping.query ?? ""))
+                  ? []
+                  : (mapping.include_terms ?? []),
+              excludeTerms: mapping.exclude_terms ?? [],
+            },
+          );
+          candidate.fitnessRelevanceScore = discoveryGate.score;
+          candidate.fitnessDecision = discoveryGate.decision;
+          candidate.discoveryQuery = queryLabel;
+          const discoveryReason =
+            discoveryGate.policyReason ??
+            (discoveryGate.equipmentPriceRejected
+              ? "equipment_price_limit"
+              : discoveryGate.decision === "standby"
+                ? "borderline_relevance_score"
+                : "accepted");
+          recordFilterAudit(options.filterAudit, {
+            stage: "discovery",
+            query: queryLabel,
+            target_category: candidate.siteCategory,
+            title: candidate.title,
+            reason: discoveryReason,
+            decision: discoveryGate.decision,
+            score: discoveryGate.score,
+          });
+          if (discoveryGate.decision === "reject" || discoveryGate.equipmentPriceRejected) {
+            continue;
+          }
+
+          out.push(candidate);
+          if (out.length >= effectiveMaxItems) break;
         }
 
-        if (!isHighSellerReputation(candidate.sellerReputationScore)) {
-          options.stats.discarded_low_reputation += 1;
-          continue;
-        }
+        fetchedInContext += resultRows.length;
+        offset += resultRows.length;
 
-        out.push(candidate);
+        const paging = payload?.paging as Record<string, unknown> | undefined;
+        const total = toNonNegativeInt(paging?.total, 0);
+        if (resultRows.length < limit) break;
+        if (total > 0 && offset >= total) break;
       }
 
-      fetchedInContext += resultRows.length;
-      offset += resultRows.length;
-
-      const paging = payload?.paging as Record<string, unknown> | undefined;
-      const total = toNonNegativeInt(paging?.total, 0);
-      if (resultRows.length < limit) break;
-      if (total > 0 && offset >= total) break;
+      if (sellerFailed) continue;
     }
 
-    if (sellerFailed) continue;
+    if (out.length >= effectiveMaxItems) break;
+    if (queryIndex === 0 && out.length >= minimumCoverageBeforeStop) break;
   }
 
   const deduped = new Map<string, OfferCandidate>();
@@ -2816,6 +3322,8 @@ const collectMappingCandidates = async (
     runDeadlineMs,
     {
       sellerProfileCache: options.sellerProfileCache,
+      filterPolicyConfig: options.filterPolicyConfig,
+      filterAudit: options.filterAudit,
       fetchJson: options.fetchJson,
       stats: options.stats,
     },
@@ -2866,7 +3374,7 @@ const loadExistingProductsByExternalId = async (
     const { data, error } = await supabase
       .from("products")
       .select(
-        "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
+        "id, external_id, ml_item_id, canonical_offer_url, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping, deactivation_reason",
       )
       .eq("marketplace", "mercadolivre")
       .in("external_id", chunk);
@@ -2931,7 +3439,7 @@ const loadExistingCategoryProducts = async (
     const { data, error } = await supabase
       .from("products")
       .select(
-        "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
+        "id, external_id, ml_item_id, canonical_offer_url, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping, deactivation_reason",
       )
       .eq("marketplace", "mercadolivre")
       .in("category_id", chunk);
@@ -3067,6 +3575,12 @@ const getCandidateAttributeRowsForFitness = (candidate: OfferCandidate) => {
 const evaluateCandidateFitnessGate = (
   candidate: OfferCandidate,
   mapping: MappingRow | null,
+  filterPolicyConfig: Record<string, unknown>,
+  queryContextOverride?: {
+    query: string;
+    includeTerms: string[];
+    excludeTerms: string[];
+  } | null,
 ) => {
   const attributes = getCandidateAttributeRowsForFitness(candidate).map((row) => ({
     name: row.name,
@@ -3078,14 +3592,34 @@ const evaluateCandidateFitnessGate = (
       ? Math.max(0, mapping.max_price_equipment)
       : null;
 
-  const result = evaluateFitnessGate(candidate.siteCategory, {
+  const result = shouldAcceptCandidate(
+    {
+      title: candidate.title,
+      brand: candidate.brand,
+      attributes,
+      mlCategoryId: candidate.mlCategoryId,
+      mlCategoryAllowlist,
+      description: candidate.itemCondition ?? "",
+      seller: candidate.sellerName ?? "",
+      extraText: candidate.itemStatus ?? "",
+    },
+    candidate.siteCategory,
+    {
+      query: queryContextOverride?.query ?? (mapping?.query ?? ""),
+      includeTerms: queryContextOverride?.includeTerms ?? (mapping?.include_terms ?? []),
+      excludeTerms: queryContextOverride?.excludeTerms ?? (mapping?.exclude_terms ?? []),
+    },
+    filterPolicyConfig,
+  );
+
+  const compatibilityResult = evaluateFitnessGate(candidate.siteCategory, {
     title: candidate.title,
     brand: candidate.brand,
     attributes,
     mlCategoryId: candidate.mlCategoryId,
     mlCategoryAllowlist,
     extraText: candidate.itemCondition ?? "",
-  });
+  }, filterPolicyConfig);
 
   const equipmentPriceRejected =
     candidate.siteCategory === SITE_CATEGORIES.EQUIPAMENTOS &&
@@ -3096,20 +3630,26 @@ const evaluateCandidateFitnessGate = (
   const score = clamp(result.score, 0, 100);
   let decision: "allow" | "standby" | "reject" = "reject";
   if (
-    !result.blockedByAllowlist &&
-    !result.blockedByNegative &&
-    !result.blockedByAmbiguous &&
+    !compatibilityResult.blockedByAllowlist &&
+    !compatibilityResult.blockedByNegative &&
+    !compatibilityResult.blockedByAmbiguous &&
     !equipmentPriceRejected
   ) {
     if (score >= FITNESS_GATE_ALLOW_SCORE) decision = "allow";
     else if (score >= FITNESS_GATE_STANDBY_SCORE) decision = "standby";
   }
+  if (result.decision === "reject") decision = "reject";
+  if (result.decision === "standby" && decision !== "reject") decision = "standby";
 
   return {
-    ...result,
+    ...compatibilityResult,
     score,
     decision,
     equipmentPriceRejected,
+    policyReason: result.reason,
+    policyReasons: result.reasons,
+    rankingPenaltyFactor: result.rankingPenaltyFactor ?? 1,
+    policyConfigVersion: result.configVersion ?? null,
   };
 };
 
@@ -3270,11 +3810,31 @@ Deno.serve(async (req) => {
         DAILY_GROWTH_DEFAULT_CANDIDATE_POOL,
       DAILY_GROWTH_DEFAULT_CANDIDATE_POOL,
     ),
-    10,
+    20,
     MAX_ITEMS_HARD_CAP,
   );
+  const effectiveDailyCandidatePoolSize = dailyGrowthMode
+    ? Math.min(MAX_ITEMS_HARD_CAP, Math.max(dailyCandidatePoolSize, 60))
+    : dailyCandidatePoolSize;
+  const rawSearchFilterConfig =
+    (payload as any)?.search_filter_config ??
+    (payload as any)?.searchFilterConfig ??
+    null;
+  const loadedFilterConfig = loadFilterConfig(rawSearchFilterConfig, {
+    warnOnMissing: true,
+    logger: (entry: Record<string, unknown>) => {
+      console.warn(
+        JSON.stringify({
+          ...entry,
+          source,
+        }),
+      );
+    },
+  });
+  const filterPolicyConfig = loadedFilterConfig.config as unknown as Record<string, unknown>;
+  const filterAudit = createFilterAuditState();
   const effectiveMaxItemsOverride = dailyGrowthMode && maxItemsOverride === null
-    ? dailyCandidatePoolSize
+    ? effectiveDailyCandidatePoolSize
     : maxItemsOverride;
   const siteCategoriesFilter = payloadSiteCategories.length
     ? payloadSiteCategories
@@ -3480,6 +4040,11 @@ Deno.serve(async (req) => {
     rejected_ambiguous_without_gym_context: 0,
     rejected_low_score: 0,
     rejected_by_brand_limit: 0,
+    accepted_by_filter: 0,
+    rejected_by_filter: 0,
+    insufficient_accepted_candidates: 0,
+    active_without_affiliate_detected: 0,
+    active_without_affiliate_moved: 0,
     inserted_active: 0,
     inserted_standby: 0,
     standby_products: 0,
@@ -3487,7 +4052,75 @@ Deno.serve(async (req) => {
     errors: 0,
   };
 
+  let affiliateGateSummary: {
+    detected_without_affiliate: number;
+    moved_to_standby: number;
+    mode: string;
+  } | null = null;
+
+  const buildZeroAcceptedDailyTargetsSummary = () =>
+    Object.fromEntries(
+      Array.from(bulkTargetsBySiteCategory.entries()).map(([siteCategory, target]) => [
+        siteCategory,
+        {
+          target,
+          accepted_new: 0,
+        },
+      ]),
+    );
+
+  const buildZeroAcceptedInsufficientCandidates = (
+    dailyTargetsSummary: Record<string, { target: number; accepted_new: number }> | null,
+  ) => {
+    if (!dailyTargetsSummary) return [];
+    return Object.entries(dailyTargetsSummary)
+      .map(([siteCategory, values]) => {
+        const target = Number(values?.target ?? 0);
+        const acceptedNew = Number(values?.accepted_new ?? 0);
+        const missing = Math.max(0, target - acceptedNew);
+        return {
+          site_category: siteCategory,
+          target,
+          accepted_new: acceptedNew,
+          missing,
+          reason: "insufficient_accepted_candidates",
+        };
+      })
+      .filter((row) => row.missing > 0);
+  };
+
+  const persistDailyChecklist = async (
+    dailyChecklist: Awaited<ReturnType<typeof buildDailyRunChecklist>> | null,
+  ) => {
+    if (!dailyChecklist) return;
+    const { error: checklistError } = await supabase.from("daily_run_reports").insert({
+      run_id: dailyChecklist.run_id,
+      source: dailyChecklist.source,
+      report_date: dailyChecklist.report_date,
+      overall_status: dailyChecklist.overall_status,
+      critical_failures: dailyChecklist.critical_failures,
+      checklist: dailyChecklist.checklist,
+    });
+    if (checklistError) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "daily_run_report_insert_failed",
+          run_id: runId,
+          error: checklistError.message,
+        }),
+      );
+    }
+  };
+
   try {
+    affiliateGateSummary = await enforceAffiliateGateForActiveProducts(supabase, {
+      apply: !dryRun,
+      nowIso: new Date().toISOString(),
+    });
+    stats.active_without_affiliate_detected = affiliateGateSummary.detected_without_affiliate;
+    stats.active_without_affiliate_moved = affiliateGateSummary.moved_to_standby;
+
     const mappings = await fetchMappings(supabase, {
       includeInactive,
       mappingIds,
@@ -3507,6 +4140,22 @@ Deno.serve(async (req) => {
     });
 
     if (!mappings.length) {
+      const filterSummary = summarizeFilterAudit(filterAudit);
+      const dailyTargetsSummary = dailyGrowthMode ? buildZeroAcceptedDailyTargetsSummary() : null;
+      const insufficientAcceptedCandidates = buildZeroAcceptedInsufficientCandidates(dailyTargetsSummary);
+      const dailyChecklist = dailyGrowthMode
+        ? await buildDailyRunChecklist({
+          supabase,
+          runId,
+          now: new Date(),
+          stats,
+          dailyTargetsSummary,
+          insufficientAcceptedCandidates,
+          postSyncTrigger: null,
+          affiliateGate: affiliateGateSummary,
+        })
+        : null;
+      await persistDailyChecklist(dailyChecklist);
       await upsertRun({
         id: runId,
         finished_at: new Date().toISOString(),
@@ -3518,6 +4167,11 @@ Deno.serve(async (req) => {
           ok: true,
           run_id: runId,
           stats,
+          filter_summary: filterSummary,
+          affiliate_gate: affiliateGateSummary,
+          daily_targets: dailyTargetsSummary,
+          insufficient_accepted_candidates: insufficientAcceptedCandidates,
+          daily_checklist: dailyChecklist,
         }),
         { status: 200, headers: JSON_HEADERS },
       );
@@ -3550,6 +4204,8 @@ Deno.serve(async (req) => {
             defaultSellerIds,
             authUserId,
             useAuthSellerFallback,
+            filterPolicyConfig,
+            filterAudit,
             fetchJson: fetchMeliJson,
             stats,
           },
@@ -3635,27 +4291,62 @@ Deno.serve(async (req) => {
       if (!config.enabled) continue;
       if (mapping && mapping.enabled === false) continue;
 
-      const fitness = evaluateCandidateFitnessGate(candidate, mapping);
+      const selectionQuery = candidate.discoveryQuery ?? mapping?.query ?? "";
+      const selectionIsFallback =
+        normalizeText(selectionQuery) !== normalizeText(String(mapping?.query ?? ""));
+      const fitness = evaluateCandidateFitnessGate(
+        candidate,
+        mapping,
+        filterPolicyConfig,
+        {
+          query: selectionQuery,
+          includeTerms: selectionIsFallback ? [] : (mapping?.include_terms ?? []),
+          excludeTerms: mapping?.exclude_terms ?? [],
+        },
+      );
       candidate.fitnessRelevanceScore = fitness.score;
       candidate.fitnessDecision = fitness.decision;
+      const selectionReason =
+        fitness.policyReason ??
+        (fitness.equipmentPriceRejected
+          ? "equipment_price_limit"
+          : fitness.decision === "standby"
+            ? "borderline_relevance_score"
+            : fitness.decision === "reject"
+              ? "low_relevance_score"
+              : "accepted");
+      recordFilterAudit(filterAudit, {
+        stage: "selection",
+        query: selectionQuery || null,
+        target_category: candidate.siteCategory,
+        title: candidate.title,
+        reason: selectionReason,
+        decision: fitness.decision,
+        score: fitness.score,
+      });
 
       if (fitness.blockedByAllowlist) {
         stats.rejected_by_allowlist += 1;
+        stats.rejected_by_filter += 1;
         continue;
       }
       if (fitness.blockedByNegative) {
         stats.rejected_by_negative_terms += 1;
+        stats.rejected_by_filter += 1;
         continue;
       }
       if (fitness.blockedByAmbiguous) {
         stats.rejected_ambiguous_without_gym_context += 1;
+        stats.rejected_by_filter += 1;
         continue;
       }
       if (fitness.decision === "reject" || fitness.equipmentPriceRejected) {
         stats.rejected_low_score += 1;
         stats.discarded_low_score += 1;
+        stats.rejected_by_filter += 1;
         continue;
       }
+      stats.accepted_by_filter += 1;
 
       if (!candidatesByCategory.has(candidate.categoryId)) {
         candidatesByCategory.set(candidate.categoryId, []);
@@ -3674,6 +4365,22 @@ Deno.serve(async (req) => {
     stats.total_processed = enabledCandidates.length;
 
     if (dryRun) {
+      const filterSummary = summarizeFilterAudit(filterAudit);
+      const dailyTargetsSummary = dailyGrowthMode ? buildZeroAcceptedDailyTargetsSummary() : null;
+      const insufficientAcceptedCandidates = buildZeroAcceptedInsufficientCandidates(dailyTargetsSummary);
+      const dailyChecklist = dailyGrowthMode
+        ? await buildDailyRunChecklist({
+          supabase,
+          runId,
+          now: new Date(),
+          stats,
+          dailyTargetsSummary,
+          insufficientAcceptedCandidates,
+          postSyncTrigger: null,
+          affiliateGate: affiliateGateSummary,
+        })
+        : null;
+      await persistDailyChecklist(dailyChecklist);
       await upsertRun({
         id: runId,
         finished_at: new Date().toISOString(),
@@ -3706,6 +4413,8 @@ Deno.serve(async (req) => {
             use_auth_seller_fallback: useAuthSellerFallback,
           },
           stats,
+          filter_summary: filterSummary,
+          affiliate_gate: affiliateGateSummary,
           sample: enabledCandidates.slice(0, 15).map((item) => ({
             external_id: item.externalId,
             title: item.title,
@@ -3723,12 +4432,32 @@ Deno.serve(async (req) => {
           })),
           mapping_errors: mappingErrorSamples.slice(0, 20),
           bulk_targets: Object.fromEntries(bulkTargetsBySiteCategory.entries()),
+          affiliate_gate: affiliateGateSummary,
+          daily_targets: dailyTargetsSummary,
+          insufficient_accepted_candidates: insufficientAcceptedCandidates,
+          daily_checklist: dailyChecklist,
         }),
         { status: 200, headers: JSON_HEADERS },
       );
     }
 
     if (!enabledCandidates.length) {
+      const filterSummary = summarizeFilterAudit(filterAudit);
+      const dailyTargetsSummary = dailyGrowthMode ? buildZeroAcceptedDailyTargetsSummary() : null;
+      const insufficientAcceptedCandidates = buildZeroAcceptedInsufficientCandidates(dailyTargetsSummary);
+      const dailyChecklist = dailyGrowthMode
+        ? await buildDailyRunChecklist({
+          supabase,
+          runId,
+          now: new Date(),
+          stats,
+          dailyTargetsSummary,
+          insufficientAcceptedCandidates,
+          postSyncTrigger: null,
+          affiliateGate: affiliateGateSummary,
+        })
+        : null;
+      await persistDailyChecklist(dailyChecklist);
       await upsertRun({
         id: runId,
         finished_at: new Date().toISOString(),
@@ -3754,8 +4483,13 @@ Deno.serve(async (req) => {
           ok: true,
           run_id: runId,
           stats,
+          filter_summary: filterSummary,
+          affiliate_gate: affiliateGateSummary,
           mapping_errors: mappingErrorSamples.slice(0, 20),
           bulk_targets: Object.fromEntries(bulkTargetsBySiteCategory.entries()),
+          daily_targets: dailyTargetsSummary,
+          insufficient_accepted_candidates: insufficientAcceptedCandidates,
+          daily_checklist: dailyChecklist,
         }),
         { status: 200, headers: JSON_HEADERS },
       );
@@ -3805,22 +4539,45 @@ Deno.serve(async (req) => {
           }))
         : [];
 
-      const gate = evaluateFitnessGate(inferredCategory, {
+      const gate = shouldAcceptCandidate(
+        {
+          title: existing.name ?? "",
+          description: `${existing.short_description ?? ""} ${existing.description ?? ""}`,
+          brand: null,
+          attributes,
+          mlCategoryId: null,
+          mlCategoryAllowlist: [],
+        },
+        inferredCategory,
+        {
+          query: "",
+          includeTerms: [],
+          excludeTerms: [],
+        },
+        filterPolicyConfig,
+      );
+
+      recordFilterAudit(filterAudit, {
+        stage: "resync",
+        query: null,
+        target_category: inferredCategory,
         title: existing.name ?? "",
-        brand: null,
-        attributes,
-        mlCategoryId: null,
-        mlCategoryAllowlist: [],
-        extraText: `${existing.short_description ?? ""} ${existing.description ?? ""}`,
+        reason: gate.reason,
+        decision: gate.decision,
+        score: gate.score,
       });
 
-      if (gate.blockedByNegative || gate.blockedByAmbiguous) {
+      if (gate.blockedByNegative || gate.blockedByAmbiguous || gate.blockedByAllowlist) {
         existingFitnessBlockedIds.add(existing.id);
+        stats.rejected_by_filter += 1;
         if (gate.blockedByNegative) {
           stats.rejected_by_negative_terms += 1;
         }
         if (gate.blockedByAmbiguous) {
           stats.rejected_ambiguous_without_gym_context += 1;
+        }
+        if (gate.blockedByAllowlist) {
+          stats.rejected_by_allowlist += 1;
         }
       }
     }
@@ -4248,7 +5005,12 @@ Deno.serve(async (req) => {
       const existingByExternal = existingProductsByExternalId.get(candidate.externalId) ?? null;
       const existingByCanonical = existingProductsByCanonicalKey.get(candidateCanonicalKey) ?? null;
       const existing = existingByExternal ?? existingByCanonical;
-      const forceStandby = candidate.fitnessDecision === "standby";
+      const previousExternalId = normalizeExternalId(existing?.external_id ?? null);
+      const bindingFallbackByCanonical = !existingByExternal && Boolean(existingByCanonical);
+      const bindingExternalSwap = Boolean(previousExternalId && previousExternalId !== candidate.externalId);
+      const enforceBindingStandby = bindingFallbackByCanonical || bindingExternalSwap;
+      const forceStandby = candidate.fitnessDecision === "standby" || enforceBindingStandby;
+      const canonicalOfferUrl = buildCanonicalOfferUrl(candidate.externalId);
       const content = await resolveCandidateContent(candidate, {
         fetchJson: fetchMeliJson,
         cache: candidateContentCache,
@@ -4368,7 +5130,13 @@ Deno.serve(async (req) => {
           affiliateLink: resolvedAffiliateLink,
         });
         const qualityIssues = forceStandby
-          ? Array.from(new Set([...(quality.issues ?? []), "fitness_gate_standby"]))
+          ? Array.from(
+            new Set([
+              ...(quality.issues ?? []),
+              ...(candidate.fitnessDecision === "standby" ? ["fitness_gate_standby"] : []),
+              ...(enforceBindingStandby ? ["suspect_offer_binding"] : []),
+            ]),
+          )
           : quality.issues;
         const qualityBadges = forceStandby
           ? Array.from(new Set([...(quality.badges ?? []), "STANDBY_REVIEW"]))
@@ -4382,7 +5150,7 @@ Deno.serve(async (req) => {
           qualityPublishable: quality.publishable,
           forceStandby,
           isPinned: isCuratedPinnedProduct(existing),
-          preserveExistingActive: PRESERVE_EXISTING_ACTIVE,
+          preserveExistingActive: enforceBindingStandby ? false : PRESERVE_EXISTING_ACTIVE,
         });
         const nextStatus = activationDecision.status;
         const nextIsActive = activationDecision.isActive;
@@ -4428,20 +5196,24 @@ Deno.serve(async (req) => {
           curation_badges: qualityBadges,
           marketplace: "mercadolivre",
           external_id: candidate.externalId,
+          ml_item_id: candidate.externalId,
+          canonical_offer_url: canonicalOfferUrl,
           status: nextStatus,
           is_active: nextIsActive,
+          ...(enforceBindingStandby ? { deactivation_reason: "suspect_offer_binding" } : {}),
           last_sync: nowIso,
           last_price_source: "catalog_ingest",
           last_price_verified_at: nowIso,
         });
 
-        const previousExternalId = normalizeExternalId(existing.external_id);
         if (previousExternalId && previousExternalId !== candidate.externalId) {
           existingProductsByExternalId.delete(previousExternalId);
         }
         const updatedExistingRow: ExistingProductRow = {
           ...existing,
           external_id: candidate.externalId,
+          ml_item_id: candidate.externalId,
+          canonical_offer_url: canonicalOfferUrl,
           category_id: existing.category_id ?? candidate.categoryId,
           source_url: existing.source_url ?? candidate.permalink,
           affiliate_link: resolvedAffiliateLink,
@@ -4453,6 +5225,7 @@ Deno.serve(async (req) => {
           status: nextStatus,
           is_active: nextIsActive,
           free_shipping: candidate.freeShipping,
+          deactivation_reason: enforceBindingStandby ? "suspect_offer_binding" : existing.deactivation_reason,
         };
         existingProductsByExternalId.set(candidate.externalId, updatedExistingRow);
         existingProductsByCanonicalKey.set(candidateCanonicalKey, updatedExistingRow);
@@ -4465,7 +5238,12 @@ Deno.serve(async (req) => {
           affiliateLink: candidate.affiliateLink,
         });
         const qualityIssues = forceStandby
-          ? Array.from(new Set([...(quality.issues ?? []), "fitness_gate_standby"]))
+          ? Array.from(
+            new Set([
+              ...(quality.issues ?? []),
+              ...(candidate.fitnessDecision === "standby" ? ["fitness_gate_standby"] : []),
+            ]),
+          )
           : quality.issues;
         const qualityBadges = forceStandby
           ? Array.from(new Set([...(quality.badges ?? []), "STANDBY_REVIEW"]))
@@ -4506,6 +5284,8 @@ Deno.serve(async (req) => {
           affiliate_generated_at: affiliateVerified ? nowIso : null,
           marketplace: "mercadolivre",
           external_id: candidate.externalId,
+          ml_item_id: candidate.externalId,
+          canonical_offer_url: canonicalOfferUrl,
           free_shipping: candidate.freeShipping,
           quality_issues: qualityIssues,
           curation_badges: qualityBadges,
@@ -4524,7 +5304,7 @@ Deno.serve(async (req) => {
           .from("products")
           .insert(chunk)
           .select(
-            "id, external_id, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping",
+            "id, external_id, ml_item_id, canonical_offer_url, name, slug, description, short_description, specifications, advantages, image_url, image_url_original, image_url_cached, images, category_id, affiliate_link, affiliate_verified, affiliate_generated_at, validated_at, validated_by, affiliate_url_used, source_url, pix_price, pix_price_source, pix_price_checked_at, last_ml_description_hash, description_last_synced_at, description_manual_override, quality_issues, curation_badges, is_featured, status, is_active, price, original_price, discount_percentage, is_on_sale, free_shipping, deactivation_reason",
           );
         if (error) throw new Error(error.message);
         for (const row of (data as ExistingProductRow[] | null) ?? []) {
@@ -4770,7 +5550,22 @@ Deno.serve(async (req) => {
         },
       ]),
     );
+    const insufficientAcceptedCandidates = Array.from(bulkTargetsBySiteCategory.entries())
+      .map(([siteCategory, target]) => {
+        const acceptedNew = getAcceptedNewCountBySiteCategory(siteCategory);
+        const missing = Math.max(0, target - acceptedNew);
+        return {
+          site_category: siteCategory,
+          target,
+          accepted_new: acceptedNew,
+          missing,
+          reason: "insufficient_accepted_candidates",
+        };
+      })
+      .filter((row) => row.missing > 0);
+    stats.insufficient_accepted_candidates = insufficientAcceptedCandidates.length;
     const dailyTargetsSummary = dailyGrowthMode ? bulkTargetsSummary : null;
+    const filterSummary = summarizeFilterAudit(filterAudit);
 
     const hasCatalogChanges =
       stats.inserted_products > 0 ||
@@ -4827,15 +5622,33 @@ Deno.serve(async (req) => {
       timeoutMs: POST_SYNC_TIMEOUT_MS,
     });
 
+    const dailyChecklist = dailyGrowthMode
+      ? await buildDailyRunChecklist({
+        supabase,
+        runId,
+        now: new Date(),
+        stats,
+        dailyTargetsSummary,
+        insufficientAcceptedCandidates,
+        postSyncTrigger,
+        affiliateGate: affiliateGateSummary,
+      })
+      : null;
+    await persistDailyChecklist(dailyChecklist);
+
     console.log(
       JSON.stringify({
         level: "info",
         message: "catalog_ingest_run",
         run_id: runId,
         stats,
+        filter_summary: filterSummary,
+        affiliate_gate: affiliateGateSummary,
         bulk_targets: bulkTargetsSummary,
         daily_targets: dailyTargetsSummary,
+        insufficient_accepted_candidates: insufficientAcceptedCandidates,
         post_sync: postSyncTrigger,
+        daily_checklist: dailyChecklist,
       }),
     );
 
@@ -4844,14 +5657,19 @@ Deno.serve(async (req) => {
         ok: true,
         run_id: runId,
         stats,
+        filter_summary: filterSummary,
+        affiliate_gate: affiliateGateSummary,
         bulk_targets: bulkTargetsSummary,
         daily_targets: dailyTargetsSummary,
+        insufficient_accepted_candidates: insufficientAcceptedCandidates,
         post_sync: postSyncTrigger,
+        daily_checklist: dailyChecklist,
         note: stoppedByRuntime ? "runtime_budget_reached" : null,
       }),
       { status: 200, headers: JSON_HEADERS },
     );
   } catch (error) {
+    const filterSummary = summarizeFilterAudit(filterAudit);
     await upsertRun({
       id: runId,
       finished_at: new Date().toISOString(),
@@ -4892,6 +5710,8 @@ Deno.serve(async (req) => {
         run_id: runId,
         error: (error as Error)?.message ?? String(error),
         stats,
+        filter_summary: filterSummary,
+        affiliate_gate: affiliateGateSummary,
       }),
     );
     return new Response(
@@ -4900,6 +5720,8 @@ Deno.serve(async (req) => {
         run_id: runId,
         error: (error as Error)?.message ?? String(error),
         stats,
+        filter_summary: filterSummary,
+        affiliate_gate: affiliateGateSummary,
       }),
       { status: 500, headers: JSON_HEADERS },
     );

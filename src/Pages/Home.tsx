@@ -14,10 +14,10 @@ import { CategoryFilter } from '@/Components/shared/CategoryFilter';
 import SearchBar from '@/Components/SearchBar';
 import { ProductCard } from '@/Components/ProductCard';
 import { Button } from '@/Components/ui/button';
-import { resolveFinalPriceInfo } from '@/lib/pricing.js';
+import { resolvePricePresentation } from '@/lib/pricing.js';
 
 export default function Home() {
-  const BEST_DEAL_MIN_DISCOUNT = 15;
+  const BEST_DEAL_MIN_DISCOUNT = 20;
   const BEST_DEAL_ABSOLUTE_TOP = 8;
   const ELITE_SCORE_THRESHOLD = 8;
 
@@ -60,6 +60,8 @@ export default function Home() {
         .from('products')
         .select('*, category:categories(id, name, slug, image_url)')
         .eq('is_active', true)
+        .eq('status', 'active')
+        .eq('data_health_status', 'HEALTHY')
         .eq('is_blocked', false)
         .or('auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked')
         .order('created_at', { ascending: false });
@@ -83,18 +85,23 @@ export default function Home() {
   // 1. OFERTAS DO ROBO (Maiores quedas de preco reais)
   const hotDeals = [...products]
     .filter(p => p.is_active !== false)
-    .filter(p => typeof p.previous_price === 'number' && p.previous_price > p.price)
+    .map((product) => {
+      const pricing = resolvePricePresentation(product);
+      const discountPercent = typeof pricing.discountPercent === 'number' ? pricing.discountPercent : 0;
+      const lastUpdated = product.detected_at || product.last_sync || null;
+      return { product, discountPercent, lastUpdated };
+    })
     .filter(p => {
-      const ref = p.detected_at || p.last_sync || null;
+      if (p.discountPercent < BEST_DEAL_MIN_DISCOUNT) return false;
+      const ref = p.lastUpdated;
       if (!ref) return false;
       const diff = Date.now() - new Date(ref).getTime();
       return diff <= 24 * 60 * 60 * 1000;
     })
     .sort((a, b) => {
-      const discountA = ((a.previous_price - a.price) / a.previous_price);
-      const discountB = ((b.previous_price - b.price) / b.previous_price);
-      return discountB - discountA;
+      return b.discountPercent - a.discountPercent;
     })
+    .map((entry) => entry.product)
     .slice(0, 6);
 
   // 2. CURADORIA ELITE (manual ou score alto)
@@ -132,9 +139,9 @@ export default function Home() {
     const candidates = (products || [])
       .filter((product) => product.is_active !== false)
       .map((product) => {
-        const pricing = resolveFinalPriceInfo(product);
-        const price = Number(pricing.finalPrice || 0);
-        const prev = typeof pricing.listPrice === 'number' ? pricing.listPrice : null;
+        const pricing = resolvePricePresentation(product);
+        const price = Number(pricing.displayPricePrimary || pricing.finalPrice || 0);
+        const prev = typeof pricing.displayStrikethrough === 'number' ? pricing.displayStrikethrough : null;
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || product.created_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : null;

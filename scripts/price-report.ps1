@@ -1,6 +1,8 @@
 param(
   [string]$EnvFile = "supabase/functions/.env.scheduler",
-  [int]$SinceHours = 24
+  [int]$SinceHours = 24,
+  [string]$Mode = "generate_daily",
+  [string]$Date = ""
 )
 
 $scriptPath = Join-Path $PSScriptRoot "price-report-runner.cjs"
@@ -21,4 +23,9 @@ if (-not $nodeCmd) {
   exit 1
 }
 
-& $nodeCmd $scriptPath --env $EnvFile --since-hours $SinceHours
+if ($Date) {
+  & $nodeCmd $scriptPath --env $EnvFile --since-hours $SinceHours --mode $Mode --date $Date
+}
+else {
+  & $nodeCmd $scriptPath --env $EnvFile --since-hours $SinceHours --mode $Mode
+}

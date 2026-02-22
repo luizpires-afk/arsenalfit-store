@@ -1,0 +1,3 @@
+id,name,reason_code,reason_detail,ml_item_id,destination_ml_item_id,site_price,ml_price,delta_abs,delta_pct,url_final,data_health_status,updated_at
+091b9e54-6859-4400-8d56-74bff3869dc6,Nutri Whey Protein Pouch Chocolate 900g Integralmédica,SUSPECT_PRICE,pending_recheck,MLB4472465985,MLB4472465985,53.68,,,,https://mercadolivre.com/sec/1H1c36W,SUSPECT_PRICE,2026-02-21T23:10:01.119689+00:00
+2dc08cfd-3d12-46fe-8e86-d0f3514c1f82,(Kit 2x) Creatina Monohidratada Pó Growth Suplementos Sem Sabor,SUSPECT_PRICE,pending_recheck,MLB6173287630,MLB6173287630,115,,,,https://mercadolivre.com/sec/1KdZ6HV,SUSPECT_PRICE,2026-02-21T23:10:00.354446+00:00

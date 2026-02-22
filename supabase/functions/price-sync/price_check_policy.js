@@ -10,6 +10,9 @@ export const PRICE_SOURCE = {
   API_BASE: "API_BASE",
 };
 
+const MAX_SCRAPER_TO_API_RATIO = 1.35;
+const MIN_SCRAPER_TO_API_RATIO = 0.75;
+
 const normalizeNumber = (value) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -31,15 +34,27 @@ export const resolvePriorityAndTtl = ({
   createdAt,
   isFeatured,
   clicksCount,
+  isOnSale,
+  discountPercentage,
   productName,
   catalogPriority,
   ttlByPriority,
 }) => {
   const ttlConfig = {
-    [PRICE_PRIORITY.HIGH]: ttlByPriority?.HIGH ?? 120,
-    [PRICE_PRIORITY.MED]: ttlByPriority?.MED ?? 720,
-    [PRICE_PRIORITY.LOW]: ttlByPriority?.LOW ?? 2160,
+    [PRICE_PRIORITY.HIGH]: ttlByPriority?.HIGH ?? 60,
+    [PRICE_PRIORITY.MED]: ttlByPriority?.MED ?? 360,
+    [PRICE_PRIORITY.LOW]: ttlByPriority?.LOW ?? 1440,
   };
+  const highVolatilityTtlMinutes = Math.max(
+    15,
+    Math.floor(
+      Number(
+        ttlByPriority?.HIGH_VOLATILITY ??
+          ttlByPriority?.HIGH_VOLATILITY_MINUTES ??
+          45,
+      ),
+    ),
+  );
 
   const createdMs = createdAt ? new Date(createdAt).getTime() : Number.NaN;
   const ageMs = Number.isFinite(createdMs) ? now.getTime() - createdMs : Number.POSITIVE_INFINITY;
@@ -56,16 +71,31 @@ export const resolvePriorityAndTtl = ({
     normalizedName.includes("creatina") ||
     normalizedName.includes("pre treino") ||
     normalizedName.includes("suplement");
+  const isHighVolatility =
+    normalizedName.includes("smartwatch") ||
+    normalizedName.includes("watch") ||
+    normalizedName.includes("redmi") ||
+    normalizedName.includes("xiaomi") ||
+    normalizedName.includes("samsung galaxy") ||
+    normalizedName.includes("iphone") ||
+    normalizedName.includes("notebook");
+  const hasPromotion =
+    Boolean(isOnSale) ||
+    (Number.isFinite(Number(discountPercentage)) && Number(discountPercentage) > 0);
   const highByClicks = Number.isFinite(Number(clicksCount)) && Number(clicksCount) >= 80;
+  const veryHighByClicks = Number.isFinite(Number(clicksCount)) && Number(clicksCount) >= 120;
 
   let priority = PRICE_PRIORITY.MED;
-  if (isNew || Boolean(isFeatured) || highByClicks || isSupplement) {
+  if (isNew || Boolean(isFeatured) || highByClicks || veryHighByClicks || isSupplement || hasPromotion || isHighVolatility) {
     priority = PRICE_PRIORITY.HIGH;
   } else if (explicitCatalogPriority) {
     priority = explicitCatalogPriority;
   }
 
-  const ttlMinutes = ttlConfig[priority] ?? ttlConfig[PRICE_PRIORITY.MED];
+  let ttlMinutes = ttlConfig[priority] ?? ttlConfig[PRICE_PRIORITY.MED];
+  if (priority === PRICE_PRIORITY.HIGH && isHighVolatility) {
+    ttlMinutes = Math.min(ttlMinutes, highVolatilityTtlMinutes);
+  }
   return { priority, ttlMinutes };
 };
 
@@ -87,15 +117,23 @@ export const resolveFinalPriceFromSignals = ({
   const hasApi = typeof api === "number" && api > 0;
   const hasPix = typeof pix === "number" && pix > 0 && (!hasApi || pix < api);
   const hasScraped = typeof scraped === "number" && scraped > 0;
+  const scraperLooksSuspiciousVsApi =
+    hasApi &&
+    hasScraped &&
+    !hasPix &&
+    (scraped > api * MAX_SCRAPER_TO_API_RATIO || scraped < api * MIN_SCRAPER_TO_API_RATIO);
 
   if (hasPix) {
     return { finalPrice: pix, source: PRICE_SOURCE.API_PIX };
   }
-  if (hasScraped) {
+  if (hasApi) {
+    return { finalPrice: api, source: PRICE_SOURCE.API_BASE };
+  }
+  if (hasScraped && !scraperLooksSuspiciousVsApi) {
     return { finalPrice: scraped, source: PRICE_SOURCE.SCRAPER };
   }
-  if (!requireScraperWhenNoPix && hasApi) {
-    return { finalPrice: api, source: PRICE_SOURCE.API_BASE };
+  if (!requireScraperWhenNoPix && hasScraped) {
+    return { finalPrice: scraped, source: PRICE_SOURCE.SCRAPER };
   }
   return { finalPrice: null, source: null };
 };

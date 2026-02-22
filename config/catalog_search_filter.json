@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "global": {
+    "allowlist_terms": [],
+    "blocklist_terms": [],
+    "regex_rules": [],
+    "known_fitness_brands": [],
+    "synonyms": {
+      "pre treino": ["pre-treino", "pretreino"],
+      "cafeina": ["cafeína"],
+      "musculacao": ["musculação"],
+      "relogio esportivo": ["relógio esportivo"],
+      "termica": ["térmica"],
+      "capsula": ["cápsula", "capsulas", "cápsulas"]
+    }
+  },
+  "categories": {
+    "acessorios": {
+      "allowlist_terms": [],
+      "blocklist_terms": [
+        "cafe",
+        "cafeteira",
+        "capsula",
+        "capsulas",
+        "chimarrao",
+        "erva mate",
+        "cuia",
+        "termica cafe",
+        "garrafa de cafe",
+        "bule",
+        "coador",
+        "cozinha",
+        "gourmet",
+        "escritorio",
+        "home office",
+        "garrafa termica",
+        "copo termico",
+        "stanley",
+        "quick flip",
+        "termolar",
+        "magic pump"
+      ],
+      "regex_rules": [
+        {
+          "name": "coffee_context",
+          "pattern": "\\b(cafe|cafeteira|capsula|capsulas|chimarrao|erva\\s*mate|cuia|bule|coador)\\b",
+          "flags": "i",
+          "action": "reject",
+          "reason": "coffee_context"
+        }
+      ],
+      "ambiguous_rules": [
+        {
+          "name": "garrafa_context",
+          "triggers": ["garrafa"],
+          "requires_one_of": [
+            "squeeze",
+            "shaker",
+            "coqueteleira",
+            "academia",
+            "fitness",
+            "treino",
+            "gym",
+            "musculacao",
+            "esportivo",
+            "esporte"
+          ]
+        },
+        {
+          "name": "termica_context",
+          "triggers": ["termica", "thermal"],
+          "requires_one_of": ["squeeze", "shaker", "coqueteleira", "academia", "fitness", "treino"]
+        }
+      ],
+      "min_relevance_score": { "allow": 70, "standby": 50 }
+    },
+    "equipamentos": {
+      "blocklist_terms": [
+        "profissional",
+        "estacao de musculacao",
+        "esteira profissional",
+        "aparelho",
+        "academia completa",
+        "usado",
+        "seminovo",
+        "semi novo"
+      ],
+      "min_relevance_score": { "allow": 70, "standby": 50 }
+    },
+    "roupas_masc": {
+      "blocklist_terms": ["social", "jeans", "vestido", "blazer", "terno", "salto"],
+      "min_relevance_score": { "allow": 70, "standby": 50 }
+    },
+    "roupas_fem": {
+      "blocklist_terms": ["social", "jeans", "vestido", "blazer", "terno", "salto"],
+      "min_relevance_score": { "allow": 70, "standby": 50 }
+    },
+    "suplementos": {
+      "blocklist_terms": ["tarja", "controlado", "medicamento", "anabolizante", "esteroide", "homeopatia", "paçoca", "pacoca"],
+      "min_relevance_score": { "allow": 70, "standby": 50 }
+    }
+  }
+}

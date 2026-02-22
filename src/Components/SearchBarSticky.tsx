@@ -57,7 +57,8 @@ const formatPrice = (value?: number | null) => {
 
 const CACHE_TTL_MS = 60_000;
 const MAX_SUGGESTIONS = 7;
-const ACTIVE_FILTER = "is_active.is.null,is_active.eq.true";
+const ACTIVE_FILTER =
+  "and(is_active.eq.true,status.eq.active,data_health_status.eq.HEALTHY,auto_disabled_reason.is.null),and(is_active.eq.true,status.eq.active,data_health_status.eq.HEALTHY,auto_disabled_reason.neq.blocked)";
 
 const normalize = (value = "") =>
   value

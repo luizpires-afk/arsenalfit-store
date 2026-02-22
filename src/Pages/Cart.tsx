@@ -39,6 +39,13 @@ const formatPrice = (value: number) =>
 const resolveProductHref = (product: { slug?: string | null; id: string }) =>
   product.slug ? `/produto/${product.slug}` : `/produto/${product.id}`;
 
+const FIRST_MONITOR_NOTICE_KEY = "arsenalfit:monitor:first-activation:v1";
+
+const hasDismissedFirstMonitorNotice = () => {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(FIRST_MONITOR_NOTICE_KEY) === "1";
+};
+
 const cartThemeVars: CSSProperties = {
   '--cart-bg': '#FFFFFF',
   '--cart-surface': '#F7F7F8',
@@ -63,6 +70,7 @@ const Cart = () => {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [heroSrc, setHeroSrc] = useState(cartHeroImage);
   const [monitoredOpen, setMonitoredOpen] = useState(false);
+  const [showFirstMonitorNotice, setShowFirstMonitorNotice] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia?.("(min-width: 1024px)");
@@ -70,11 +78,34 @@ const Cart = () => {
     setMonitoredOpen(mq.matches);
   }, []);
 
+  useEffect(() => {
+    if (hasDismissedFirstMonitorNotice()) {
+      setShowFirstMonitorNotice(false);
+    }
+  }, []);
+
+  const dismissFirstMonitorNotice = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(FIRST_MONITOR_NOTICE_KEY, "1");
+    }
+    setShowFirstMonitorNotice(false);
+  };
+
   const handleToggleMonitoring = async (product: { id: string; title: string; imageUrl?: string | null; price: number }) => {
+    if (!isLoggedIn) {
+      toast.info('Faça login para ativar monitoramento.', {
+        description: 'Você receberá alertas por e-mail quando o preço baixar.',
+      });
+      return;
+    }
+
     const enabled = await toggleMonitoring(product);
     if (enabled) {
+      if (monitoredProducts.length === 0 && !hasDismissedFirstMonitorNotice()) {
+        setShowFirstMonitorNotice(true);
+      }
       toast.success('Monitoramento ativado', {
-        description: 'Vamos te avisar quando este produto baixar de preço.',
+        description: 'Veja em Carrinho > Produtos monitorados. Avisamos por e-mail quando cair.',
       });
     } else {
       toast.success('Monitoramento desativado', {
@@ -129,7 +160,7 @@ const Cart = () => {
       return;
     }
     setIsRedirecting(true);
-    window.open(offer.outPath, '_blank', 'noopener,noreferrer');
+    window.location.assign(offer.outPath);
     setTimeout(() => setIsRedirecting(false), 600);
   };
 
@@ -292,6 +323,41 @@ const Cart = () => {
         </div>
       </section>
 
+      {showFirstMonitorNotice && (
+        <div className="container px-4 pt-14 sm:pt-16 lg:pt-20">
+          <div className="rounded-[22px] border border-[rgba(255,106,0,0.32)] bg-[rgba(255,106,0,0.08)] px-4 py-4 sm:px-6 sm:py-5 shadow-[var(--cart-shadow)]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[var(--cart-accent)]">
+                  Monitoramento ativado
+                </p>
+                <p className="mt-1 text-sm sm:text-base font-semibold text-[var(--cart-text)]">
+                  Perfeito! Quando este produto baixar, você recebe aviso no e-mail.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={openMonitorInfoDialog}
+                  className="h-10 rounded-full border-[var(--cart-border)] bg-white text-[var(--cart-text)] hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)]"
+                >
+                  Ver tutorial
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={dismissFirstMonitorNotice}
+                  className="h-10 rounded-full text-[var(--cart-muted)] hover:text-[var(--cart-text)]"
+                >
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="container mt-20 sm:mt-24 lg:mt-28 px-4 pb-12">
         <div className="grid gap-10 lg:grid-cols-3 items-start">
           {/* LISTAGEM DE PRODUTOS */}
@@ -442,6 +508,9 @@ const Cart = () => {
                           ? "Carregando..."
                           : `${monitoredProducts.length} ativo(s)`}
                       </p>
+                      <p className="mt-1 text-[11px] text-[var(--cart-muted)]">
+                        Avisamos por e-mail quando o preço cair.
+                      </p>
                     </div>
                     <ChevronDown
                       className={`h-5 w-5 text-[var(--cart-muted)] transition-transform ${
@@ -460,7 +529,10 @@ const Cart = () => {
                       </div>
                     ) : monitoredProducts.length === 0 ? (
                       <div className="rounded-2xl border border-[var(--cart-border)] bg-white px-4 py-4 text-sm text-[var(--cart-muted)]">
-                        Nenhum produto monitorado no momento.
+                        <p>Você ainda não monitora nenhum produto.</p>
+                        <Button asChild variant="outline" className="mt-3 h-10 rounded-full border-[var(--cart-border)] bg-white hover:border-[var(--cart-accent)] hover:text-[var(--cart-accent)]">
+                          <Link to="/categorias">Ver produtos para monitorar</Link>
+                        </Button>
                       </div>
                     ) : (
                       <div className="space-y-3">

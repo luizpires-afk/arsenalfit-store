@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Package,
@@ -64,6 +64,13 @@ import {
   MAX_AFFILIATE_BATCH_SIZE,
   parseAffiliateLinksInput,
 } from "@/lib/affiliateBatch.js";
+import {
+  canSoftRemoveStandbyProduct,
+  detectAffiliateNotPermittedSignal,
+  evaluatePriceMismatch,
+  isMercadoLivreSecLink as isMercadoLivreSecLinkPolicy,
+  isStandbyLikeState,
+} from "@/lib/adminHealth.js";
 
 const isClothingCategory = (name?: string | null, slug?: string | null) => {
   const target = `${name || ""} ${slug || ""}`.toLowerCase();
@@ -90,18 +97,62 @@ const CLOTHING_OPTIONS = [
 const DUPLICATE_LINK_MESSAGE = "Este link já foi utilizado";
 const REPORTS_PREVIEW_COUNT = 10;
 const MAX_BULK_AFFILIATE_LINKS = MAX_AFFILIATE_BATCH_SIZE;
-
-const isMercadoLivreSecLink = (value?: string | null) => {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    const host = url.host.toLowerCase();
-    const isMlHost = host === "mercadolivre.com" || host === "www.mercadolivre.com";
-    return isMlHost && url.pathname.startsWith("/sec/");
-  } catch {
-    return false;
-  }
+const AFFILIATE_BATCH_ERROR_LABELS: Record<string, string> = {
+  invalid_sec_link: "Link invalido: use apenas link curto /sec/ do Mercado Livre.",
+  affiliate_link_already_used: "Este link /sec/ ja esta vinculado a outro produto ativo.",
+  affiliate_url_not_permitted: "URL nao permitido pelo Programa de Afiliados.",
+  product_not_found: "Produto nao encontrado para aplicar este link.",
+  missing_input_line: "Faltou link para esta linha do lote.",
+  empty_link: "Linha vazia no envio do lote.",
+  already_validated: "Produto ja estava validado anteriormente.",
 };
+
+const STANDBY_REMOVE_REASONS = [
+  { value: "INVALID_AFFILIATE", label: "Afiliado invalido (/sec/ nao permitido)" },
+  { value: "IRRELEVANT_RESULT", label: "Resultado irrelevante" },
+  { value: "DUPLICATE", label: "Duplicado" },
+  { value: "PRICE_MISMATCH", label: "Divergencia de preco" },
+  { value: "OUT_OF_STOCK", label: "Sem estoque" },
+  { value: "OTHER", label: "Outro motivo" },
+] as const;
+
+const HEALTH_STATE_STYLE: Record<string, string> = {
+  OK: "bg-success/10 text-success border-success/30",
+  ATENCAO: "bg-warning/10 text-warning border-warning/30",
+  PROBLEMA: "bg-destructive/10 text-destructive border-destructive/30",
+};
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  try {
+    return parsed.toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    });
+  } catch {
+    return "-";
+  }
+}
+
+const isAdminAccessError = (error: unknown) => {
+  const status = Number((error as any)?.status || 0);
+  const code = String((error as any)?.code || "").toLowerCase();
+  const message = String(
+    (error as any)?.message || (error as any)?.details || "",
+  ).toLowerCase();
+  return (
+    status === 401 ||
+    status === 403 ||
+    code.includes("admin_required") ||
+    message.includes("admin_required") ||
+    message.includes("permission denied") ||
+    message.includes("forbidden")
+  );
+};
+
+const isMercadoLivreSecLink = (value?: string | null) =>
+  isMercadoLivreSecLinkPolicy(value);
 
 const isMercadoLivreProduct = (product: Product) =>
   String(product.marketplace || "").toLowerCase().includes("mercado");
@@ -164,6 +215,29 @@ const buildAffiliateCanonicalKey = (product: Product) => {
 
 const areSameAffiliateCanonicalProduct = (a: Product, b: Product) =>
   buildAffiliateCanonicalKey(a) === buildAffiliateCanonicalKey(b);
+
+const isArchivedProduct = (product: Product) =>
+  ["archived", "removed"].includes(String(product.status || "").toLowerCase()) ||
+  Boolean(product.removed_at);
+
+const isStandbyLikeProduct = (product: Product) => {
+  return isStandbyLikeState({
+    status: product.status,
+    isActive: product.is_active,
+  });
+};
+
+const hasAffiliateValidationError = (product: Product) =>
+  String(product.affiliate_validation_status || "").startsWith("INVALID");
+
+const detectMlSourceKind = (product: Product) => {
+  const canonical = String((product as any).canonical_offer_url || "").toLowerCase();
+  const source = String(product.source_url || "").toLowerCase();
+  const combined = `${canonical} ${source}`;
+  if (combined.includes("produto.mercadolivre.com.br")) return "ITEM";
+  if (combined.includes("/p/mlb")) return "CATALOG";
+  return "UNKNOWN";
+};
 
 const compareAffiliateRepresentativePriority = (a: Product, b: Product) => {
   const aSec = isMercadoLivreSecLink(a.affiliate_link);
@@ -248,13 +322,42 @@ interface PriceSyncChange {
 interface PriceSyncReport {
   id: string;
   sent_at: string;
+  report_date?: string | null;
+  since_at?: string | null;
+  until_at?: string | null;
   recipients: string[];
   total: number;
   drops: number;
   increases: number;
   promos: number;
   status: string;
+  delivery_status?: string | null;
+  delivery_attempts?: number | null;
   error?: string | null;
+  last_error?: string | null;
+  summary?: Record<string, unknown> | null;
+}
+
+interface DailyRunChecklistItem {
+  key: string;
+  label: string;
+  pass: boolean;
+  critical: boolean;
+  detail?: Record<string, unknown> | null;
+}
+
+interface DailyRunReport {
+  id: string;
+  run_id: string | null;
+  source: string;
+  report_date: string;
+  overall_status: "PASS" | "FAIL";
+  critical_failures: number;
+  checklist?: {
+    generated_at?: string;
+    items?: DailyRunChecklistItem[];
+  } | null;
+  created_at: string;
 }
 
 interface PriceSyncAnomaly {
@@ -285,6 +388,88 @@ interface AffiliateBatchExportRow {
   product_name: string;
   external_id: string | null;
   source_url: string | null;
+}
+
+interface AffiliateBatchInvalidRow {
+  position: number;
+  product_id: string;
+  product_name: string | null;
+  affiliate_url: string | null;
+  error_message: string | null;
+}
+
+interface HealthDashboardCardItem {
+  id: string;
+  name?: string | null;
+  status?: string | null;
+  external_id?: string | null;
+  affiliate_validation_status?: string | null;
+  affiliate_validation_error?: string | null;
+  updated_at?: string | null;
+  product_id?: string | null;
+  product_name?: string | null;
+  site_price?: number | null;
+  ml_price?: number | null;
+  delta_abs?: number | null;
+  delta_pct?: number | null;
+  source?: string | null;
+  reason?: string | null;
+  last_audit_at?: string | null;
+}
+
+interface HealthDashboardData {
+  generated_at?: string | null;
+  go_no_go?: {
+    state?: "OK" | "ATENCAO" | "PROBLEMA" | string;
+    reason?: string | null;
+  } | null;
+  automation?: {
+    cron_jobs?: Array<{ jobname?: string; schedule?: string; active?: boolean }>;
+    price_check_scheduler?: { last_run?: string | null; runs_last_2h?: number | null };
+    catalog_ingest?: { last_run?: string | null; last_inserted?: number | null; last_updated?: number | null };
+    price_sync_report?: { last_run?: string | null; delivery_status?: string | null; last_error?: string | null };
+  } | null;
+  catalog?: {
+    standby?: number | null;
+    active_ok?: number | null;
+    blocked?: number | null;
+    active_without_affiliate?: number | null;
+    affiliate_errors_total?: number | null;
+    affiliate_not_permitted?: number | null;
+  } | null;
+  prices?: {
+    suspect_price?: number | null;
+    mismatch_open?: number | null;
+    mismatch_last_24h?: number | null;
+    pix_price?: number | null;
+    promotion_ready?: number | null;
+  } | null;
+  lists?: {
+    affiliate_errors?: HealthDashboardCardItem[];
+    price_mismatch_top?: HealthDashboardCardItem[];
+  } | null;
+}
+
+interface PriceMismatchCase {
+  id: string;
+  product_id: string;
+  site_price: number;
+  ml_price: number;
+  delta_abs: number;
+  delta_pct: number;
+  status: string;
+  source: string | null;
+  reason: string | null;
+  last_audit_at: string;
+  created_at: string;
+  product?: {
+    id: string;
+    name: string;
+    slug: string;
+    image_url: string | null;
+    status: string | null;
+    is_active: boolean | null;
+  } | null;
 }
 
 const initialFormData: ProductFormData = {
@@ -330,6 +515,20 @@ export default function Admin() {
   const [changesWindow, setChangesWindow] = useState<'24h' | '7d' | '30d'>('24h');
   const [anomaliesWindow, setAnomaliesWindow] = useState<'24h' | '7d' | '30d'>('7d');
   const [productTab, setProductTab] = useState<'all' | 'valid' | 'blocked' | 'affiliate'>('all');
+  const [productQuickFilter, setProductQuickFilter] = useState<
+    | "all"
+    | "standby"
+    | "ok_inactive"
+    | "inactive_reason"
+    | "source_item"
+    | "source_catalog"
+    | "mismatch_open"
+    | "mismatch_critical"
+    | "mismatch_resolved"
+    | "affiliate_invalid"
+  >("all");
+  const [inactiveReasonFilter, setInactiveReasonFilter] = useState<string>("all");
+  const [showOnlyAffiliateErrors, setShowOnlyAffiliateErrors] = useState(false);
   const [affiliateDrafts, setAffiliateDrafts] = useState<Record<string, string>>({});
   const [savingAffiliateProductId, setSavingAffiliateProductId] = useState<string | null>(null);
   const [bulkAffiliateLinksInput, setBulkAffiliateLinksInput] = useState('');
@@ -337,9 +536,28 @@ export default function Admin() {
   const [isCreatingAffiliateBatch, setIsCreatingAffiliateBatch] = useState(false);
   const [affiliateBatchId, setAffiliateBatchId] = useState<string | null>(null);
   const [affiliateBatchCount, setAffiliateBatchCount] = useState(0);
+  const [lastAffiliateBatchResult, setLastAffiliateBatchResult] = useState<{
+    batchId: string;
+    applied: number;
+    invalid: number;
+    skipped: number;
+    ignoredExtra: number;
+    invalidRows: AffiliateBatchInvalidRow[];
+  } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncAlertShown, setSyncAlertShown] = useState(false);
   const [reportsExpanded, setReportsExpanded] = useState(false);
+  const [resendingReportDate, setResendingReportDate] = useState<string | null>(null);
+  const [isRunningPriceAudit, setIsRunningPriceAudit] = useState(false);
+  const [isRecheckingSuspect, setIsRecheckingSuspect] = useState(false);
+  const [mismatchActionLoadingId, setMismatchActionLoadingId] = useState<string | null>(null);
+  const [selectedStandbyIds, setSelectedStandbyIds] = useState<Record<string, boolean>>({});
+  const [removeStandbyDialogOpen, setRemoveStandbyDialogOpen] = useState(false);
+  const [standbyRemoveReason, setStandbyRemoveReason] =
+    useState<(typeof STANDBY_REMOVE_REASONS)[number]["value"]>("IRRELEVANT_RESULT");
+  const [standbyRemoveNote, setStandbyRemoveNote] = useState("");
+  const [standbyRemoveTargets, setStandbyRemoveTargets] = useState<string[]>([]);
+  const [isRemovingStandby, setIsRemovingStandby] = useState(false);
 
   // Redirecionamento de segurança
   useEffect(() => {
@@ -491,8 +709,29 @@ export default function Admin() {
     enabled: !!isAdmin,
   });
 
+  const { data: dailyRunReports = [], isLoading: loadingDailyRunReports } = useQuery({
+    queryKey: ['daily-run-reports'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('daily_run_reports')
+        .select('id, run_id, source, report_date, overall_status, critical_failures, checklist, created_at')
+        .order('created_at', { ascending: false })
+        .limit(15);
+
+      if (error) throw error;
+      return (data as unknown as DailyRunReport[]) || [];
+    },
+    enabled: !!isAdmin,
+  });
+
   const visibleReports = reportsExpanded ? reports : reports.slice(0, REPORTS_PREVIEW_COUNT);
   const hasMoreReports = reports.length > REPORTS_PREVIEW_COUNT;
+  const latestDailyRunReport = dailyRunReports[0] ?? null;
+  const latestChecklistItems = Array.isArray(latestDailyRunReport?.checklist?.items)
+    ? latestDailyRunReport?.checklist?.items || []
+    : [];
+  const failedChecklistItems = latestChecklistItems.filter((item) => item?.pass === false);
+  const criticalChecklistFails = failedChecklistItems.filter((item) => item?.critical);
 
   const { data: emailLogs = [], isLoading: loadingEmailLogs } = useQuery({
     queryKey: ['auth-email-logs'],
@@ -523,6 +762,41 @@ export default function Admin() {
       return data || [];
     },
     enabled: !!isAdmin,
+  });
+
+  const {
+    data: healthDashboard,
+    isLoading: loadingHealthDashboard,
+    error: healthDashboardError,
+    refetch: refetchHealthDashboard,
+  } = useQuery({
+    queryKey: ['admin-health-dashboard'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_admin_health_dashboard', {
+        p_lookback_hours: 24,
+      });
+      if (error) throw error;
+      return (data as unknown as HealthDashboardData) || null;
+    },
+    enabled: !!isAdmin,
+    refetchInterval: 60_000,
+  });
+
+  const { data: priceMismatchCases = [], isLoading: loadingPriceMismatchCases } = useQuery({
+    queryKey: ['price-mismatch-cases'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('price_mismatch_cases')
+        .select('id, product_id, site_price, ml_price, delta_abs, delta_pct, status, source, reason, last_audit_at, created_at, product:products(id, name, slug, image_url, status, is_active)')
+        .eq('status', 'OPEN')
+        .order('delta_pct', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      return (data as unknown as PriceMismatchCase[]) || [];
+    },
+    enabled: !!isAdmin,
+    refetchInterval: 60_000,
   });
 
   const { data: anomalies = [], isLoading: loadingAnomalies } = useQuery({
@@ -684,7 +958,7 @@ export default function Admin() {
       : formatAge(syncAgeMs);
   const syncScheduleNote = `Ciclo de ${SYNC_INTERVAL_HOURS}h (UTC)`;
 
-  const [autoSyncAttemptAt, setAutoSyncAttemptAt] = useState<number | null>(null);
+  const autoSyncAttemptAtRef = useRef<number>(0);
 
   const productHealthStats = useMemo(() => {
     const mlProducts = products.filter(
@@ -731,6 +1005,36 @@ export default function Admin() {
       pixUnknown,
     };
   }, [products, blockedProductIds]);
+
+  const healthGoNoGoState = String(healthDashboard?.go_no_go?.state || "OK").toUpperCase();
+  const healthGoNoGoReason =
+    healthDashboard?.go_no_go?.reason || "Sem alertas criticos registrados.";
+  const healthGoNoGoClass =
+    HEALTH_STATE_STYLE[healthGoNoGoState] || HEALTH_STATE_STYLE.OK;
+  const healthUpdatedAtLabel = healthDashboard?.generated_at
+    ? formatDateTime(healthDashboard.generated_at)
+    : "sem horario";
+  const activeProductIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const product of products) {
+      const isActive = String(product?.status || "").toLowerCase() === "active" && Boolean(product?.is_active);
+      if (isActive) ids.add(product.id);
+    }
+    return ids;
+  }, [products]);
+  const healthAffiliateErrors =
+    (healthDashboard?.lists?.affiliate_errors as HealthDashboardCardItem[] | undefined) || [];
+  const healthMismatchTopRaw =
+    (healthDashboard?.lists?.price_mismatch_top as HealthDashboardCardItem[] | undefined) || [];
+  const healthMismatchTop = useMemo(
+    () =>
+      healthMismatchTopRaw.filter((item: any) => {
+        const productId = String(item?.product_id || item?.id || "").trim();
+        if (!productId) return true;
+        return activeProductIds.has(productId);
+      }),
+    [healthMismatchTopRaw, activeProductIds],
+  );
 
   // Mutation: Criar/Atualizar Produto
   const productMutation = useMutation({
@@ -1261,16 +1565,18 @@ export default function Admin() {
   useEffect(() => {
     const AUTO_SYNC_RETRY_MS = 30 * 60 * 1000;
     if (!isSyncStale || isSyncing) {
-      if (!isSyncStale && autoSyncAttemptAt !== null) {
-        setAutoSyncAttemptAt(null);
+      if (!isSyncStale) {
+        autoSyncAttemptAtRef.current = 0;
       }
       return;
     }
     const now = Date.now();
-    if (autoSyncAttemptAt && now - autoSyncAttemptAt < AUTO_SYNC_RETRY_MS) return;
-    setAutoSyncAttemptAt(now);
-    handleForceSync();
-  }, [isSyncStale, isSyncing, autoSyncAttemptAt]);
+    if (autoSyncAttemptAtRef.current && now - autoSyncAttemptAtRef.current < AUTO_SYNC_RETRY_MS) {
+      return;
+    }
+    autoSyncAttemptAtRef.current = now;
+    void handleForceSync();
+  }, [isSyncStale, isSyncing]);
 
   useEffect(() => {
     if (isSyncStale && !syncAlertShown) {
@@ -1397,10 +1703,16 @@ export default function Admin() {
       validated_at: nowIso,
       validated_by: validatedBy,
       affiliate_url_used: link,
+      affiliate_validation_status: 'VALIDATED',
+      affiliate_validation_error: null,
       is_active: true,
       status: 'active',
       auto_disabled_reason: null,
       auto_disabled_at: null,
+      removed_at: null,
+      removed_reason: null,
+      removed_by: null,
+      removed_note: null,
       next_check_at: nowIso,
     };
 
@@ -1548,19 +1860,170 @@ export default function Admin() {
     if (type === 'recovery') return 'bg-secondary text-secondary-foreground';
     return 'bg-muted text-muted-foreground';
   };
-  const formatDateTime = (value?: string | null) => {
-    if (!value) return '-';
-    return new Date(value).toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
+  const getReportDateKey = (report: PriceSyncReport) => {
+    if (typeof report.report_date === 'string' && report.report_date.trim()) {
+      return report.report_date.trim();
+    }
+    if (!report.sent_at) return null;
+    const ms = new Date(report.sent_at).getTime();
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString().slice(0, 10);
+  };
+
+  const handleResendPriceReport = async (report: PriceSyncReport) => {
+    const reportDate = getReportDateKey(report);
+    if (!reportDate) {
+      toast.error('Data do relatório indisponível para reenvio.');
+      return;
+    }
+    setResendingReportDate(reportDate);
+    try {
+      const { error } = await supabase.rpc('request_price_sync_report_resend', {
+        p_report_date: reportDate,
+      });
+      if (error) throw error;
+      toast.success('Reenvio solicitado. O relatório será processado em instantes.');
+      queryClient.invalidateQueries({ queryKey: ['price-sync-reports'] });
+    } catch (error: any) {
+      toast.error('Falha ao solicitar reenvio', {
+        description: error?.message || 'Tente novamente.',
+      });
+    } finally {
+      setResendingReportDate(null);
+    }
+  };
+
+  const openRemoveStandbyDialog = (productIds: string[]) => {
+    const uniqueIds = Array.from(new Set(productIds.filter(Boolean)));
+    if (!uniqueIds.length) {
+      toast.error("Nenhum produto selecionado para excluir.");
+      return;
+    }
+    setStandbyRemoveTargets(uniqueIds);
+    setStandbyRemoveReason("IRRELEVANT_RESULT");
+    setStandbyRemoveNote("");
+    setRemoveStandbyDialogOpen(true);
+  };
+
+  const handleToggleStandbySelection = (productId: string, checked: boolean) => {
+    setSelectedStandbyIds((prev) => {
+      const next = { ...prev };
+      if (checked) next[productId] = true;
+      else delete next[productId];
+      return next;
     });
+  };
+
+  const handleBulkRemoveStandby = async () => {
+    if (!standbyRemoveTargets.length) return;
+    setIsRemovingStandby(true);
+    try {
+      const { data, error } = await supabase.rpc("admin_soft_remove_standby_products", {
+        p_product_ids: standbyRemoveTargets,
+        p_reason: standbyRemoveReason,
+        p_note: standbyRemoveNote.trim() || null,
+      });
+      if (error) throw error;
+
+      const removed = Number((data as any)?.removed ?? 0);
+      const skipped = Number((data as any)?.skipped_active ?? 0);
+      const summary =
+        removed > 0
+          ? `${removed} produto(s) removido(s) do standby.`
+          : "Nenhum produto removido.";
+      const suffix = skipped > 0 ? ` ${skipped} ativo(s) foram preservados.` : "";
+      toast.success(summary + suffix);
+
+      setRemoveStandbyDialogOpen(false);
+      setStandbyRemoveTargets([]);
+      setSelectedStandbyIds({});
+      queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-health-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["price-mismatch-cases"] });
+    } catch (error: any) {
+      toast.error("Falha ao remover produtos do standby.", {
+        description: error?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsRemovingStandby(false);
+    }
+  };
+
+  const handleRunPriceAuditSample = async () => {
+    setIsRunningPriceAudit(true);
+    try {
+      const { data, error } = await supabase.rpc("queue_price_audit_sample", {
+        p_limit: 80,
+        p_include_suspect: true,
+      });
+      if (error) throw error;
+      const queued = Number((data as any)?.queued ?? 0);
+      toast.success(`Auditoria iniciada: ${queued} produto(s) enfileirado(s).`);
+      queryClient.invalidateQueries({ queryKey: ["price-mismatch-cases"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-health-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["price-sync-anomalies"] });
+    } catch (error: any) {
+      toast.error("Falha ao iniciar auditoria de precos.", {
+        description: error?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsRunningPriceAudit(false);
+    }
+  };
+
+  const handleRecheckSuspectPricesNow = async () => {
+    setIsRecheckingSuspect(true);
+    try {
+      const { data, error } = await supabase.rpc("recheck_suspect_prices_now", {
+        p_limit: 200,
+      });
+      if (error) throw error;
+      const queued = Number((data as any)?.queued ?? 0);
+      toast.success(`Rechecagem acionada para ${queued} produto(s).`);
+      queryClient.invalidateQueries({ queryKey: ["admin-health-dashboard"] });
+    } catch (error: any) {
+      toast.error("Falha ao acionar rechecagem de suspeitos.", {
+        description: error?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsRecheckingSuspect(false);
+    }
+  };
+
+  const handlePriceMismatchAction = async (
+    caseId: string,
+    action: "RECHECK_NOW" | "APPLY_ML_PRICE" | "MARK_RESOLVED" | "MOVE_TO_STANDBY",
+  ) => {
+    setMismatchActionLoadingId(`${caseId}:${action}`);
+    try {
+      const { error } = await supabase.rpc("admin_resolve_price_mismatch_case", {
+        p_case_id: caseId,
+        p_action: action,
+        p_note: null,
+      });
+      if (error) throw error;
+      toast.success("Ação aplicada.");
+      queryClient.invalidateQueries({ queryKey: ["price-mismatch-cases"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-health-dashboard"] });
+    } catch (error: any) {
+      toast.error("Falha ao aplicar ação da divergência.", {
+        description: error?.message || "Tente novamente.",
+      });
+    } finally {
+      setMismatchActionLoadingId(null);
+    }
   };
 
   const filteredAllProducts = useMemo(() => {
     const query = searchQuery.toLowerCase();
-    return products.filter(product =>
-      product.name.toLowerCase().includes(query) ||
-      (product.description || '').toLowerCase().includes(query)
-    );
+    return products.filter((product) => {
+      if (isArchivedProduct(product)) return false;
+      return (
+        product.name.toLowerCase().includes(query) ||
+        (product.description || '').toLowerCase().includes(query)
+      );
+    });
   }, [products, searchQuery]);
 
   const dedupedMercadoLists = useMemo(() => {
@@ -1646,10 +2109,14 @@ export default function Admin() {
 
   const affiliateGrouped = useMemo(() => {
     const eligibleProducts = dedupedMercadoLists.allProducts.filter(
-      (product) => !blockedProductIds.has(product.id),
+      (product) => !blockedProductIds.has(product.id) && !isArchivedProduct(product),
     );
 
-    const products = [...eligibleProducts].sort((a, b) => {
+    const filteredByError = showOnlyAffiliateErrors
+      ? eligibleProducts.filter((product) => hasAffiliateValidationError(product))
+      : eligibleProducts;
+
+    const products = [...filteredByError].sort((a, b) => {
       const aPending = isMercadoLivreSecLink(a.affiliate_link) ? 0 : 1;
       const bPending = isMercadoLivreSecLink(b.affiliate_link) ? 0 : 1;
       if (aPending !== bPending) return bPending - aPending;
@@ -1665,7 +2132,7 @@ export default function Admin() {
       products,
       hiddenBlockedByApi: Math.max(0, dedupedMercadoLists.allProducts.length - eligibleProducts.length),
     };
-  }, [dedupedMercadoLists, blockedProductIds]);
+  }, [dedupedMercadoLists, blockedProductIds, showOnlyAffiliateErrors]);
 
   const filteredAffiliateProducts = affiliateGrouped.products;
 
@@ -1695,20 +2162,126 @@ export default function Admin() {
     [filteredAffiliateProducts],
   );
 
+  const removableStandbyProducts = useMemo(
+    () =>
+      pendingAffiliateProducts.filter((product) =>
+        canSoftRemoveStandbyProduct({
+          status: product.status,
+          isActive: product.is_active,
+          affiliateLink: product.affiliate_link,
+        }),
+      ),
+    [pendingAffiliateProducts],
+  );
+
+  const selectedStandbyProductIds = useMemo(
+    () =>
+      removableStandbyProducts
+        .map((product) => product.id)
+        .filter((id) => Boolean(selectedStandbyIds[id])),
+    [removableStandbyProducts, selectedStandbyIds],
+  );
+
+  useEffect(() => {
+    setSelectedStandbyIds((prev) => {
+      const valid = new Set(removableStandbyProducts.map((product) => product.id));
+      const next: Record<string, boolean> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (value && valid.has(key)) next[key] = true;
+      }
+      return next;
+    });
+  }, [removableStandbyProducts]);
+
+  const productNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const product of products) {
+      map.set(product.id, product.name);
+    }
+    return map;
+  }, [products]);
+
   const bulkAffiliateLinksParsed = useMemo(
     () => parseMultilineLinks(bulkAffiliateLinksInput),
     [bulkAffiliateLinksInput],
   );
   const hasOpenAffiliateBatch = Boolean(affiliateBatchId && affiliateBatchCount > 0);
+  const formatAffiliateBatchError = (errorCode?: string | null) => {
+    if (!errorCode) return "Erro nao especificado.";
+    return AFFILIATE_BATCH_ERROR_LABELS[errorCode] ?? errorCode.replace(/_/g, ' ');
+  };
 
   const handleCopyPendingAffiliateSourceUrls = async () => {
-    if (!pendingAffiliateProducts.length) {
-      toast.error('Nenhum produto pendente para copiar.');
-      return;
-    }
-
     setIsCreatingAffiliateBatch(true);
     try {
+      const { data: launchOpenBatches, error: launchOpenBatchesError } = await supabase
+        .from('affiliate_validation_batches')
+        .select('id, created_at, source, status')
+        .eq('status', 'OPEN')
+        .like('source', 'launch_book_60_unique_wave_%')
+        .order('created_at', { ascending: true })
+        .limit(10);
+
+      if (launchOpenBatchesError) throw launchOpenBatchesError;
+
+      const launchCandidates = (launchOpenBatches ?? []) as Array<{
+        id: string;
+        created_at?: string | null;
+        source?: string | null;
+        status?: string | null;
+      }>;
+
+      for (const candidate of launchCandidates) {
+        if (!candidate?.id) continue;
+        const { data: pendingItems, error: pendingItemsError } = await supabase
+          .from('affiliate_validation_batch_items')
+          .select('position, source_url, apply_status')
+          .eq('batch_id', candidate.id)
+          .eq('apply_status', 'PENDING')
+          .order('position', { ascending: true });
+
+        if (pendingItemsError) throw pendingItemsError;
+
+        const launchUrls = ((pendingItems as Array<{
+          position?: number | null;
+          source_url?: string | null;
+          apply_status?: string | null;
+        }> | null) ?? [])
+          .map((item) => (item.source_url ?? '').trim())
+          .filter(Boolean);
+
+        if (!launchUrls.length) continue;
+
+        const launchContent = launchUrls.join('\n');
+        try {
+          await navigator.clipboard.writeText(launchContent);
+        } catch {
+          const textarea = document.createElement('textarea');
+          textarea.value = launchContent;
+          textarea.style.position = 'fixed';
+          textarea.style.top = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+
+        setAffiliateBatchId(candidate.id);
+        setAffiliateBatchCount(launchUrls.length);
+        setLastAffiliateBatchResult(null);
+        setBulkAffiliateLinksInput('');
+        toast.success(
+          `Lote pronto copiado: ${candidate.id.slice(0, 8)} com ${launchUrls.length} URL(s).`,
+        );
+        return;
+      }
+
+      if (!pendingAffiliateProducts.length) {
+        toast.error('Nenhum produto pendente para copiar.');
+        return;
+      }
+
       const { data, error } = await supabase.rpc('export_standby_affiliate_batch', {
         p_limit: MAX_BULK_AFFILIATE_LINKS,
         p_source: 'admin_affiliate_tab',
@@ -1720,9 +2293,80 @@ export default function Admin() {
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
       if (!rows.length) {
-        setAffiliateBatchId(null);
-        setAffiliateBatchCount(0);
-        toast.error('Nenhum item elegivel para lote de afiliados.');
+        const { data: openBatches, error: openBatchesError } = await supabase
+          .from('affiliate_validation_batches')
+          .select('id, created_at, source, status')
+          .eq('status', 'OPEN')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (openBatchesError) throw openBatchesError;
+
+        const batchCandidates = (openBatches ?? []) as Array<{
+          id: string;
+          created_at?: string | null;
+          source?: string | null;
+          status?: string | null;
+        }>;
+
+        let reusedBatchId: string | null = null;
+        let reusedUrls: string[] = [];
+
+        for (const candidate of batchCandidates) {
+          if (!candidate?.id) continue;
+          const { data: pendingItems, error: pendingItemsError } = await supabase
+            .from('affiliate_validation_batch_items')
+            .select('position, source_url, apply_status')
+            .eq('batch_id', candidate.id)
+            .eq('apply_status', 'PENDING')
+            .order('position', { ascending: true });
+
+          if (pendingItemsError) throw pendingItemsError;
+
+          const urls = ((pendingItems as Array<{
+            position?: number | null;
+            source_url?: string | null;
+            apply_status?: string | null;
+          }> | null) ?? [])
+            .map((item) => (item.source_url ?? '').trim())
+            .filter(Boolean);
+
+          if (!urls.length) continue;
+
+          reusedBatchId = candidate.id;
+          reusedUrls = urls;
+          break;
+        }
+
+        if (!reusedBatchId || !reusedUrls.length) {
+          setAffiliateBatchId(null);
+          setAffiliateBatchCount(0);
+          toast.error('Nenhum item elegivel para lote de afiliados.');
+          return;
+        }
+
+        const reusedContent = reusedUrls.join('\n');
+        try {
+          await navigator.clipboard.writeText(reusedContent);
+        } catch {
+          const textarea = document.createElement('textarea');
+          textarea.value = reusedContent;
+          textarea.style.position = 'fixed';
+          textarea.style.top = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+
+        setAffiliateBatchId(reusedBatchId);
+        setAffiliateBatchCount(reusedUrls.length);
+        setLastAffiliateBatchResult(null);
+        setBulkAffiliateLinksInput('');
+        toast.success(
+          `Batch aberto reaproveitado: ${reusedBatchId.slice(0, 8)} com ${reusedUrls.length} URL(s).`,
+        );
         return;
       }
 
@@ -1753,6 +2397,7 @@ export default function Admin() {
 
       setAffiliateBatchId(batchId);
       setAffiliateBatchCount(linksForBatch.length);
+      setLastAffiliateBatchResult(null);
       setBulkAffiliateLinksInput('');
       toast.success(
         `Lote ${batchId.slice(0, 8)} gerado com ${linksForBatch.length} URL(s).`,
@@ -1769,6 +2414,7 @@ export default function Admin() {
       toast.error('Gere um lote antes de validar em bloco.');
       return;
     }
+    const batchId = affiliateBatchId;
     if (!bulkAffiliateLinksParsed.length) {
       toast.error('Cole ao menos um link de afiliado em lote.');
       return;
@@ -1793,10 +2439,22 @@ export default function Admin() {
       seen.add(normalized);
     }
 
+    const notPermittedSignals = bulkAffiliateLinksParsed.filter((line) =>
+      detectAffiliateNotPermittedSignal(line),
+    ).length;
+    if (notPermittedSignals > 0) {
+      toast.warning(
+        `${notPermittedSignals} linha(s) parecem conter erro de afiliado ("URL nao permitido").`,
+        {
+          description: "O lote sera processado, e as linhas invalidas ficarao em standby com erro.",
+        },
+      );
+    }
+
     setIsApplyingBulkAffiliateLinks(true);
     try {
       const { data, error } = await supabase.rpc('apply_affiliate_validation_batch', {
-        p_batch_id: affiliateBatchId,
+        p_batch_id: batchId,
         p_affiliate_urls: bulkAffiliateLinksParsed,
       });
       if (error) throw error;
@@ -1823,6 +2481,44 @@ export default function Admin() {
       const invalid = Number(payload.invalid ?? 0);
       const skipped = Number(payload.skipped ?? 0);
       const ignoredExtra = Number(payload.ignored_extra ?? 0);
+      let invalidRows: AffiliateBatchInvalidRow[] = [];
+
+      if (invalid > 0) {
+        const { data: invalidData, error: invalidFetchError } = await supabase
+          .from('affiliate_validation_batch_items')
+          .select('position, product_id, affiliate_url, error_message')
+          .eq('batch_id', batchId)
+          .eq('apply_status', 'INVALID')
+          .order('position', { ascending: true });
+
+        if (invalidFetchError) {
+          toast.warning('Lote aplicado, mas sem detalhes de invalidacao.', {
+            description: invalidFetchError.message,
+          });
+        } else {
+          invalidRows = ((invalidData as Array<{
+            position: number | null;
+            product_id: string;
+            affiliate_url: string | null;
+            error_message: string | null;
+          }> | null) ?? []).map((row) => ({
+            position: Number(row.position ?? 0),
+            product_id: row.product_id,
+            product_name: productNameById.get(row.product_id) ?? null,
+            affiliate_url: row.affiliate_url ?? null,
+            error_message: row.error_message ?? null,
+          }));
+        }
+      }
+
+      setLastAffiliateBatchResult({
+        batchId,
+        applied,
+        invalid,
+        skipped,
+        ignoredExtra,
+        invalidRows,
+      });
 
       if (applied > 0) {
         setBulkAffiliateLinksInput('');
@@ -1862,6 +2558,87 @@ export default function Admin() {
         ? filteredValidProducts
         : filteredAllProductsDeduped;
 
+  const openMismatchByProductId = useMemo(() => {
+    const map = new Map<string, PriceMismatchCase>();
+    for (const item of priceMismatchCases) {
+      if (!item.product_id) continue;
+      const current = map.get(item.product_id);
+      if (!current || Number(item.delta_pct ?? 0) > Number(current.delta_pct ?? 0)) {
+        map.set(item.product_id, item);
+      }
+    }
+    return map;
+  }, [priceMismatchCases]);
+
+  const criticalMismatchIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of priceMismatchCases) {
+      const deltaAbs = Number(item.delta_abs ?? 0);
+      const deltaPct = Number(item.delta_pct ?? 0);
+      if (deltaPct >= 50 || deltaAbs >= 30) {
+        set.add(item.product_id);
+      }
+    }
+    return set;
+  }, [priceMismatchCases]);
+
+  const inactiveReasons = useMemo(() => {
+    const values = new Set<string>();
+    for (const product of products) {
+      const reason = String((product as any).deactivation_reason || "").trim();
+      if (reason) values.add(reason);
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [products]);
+
+  const quickFilteredProducts = useMemo(() => {
+    const matchesQuickFilter = (product: Product) => {
+      const status = String(product.status || "").toLowerCase();
+      const isInactive = !Boolean(product.is_active);
+      const isStandby = isStandbyLikeProduct(product);
+      const hasAffiliateInvalid = hasAffiliateValidationError(product);
+      const sourceKind = detectMlSourceKind(product);
+      const hasOpenMismatch =
+        String((product as any).price_mismatch_status || "").toUpperCase() === "OPEN" ||
+        openMismatchByProductId.has(product.id);
+      const hasResolvedMismatch =
+        String((product as any).price_mismatch_status || "").toUpperCase() === "RESOLVED" &&
+        !openMismatchByProductId.has(product.id);
+      const hasCriticalMismatch = criticalMismatchIds.has(product.id);
+      const inactiveReason = String((product as any).deactivation_reason || "").trim();
+
+      switch (productQuickFilter) {
+        case "standby":
+          return isStandby;
+        case "ok_inactive":
+          return status === "ok" && isInactive;
+        case "inactive_reason":
+          return isInactive && (inactiveReasonFilter === "all" || inactiveReason === inactiveReasonFilter);
+        case "source_item":
+          return sourceKind === "ITEM";
+        case "source_catalog":
+          return sourceKind === "CATALOG";
+        case "mismatch_open":
+          return hasOpenMismatch;
+        case "mismatch_critical":
+          return hasCriticalMismatch;
+        case "mismatch_resolved":
+          return hasResolvedMismatch;
+        case "affiliate_invalid":
+          return hasAffiliateInvalid;
+        default:
+          return true;
+      }
+    };
+    return activeProductsList.filter(matchesQuickFilter);
+  }, [
+    activeProductsList,
+    criticalMismatchIds,
+    inactiveReasonFilter,
+    openMismatchByProductId,
+    productQuickFilter,
+  ]);
+
   if (authLoading) {
     return (
       <Layout>
@@ -1869,6 +2646,36 @@ export default function Admin() {
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
             <p className="mt-4 text-muted-foreground">Carregando...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (isAdminAccessError(healthDashboardError)) {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-secondary/30">
+          <div className="container-tight py-8">
+            <div className="rounded-xl border border-warning/30 bg-warning/5 p-6">
+              <h1 className="text-xl font-semibold text-foreground">Acesso restrito ao administrador</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Sua sessão não possui permissão para acessar este painel.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => navigate('/')}>Voltar Home</Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    navigate('/');
+                  }}
+                >
+                  Sair
+                </Button>
+                <Button variant="outline" onClick={() => window.location.reload()}>Recarregar</Button>
+              </div>
+            </div>
           </div>
         </div>
       </Layout>
@@ -2020,7 +2827,7 @@ export default function Admin() {
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -2047,15 +2854,29 @@ export default function Admin() {
                         <div className="text-sm text-muted-foreground">
                           {report.total} mudanças . {report.drops} quedas . {report.promos} promos
                         </div>
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            report.status === 'sent'
-                              ? 'bg-success/10 text-success'
-                              : 'bg-destructive/10 text-destructive'
-                          }`}
-                        >
-                          {report.status === 'sent' ? 'Enviado' : 'Falhou'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs px-2 py-1 rounded-full ${
+                              (report.delivery_status || report.status) === 'sent'
+                                ? 'bg-success/10 text-success'
+                                : 'bg-destructive/10 text-destructive'
+                            }`}
+                          >
+                            {(report.delivery_status || report.status) === 'sent' ? 'Enviado' : 'Falhou'}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 text-xs"
+                            disabled={Boolean(resendingReportDate && resendingReportDate === getReportDateKey(report))}
+                            onClick={() => handleResendPriceReport(report)}
+                          >
+                            {resendingReportDate && resendingReportDate === getReportDateKey(report)
+                              ? 'Reenviando...'
+                              : 'Reenviar'}
+                          </Button>
+                        </div>
                       </div>
                     ))}
                     {hasMoreReports && (
@@ -2074,6 +2895,57 @@ export default function Admin() {
                   </div>
                 )}
               </div>
+              <div className="p-4 rounded-lg border border-border bg-secondary/30">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <CheckCircle className="h-4 w-4" /> Checklist diario
+                  </div>
+                  {latestDailyRunReport && (
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full ${
+                        latestDailyRunReport.overall_status === 'PASS'
+                          ? 'bg-success/10 text-success'
+                          : 'bg-destructive/10 text-destructive'
+                      }`}
+                    >
+                      {latestDailyRunReport.overall_status}
+                    </span>
+                  )}
+                </div>
+                {loadingDailyRunReports ? (
+                  <p className="text-sm text-muted-foreground">Carregando...</p>
+                ) : !latestDailyRunReport ? (
+                  <p className="text-sm text-muted-foreground">Nenhum checklist diario salvo ainda.</p>
+                ) : (
+                  <div className="space-y-2 text-sm">
+                    <p className="text-xs text-muted-foreground">
+                      Run: {latestDailyRunReport.run_id ? latestDailyRunReport.run_id.slice(0, 8) : 'N/D'} .{' '}
+                      {formatDateTime(latestDailyRunReport.created_at)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Falhas criticas: {criticalChecklistFails.length} / {latestDailyRunReport.critical_failures ?? 0}
+                    </p>
+                    {failedChecklistItems.length === 0 ? (
+                      <p className="text-xs text-success">Todos os itens do checklist passaram.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {failedChecklistItems.slice(0, 4).map((item) => (
+                          <p key={item.key} className="text-xs text-destructive">
+                            - {item.label}
+                            {item.critical ? ' (critico)' : ''}
+                          </p>
+                        ))}
+                        {failedChecklistItems.length > 4 && (
+                          <p className="text-xs text-muted-foreground">
+                            +{failedChecklistItems.length - 4} item(ns) com falha
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
 
               <div className="p-4 rounded-lg border border-border bg-secondary/30">
                 <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
@@ -2157,6 +3029,186 @@ export default function Admin() {
               </div>
             )}
           </div>
+          {/* Saúde do Sistema */}
+          <div className="bg-card rounded-xl p-4 mb-6 border border-border">
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Saude do Sistema</h2>
+                <p className="text-sm text-muted-foreground">
+                  Semaforo operacional de automacao, afiliado e qualidade de preco.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${healthGoNoGoClass}`}>
+                  GO/NO-GO: {healthGoNoGoState}
+                </span>
+                <Button
+                  variant="outline"
+                  onClick={() => refetchHealthDashboard()}
+                  disabled={loadingHealthDashboard}
+                >
+                  {loadingHealthDashboard ? "Atualizando..." : "Atualizar painel"}
+                </Button>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-muted-foreground">{healthGoNoGoReason}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Atualizado em: {healthUpdatedAtLabel}
+            </p>
+            {healthDashboardError && (
+              <p className="mt-1 text-[11px] text-destructive">
+                Falha ao atualizar painel: {(healthDashboardError as Error).message || "erro desconhecido"}
+              </p>
+            )}
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Price check</p>
+                <p className="mt-1 text-base font-semibold text-foreground">
+                  Runs 2h: {healthDashboard?.automation?.price_check_scheduler?.runs_last_2h ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ultimo run: {formatDateTime(healthDashboard?.automation?.price_check_scheduler?.last_run ?? null)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Catalog ingest</p>
+                <p className="mt-1 text-base font-semibold text-foreground">
+                  +{healthDashboard?.automation?.catalog_ingest?.last_inserted ?? 0} inseridos
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ultimo run: {formatDateTime(healthDashboard?.automation?.catalog_ingest?.last_run ?? null)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Price report</p>
+                <p className="mt-1 text-base font-semibold text-foreground">
+                  {healthDashboard?.automation?.price_sync_report?.delivery_status || 'sem status'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Ultimo: {formatDateTime(healthDashboard?.automation?.price_sync_report?.last_run ?? null)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Catalogo</p>
+                <p className="mt-1 text-base font-semibold text-foreground">
+                  Standby: {healthDashboard?.catalog?.standby ?? 0} . Ativo: {healthDashboard?.catalog?.active_ok ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Erros afiliado: {healthDashboard?.catalog?.affiliate_errors_total ?? 0}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Suspect price</p>
+                <p className="mt-1 text-lg font-semibold text-warning">
+                  {healthDashboard?.prices?.suspect_price ?? 0}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Divergencias abertas</p>
+                <p className="mt-1 text-lg font-semibold text-destructive">
+                  {healthDashboard?.prices?.mismatch_open ?? 0}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Com Pix</p>
+                <p className="mt-1 text-lg font-semibold text-success">
+                  {healthDashboard?.prices?.pix_price ?? 0}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <p className="text-xs uppercase text-muted-foreground">Com promocao</p>
+                <p className="mt-1 text-lg font-semibold text-primary">
+                  {healthDashboard?.prices?.promotion_ready ?? 0}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={handleRunPriceAuditSample} disabled={isRunningPriceAudit}>
+                {isRunningPriceAudit ? 'Auditando...' : 'Rodar auditoria de precos agora (amostra)'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleRecheckSuspectPricesNow}
+                disabled={isRecheckingSuspect}
+              >
+                {isRecheckingSuspect ? 'Rechecando...' : 'Rechecar precos SUSPECT agora'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setProductTab('affiliate');
+                  setShowOnlyAffiliateErrors(true);
+                }}
+              >
+                Abrir lista de STANDBY com erros
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const latest = reports[0];
+                  if (!latest) {
+                    toast.error('Nenhum relatorio disponivel para reenvio.');
+                    return;
+                  }
+                  handleResendPriceReport(latest);
+                }}
+                disabled={!reports.length}
+              >
+                Reenviar relatorio diario
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleCopyPendingAffiliateSourceUrls}
+                disabled={isCreatingAffiliateBatch || !pendingAffiliateProducts.length}
+              >
+                Exportar batch /sec/ (30)
+              </Button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <h3 className="text-sm font-semibold text-foreground">Falhas de afiliado (top 10)</h3>
+                {healthAffiliateErrors.length === 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Sem falhas de afiliado abertas.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {healthAffiliateErrors.map((item) => (
+                      <div key={item.id} className="rounded border border-warning/30 bg-warning/5 p-2">
+                        <p className="text-xs font-medium text-foreground">{item.name || item.id}</p>
+                        <p className="text-[11px] text-warning">
+                          {item.affiliate_validation_error || item.affiliate_validation_status || 'Erro de afiliado'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/30 p-3">
+                <h3 className="text-sm font-semibold text-foreground">Divergencias criticas (top 10)</h3>
+                {healthMismatchTop.length === 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Sem divergencias abertas.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {healthMismatchTop.map((item) => (
+                      <div key={item.id} className="rounded border border-destructive/30 bg-destructive/5 p-2">
+                        <p className="text-xs font-medium text-foreground">{item.product_name || item.id}</p>
+                        <p className="text-[11px] text-destructive">
+                          Site: {formatPrice(item.site_price ?? null)} . ML: {formatPrice(item.ml_price ?? null)} . Delta: {Number(item.delta_pct ?? 0).toFixed(1)}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Produtos */}
           <div className="bg-card rounded-xl p-4 mb-6 border border-border">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -2242,6 +3294,55 @@ export default function Admin() {
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
+              <Select
+                value={productQuickFilter}
+                onValueChange={(value) =>
+                  setProductQuickFilter(
+                    value as
+                      | "all"
+                      | "standby"
+                      | "ok_inactive"
+                      | "inactive_reason"
+                      | "source_item"
+                      | "source_catalog"
+                      | "mismatch_open"
+                      | "mismatch_critical"
+                      | "mismatch_resolved"
+                      | "affiliate_invalid",
+                  )
+                }
+              >
+                <SelectTrigger className="w-full sm:w-[260px]">
+                  <SelectValue placeholder="Filtro rapido" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Filtro: Todos</SelectItem>
+                  <SelectItem value="standby">Standby</SelectItem>
+                  <SelectItem value="ok_inactive">OK + Inativo</SelectItem>
+                  <SelectItem value="inactive_reason">Inativo por motivo</SelectItem>
+                  <SelectItem value="source_item">Source ITEM</SelectItem>
+                  <SelectItem value="source_catalog">Source CATALOG</SelectItem>
+                  <SelectItem value="mismatch_open">Divergencias abertas</SelectItem>
+                  <SelectItem value="mismatch_critical">Divergencias criticas</SelectItem>
+                  <SelectItem value="mismatch_resolved">Divergencias resolvidas</SelectItem>
+                  <SelectItem value="affiliate_invalid">Afiliado invalido</SelectItem>
+                </SelectContent>
+              </Select>
+              {productQuickFilter === "inactive_reason" && (
+                <Select value={inactiveReasonFilter} onValueChange={setInactiveReasonFilter}>
+                  <SelectTrigger className="w-full sm:w-[240px]">
+                    <SelectValue placeholder="Motivo de inativacao" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os motivos</SelectItem>
+                    {inactiveReasons.map((reason) => (
+                      <SelectItem key={reason} value={reason}>
+                        {reason}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 
@@ -2465,19 +3566,131 @@ export default function Admin() {
             </div>
           </div>
 
+          {/* Divergências de Preço */}
+          <div className="bg-card rounded-xl p-4 mb-6 border border-border">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Divergencias de preco</h2>
+                <p className="text-sm text-muted-foreground">
+                  Casos abertos de diferenca relevante entre preco salvo e referencia do Mercado Livre.
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-secondary/40 px-3 py-1 text-xs font-semibold text-foreground">
+                Abertos: {priceMismatchCases.length}
+              </span>
+            </div>
+
+            <div className="mt-4">
+              {loadingPriceMismatchCases ? (
+                <p className="text-sm text-muted-foreground">Carregando divergencias...</p>
+              ) : priceMismatchCases.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma divergencia aberta no momento.</p>
+              ) : (
+                <div className="space-y-3">
+                  {priceMismatchCases.map((item) => {
+                    const mismatchEval = evaluatePriceMismatch({
+                      sitePrice: item.site_price,
+                      mlPrice: item.ml_price,
+                    });
+                    const canRemoveMismatchFromStandby = canSoftRemoveStandbyProduct({
+                      status: item.product?.status,
+                      isActive: item.product?.is_active,
+                      affiliateLink: null,
+                    });
+                    return (
+                    <div
+                      key={item.id}
+                      className={`rounded-lg border p-3 ${
+                        mismatchEval.isCritical
+                          ? "border-destructive/40 bg-destructive/5"
+                          : "border-border bg-secondary/30"
+                      }`}
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-foreground">{item.product?.name || item.product_id}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Site: {formatPrice(item.site_price)} . ML: {formatPrice(item.ml_price)} . Delta: {item.delta_pct.toFixed(1)}% ({formatPrice(item.delta_abs)})
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Fonte: {item.source || '-'} . Ultima auditoria: {formatDateTime(item.last_audit_at)}
+                          </p>
+                          <p className={`text-[11px] mt-1 ${mismatchEval.isCritical ? "text-destructive" : "text-warning"}`}>
+                            {mismatchEval.isCritical ? "Critico" : "Alerta"} . delta calculado: {mismatchEval.deltaPct.toFixed(1)}%
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={mismatchActionLoadingId === `${item.id}:RECHECK_NOW`}
+                            onClick={() => handlePriceMismatchAction(item.id, "RECHECK_NOW")}
+                          >
+                            Rechecar agora
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={mismatchActionLoadingId === `${item.id}:APPLY_ML_PRICE`}
+                            onClick={() => handlePriceMismatchAction(item.id, "APPLY_ML_PRICE")}
+                          >
+                            Aplicar preco ML
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={mismatchActionLoadingId === `${item.id}:MARK_RESOLVED`}
+                            onClick={() => handlePriceMismatchAction(item.id, "MARK_RESOLVED")}
+                          >
+                            Marcar resolvido
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={mismatchActionLoadingId === `${item.id}:MOVE_TO_STANDBY`}
+                            onClick={() => handlePriceMismatchAction(item.id, "MOVE_TO_STANDBY")}
+                          >
+                            Mover para standby
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive border-destructive/30 hover:text-destructive"
+                            disabled={!item.product_id || !canRemoveMismatchFromStandby}
+                            onClick={() => openRemoveStandbyDialog([item.product_id])}
+                          >
+                            Excluir (standby)
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Products List */}
           {loadingProducts ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
               <p className="mt-4 text-muted-foreground">Carregando produtos...</p>
             </div>
-          ) : activeProductsList.length === 0 ? (
+          ) : quickFilteredProducts.length === 0 ? (
             <div className="text-center py-12 bg-card rounded-xl border border-border">
               <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium text-foreground mb-2">Nenhum produto encontrado</h3>
               <p className="text-muted-foreground mb-4">
                 {searchQuery
                   ? 'Tente outro termo de busca'
+                  : productQuickFilter !== 'all'
+                    ? 'Nenhum produto corresponde ao filtro rápido selecionado.'
                   : productTab === 'affiliate'
                     ? 'Nenhum produto do Mercado Livre encontrado para vincular afiliado.'
                   : productTab === 'blocked'
@@ -2519,6 +3732,59 @@ export default function Admin() {
                     Bloqueados pela API ocultados nesta aba: {affiliateStatusStats.hiddenBlockedByApi}.
                   </p>
                 )}
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={showOnlyAffiliateErrors ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowOnlyAffiliateErrors((prev) => !prev)}
+                    >
+                      {showOnlyAffiliateErrors ? "Mostrando apenas erros" : "Mostrar somente erros de afiliado"}
+                    </Button>
+                    {selectedStandbyProductIds.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {selectedStandbyProductIds.length} standby selecionado(s).
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!removableStandbyProducts.length}
+                      onClick={() =>
+                        setSelectedStandbyIds((prev) => {
+                          const hasUnselected = removableStandbyProducts.some(
+                            (product) => !prev[product.id],
+                          );
+                          if (!hasUnselected) return {};
+                          const next: Record<string, boolean> = {};
+                          removableStandbyProducts.forEach((product) => {
+                            next[product.id] = true;
+                          });
+                          return next;
+                        })
+                      }
+                    >
+                      {selectedStandbyProductIds.length === removableStandbyProducts.length &&
+                      removableStandbyProducts.length > 0
+                        ? "Limpar selecao"
+                        : "Selecionar standby"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive border-destructive/30 hover:text-destructive"
+                      disabled={!selectedStandbyProductIds.length}
+                      onClick={() => openRemoveStandbyDialog(selectedStandbyProductIds)}
+                    >
+                      Excluir selecionados
+                    </Button>
+                  </div>
+                </div>
                 <div className="rounded-md border border-border bg-background p-3 space-y-3">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <p className="text-xs text-muted-foreground">
@@ -2573,6 +3839,39 @@ export default function Admin() {
                       {isApplyingBulkAffiliateLinks ? "Validando..." : "Validar em lote na ordem"}
                     </Button>
                   </div>
+                  {lastAffiliateBatchResult && (
+                    <div className="rounded-md border border-border bg-secondary/30 p-3 space-y-2">
+                      <p className="text-xs text-foreground">
+                        Ultimo lote: <code>{lastAffiliateBatchResult.batchId}</code> |{" "}
+                        {lastAffiliateBatchResult.applied} validado(s),{" "}
+                        {lastAffiliateBatchResult.invalid} invalida(s),{" "}
+                        {lastAffiliateBatchResult.skipped} pendente(s),{" "}
+                        {lastAffiliateBatchResult.ignoredExtra} excedente(s).
+                      </p>
+                      {lastAffiliateBatchResult.invalidRows.length > 0 && (
+                        <div className="space-y-2">
+                          {lastAffiliateBatchResult.invalidRows.map((row) => (
+                            <div
+                              key={`${lastAffiliateBatchResult.batchId}-${row.position}-${row.product_id}`}
+                              className="rounded-md border border-warning/30 bg-warning/5 px-2 py-2"
+                            >
+                              <p className="text-xs font-semibold text-foreground">
+                                Linha {row.position}: {row.product_name || row.product_id}
+                              </p>
+                              <p className="text-xs text-warning">
+                                Motivo: {formatAffiliateBatchError(row.error_message)}
+                              </p>
+                              {row.affiliate_url && (
+                                <p className="text-[11px] text-muted-foreground break-all">
+                                  Link informado: <code>{row.affiliate_url}</code>
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="divide-y divide-border">
@@ -2584,14 +3883,35 @@ export default function Admin() {
                       : { valid: false, error: null as string | null, marketplace: null as string | null };
                   const isSecLink = isMercadoLivreSecLink(draftValue);
                   const isSaving = savingAffiliateProductId === product.id;
+                  const isStandbyRemovable = canSoftRemoveStandbyProduct({
+                    status: product.status,
+                    isActive: product.is_active,
+                    affiliateLink: product.affiliate_link,
+                  });
+                  const isSelectedForRemoval = Boolean(selectedStandbyIds[product.id]);
                   return (
                     <div key={product.id} className="p-4 space-y-3">
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground line-clamp-1">{product.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {product.external_id || "Sem MLB"} . {product.status || (product.is_active ? "active" : "inativo")}
-                          </p>
+                        <div className="min-w-0 flex items-start gap-2">
+                          {isStandbyRemovable ? (
+                            <input
+                              type="checkbox"
+                              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                              checked={isSelectedForRemoval}
+                              onChange={(event) =>
+                                handleToggleStandbySelection(product.id, event.target.checked)
+                              }
+                              aria-label={`Selecionar ${product.name}`}
+                            />
+                          ) : (
+                            <span className="mt-1 inline-flex h-4 w-4 rounded-full border border-border/60 bg-secondary/60" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground line-clamp-1">{product.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {product.external_id || "Sem MLB"} . {product.status || (product.is_active ? "active" : "inativo")}
+                            </p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           {product.is_active ? (
@@ -2612,10 +3932,21 @@ export default function Admin() {
                               Pendente
                             </span>
                           )}
+                          {hasAffiliateValidationError(product) && (
+                            <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-1 text-xs font-semibold text-destructive">
+                              Erro afiliado
+                            </span>
+                          )}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+                      {product.affiliate_validation_error && (
+                        <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                          <p className="text-xs text-warning">{product.affiliate_validation_error}</p>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
                         <Input
                           value={draftValue}
                           onChange={(e) => handleAffiliateDraftChange(product.id, e.target.value)}
@@ -2627,6 +3958,15 @@ export default function Admin() {
                           disabled={isSaving || !draftValue.trim() || !validation.valid || !isSecLink}
                         >
                           {isSaving ? "Salvando..." : "Salvar e ativar"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-destructive border-destructive/30 hover:text-destructive"
+                          disabled={!isStandbyRemovable}
+                          onClick={() => openRemoveStandbyDialog([product.id])}
+                        >
+                          Excluir
                         </Button>
                       </div>
                       {draftValue.trim().length > 0 && !validation.valid && (
@@ -2659,7 +3999,7 @@ export default function Admin() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {activeProductsList.map((product) => {
+                    {quickFilteredProducts.map((product) => {
                       const showPix =
                         typeof product.pix_price === "number" &&
                         product.pix_price > 0 &&
@@ -2776,7 +4116,7 @@ export default function Admin() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {activeProductsList.map((product) => {
+              {quickFilteredProducts.map((product) => {
                 const showPix =
                   typeof product.pix_price === "number" &&
                   product.pix_price > 0 &&
@@ -3206,6 +4546,79 @@ export default function Admin() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={removeStandbyDialogOpen}
+        onOpenChange={(open) => {
+          setRemoveStandbyDialogOpen(open);
+          if (!open && !isRemovingStandby) {
+            setStandbyRemoveTargets([]);
+            setStandbyRemoveNote("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Excluir produto(s) em standby</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Essa acao remove da fila e da vitrine via soft delete (status arquivado), mantendo historico para auditoria.
+            </p>
+            <div className="rounded-md border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+              Produtos selecionados: <span className="font-semibold text-foreground">{standbyRemoveTargets.length}</span>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="standby-remove-reason">Motivo *</Label>
+              <Select
+                value={standbyRemoveReason}
+                onValueChange={(value) =>
+                  setStandbyRemoveReason(value as (typeof STANDBY_REMOVE_REASONS)[number]["value"])
+                }
+              >
+                <SelectTrigger id="standby-remove-reason">
+                  <SelectValue placeholder="Selecione o motivo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {STANDBY_REMOVE_REASONS.map((reason) => (
+                    <SelectItem key={reason.value} value={reason.value}>
+                      {reason.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="standby-remove-note">Observacao (opcional)</Label>
+              <Textarea
+                id="standby-remove-note"
+                rows={3}
+                value={standbyRemoveNote}
+                onChange={(event) => setStandbyRemoveNote(event.target.value)}
+                placeholder="Detalhe adicional para auditoria..."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRemoveStandbyDialogOpen(false)}
+                disabled={isRemovingStandby}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={isRemovingStandby || !standbyRemoveTargets.length}
+                onClick={handleBulkRemoveStandby}
+              >
+                {isRemovingStandby ? "Excluindo..." : "Confirmar exclusao"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </Layout>

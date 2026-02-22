@@ -7,7 +7,7 @@ import {
   buildOutProductPath,
   resolveOfferUrl,
 } from '@/lib/offer.js';
-import { resolveFinalPriceInfo } from '@/lib/pricing.js';
+import { resolvePricePresentation } from '@/lib/pricing.js';
 
 // Interface para remover o erro de "any"
 interface Product {
@@ -70,9 +70,10 @@ export default function MelhoresOfertas() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {products?.map((product: Product) => {
-              const pricing = resolveFinalPriceInfo(product);
-              const finalPrice = pricing.finalPrice;
-              const listPrice = pricing.listPrice;
+              const pricing = resolvePricePresentation(product);
+              const finalPrice = pricing.displayPricePrimary;
+              const listPrice = pricing.displayStrikethrough;
+              const secondaryPrice = pricing.displayPriceSecondary;
               const discount = pricing.discountPercent ?? 0;
               const offerResolution = resolveOfferUrl(product);
               const canOpen = Boolean(offerResolution.canRedirect && product.id);
@@ -102,6 +103,11 @@ export default function MelhoresOfertas() {
                       <span className="text-zinc-400 line-through font-bold mb-1">R$ {listPrice.toFixed(2).replace('.', ',')}</span>
                     )}
                   </div>
+                  {secondaryPrice !== null && secondaryPrice > finalPrice && (
+                    <p className="text-xs text-zinc-500 -mt-4 mb-4">
+                      ou R$ {secondaryPrice.toFixed(2).replace('.', ',')} em outros meios
+                    </p>
+                  )}
 
                   <a 
                     href={canOpen ? buildOutProductPath(product.id, 'melhores_ofertas') : '#'}

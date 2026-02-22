@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-02-21T21:19:31.643Z",
+  "input": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60.json",
+  "total_rows": 31,
+  "batch_size": 30,
+  "db_batches_created": true,
+  "waves": [
+    {
+      "wave": 1,
+      "total": 30,
+      "batch_id": "8d959f6d-47fe-429a-9caa-a015d2a68bb5",
+      "files": {
+        "txt": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60-unique-wave1.txt",
+        "csv": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60-unique-wave1.csv",
+        "json": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60-unique-wave1.json"
+      }
+    },
+    {
+      "wave": 2,
+      "total": 1,
+      "batch_id": "4a7da0de-bf4b-45c0-9ee4-45e7b961f887",
+      "files": {
+        "txt": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60-unique-wave2.txt",
+        "csv": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60-unique-wave2.csv",
+        "json": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60-unique-wave2.json"
+      }
+    }
+  ]
+}

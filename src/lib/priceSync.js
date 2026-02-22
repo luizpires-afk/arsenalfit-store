@@ -15,10 +15,13 @@ export const buildUpdatePayload = ({ product, result, now }) => {
 
   if (statusCode === 304) {
     const nextCheck = addHours(safeNow, HOURS_6_MS).toISOString();
+    const shouldClearSuspect =
+      String(product?.data_health_status ?? "").toUpperCase() === "SUSPECT_PRICE";
     return {
       update: {
         ...base,
         next_check_at: nextCheck,
+        ...(shouldClearSuspect ? { data_health_status: "HEALTHY" } : {}),
       },
       nextCheck,
       action: "not_modified",

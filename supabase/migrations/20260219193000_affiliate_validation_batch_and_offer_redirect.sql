@@ -221,7 +221,7 @@ create or replace function public.export_standby_affiliate_batch(
 )
 returns table(
   batch_id uuid,
-  position integer,
+  "position" integer,
   product_id uuid,
   product_name text,
   external_id text,
@@ -282,8 +282,11 @@ begin
       p.created_at,
       coalesce(nullif(btrim(p.source_url), ''), nullif(btrim(p.affiliate_link), '')) as source_url,
       coalesce(
+        public.normalize_ml_external_id(coalesce(nullif(btrim(p.source_url), ''), nullif(btrim(p.affiliate_link), ''))),
+        public.normalize_ml_permalink(coalesce(nullif(btrim(p.source_url), ''), nullif(btrim(p.affiliate_link), ''))),
         public.normalize_ml_external_id(p.external_id),
         public.normalize_ml_external_id(p.source_url),
+        public.normalize_ml_external_id(p.affiliate_link),
         public.normalize_ml_permalink(coalesce(p.source_url, p.affiliate_link)),
         p.id::text
       ) as canonical_key
@@ -298,6 +301,30 @@ begin
         or not public.is_mercadolivre_sec_link(p.affiliate_link)
       )
   ),
+  active_validated as (
+    select distinct
+      av.canonical_key
+    from (
+      select
+        p.id as product_id,
+        coalesce(
+          public.normalize_ml_external_id(coalesce(nullif(btrim(p.source_url), ''), nullif(btrim(p.affiliate_link), ''))),
+          public.normalize_ml_permalink(coalesce(nullif(btrim(p.source_url), ''), nullif(btrim(p.affiliate_link), ''))),
+          public.normalize_ml_external_id(p.external_id),
+          public.normalize_ml_external_id(p.source_url),
+          public.normalize_ml_external_id(p.affiliate_link),
+          public.normalize_ml_permalink(coalesce(p.source_url, p.affiliate_link)),
+          p.id::text
+        ) as canonical_key
+      from public.products p
+      where lower(coalesce(p.marketplace, '')) like 'mercado%'
+        and coalesce(p.auto_disabled_reason, '') <> 'blocked'
+        and coalesce(p.is_active, false) = true
+        and lower(coalesce(p.status, '')) = 'active'
+        and public.is_mercadolivre_sec_link(p.affiliate_link)
+    ) av
+    where av.canonical_key is not null
+  ),
   deduped as (
     select
       pr.*,
@@ -310,6 +337,8 @@ begin
           pr.product_id
       ) as canon_rank
     from pending_raw pr
+    left join active_validated av on av.canonical_key = pr.canonical_key
+    where av.canonical_key is null
   ),
   ordered as (
     select

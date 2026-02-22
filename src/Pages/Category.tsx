@@ -346,6 +346,8 @@ export default function Category() {
             )
             .eq("categories.slug", categoryId)
             .eq("is_active", true)
+            .eq("status", "active")
+            .eq("data_health_status", "HEALTHY")
             .eq("is_blocked", false)
             .or("auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked");
 

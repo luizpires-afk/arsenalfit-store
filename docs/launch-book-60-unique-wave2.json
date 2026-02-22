@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-02-21T21:19:30.893Z",
+  "wave": 2,
+  "source_input": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\launch-book-60.json",
+  "rows": [
+    {
+      "position": 1,
+      "id": "db69cc1f-5668-4f54-b688-845f6ea1c029",
+      "name": "Par Halter 3 Kg Emborrachado Academia Treino Cor Preto",
+      "site_category": "equipamentos",
+      "ml_item_id": "MLB3907682613",
+      "price": 159.9,
+      "last_price_source": "catalog_ingest",
+      "free_shipping": true,
+      "source_url": "https://www.mercadolivre.com.br/p/MLB39177891"
+    }
+  ]
+}

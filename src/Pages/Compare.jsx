@@ -22,12 +22,18 @@ import { toast } from 'sonner';
 import SEOHead from '@/Components/SEOHead';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 import { buildOutProductPath } from '@/lib/offer.js';
+import { resolvePricePresentation } from '@/lib/pricing.js';
 
 const categoryLabels = {
   suplementos: "Suplementos",
   equipamentos: "Equipamentos",
   roupas: "Roupas",
   acessorios: "Acessórios"
+};
+
+const formatPrice = (value) => {
+  if (!(typeof value === 'number' && Number.isFinite(value))) return null;
+  return `R$ ${value.toFixed(2).replace('.', ',')}`;
 };
 
 export default function Compare() {
@@ -186,14 +192,18 @@ export default function Compare() {
                   {/* Price */}
                   <tr className="border-b border-zinc-50">
                     <td className="p-6 text-sm font-medium text-zinc-500">Preço</td>
-                    {compareProducts.map((product) => (
+                    {compareProducts.map((product) => {
+                      const pricing = resolvePricePresentation(product);
+                      const primary = formatPrice(pricing.displayPricePrimary);
+                      const strikethrough = formatPrice(pricing.displayStrikethrough);
+                      return (
                       <td key={product.id} className="p-6 text-center">
                         <div className="text-2xl font-bold text-zinc-900">
-                          R$ {product.price?.toFixed(2).replace('.', ',')}
+                          {primary || '-'}
                         </div>
-                        {product.original_price && (
+                        {strikethrough && (
                           <div className="text-sm text-zinc-400 line-through">
-                            R$ {product.original_price?.toFixed(2).replace('.', ',')}
+                            {strikethrough}
                           </div>
                         )}
                         <PriceDisclaimer
@@ -207,7 +217,7 @@ export default function Compare() {
                           className="text-[10px] text-zinc-400 mt-1 block"
                         />
                       </td>
-                    ))}
+                    )})}
                   </tr>
 
                   {/* Rating */}
@@ -283,9 +293,8 @@ export default function Compare() {
                   <tr className="border-b border-zinc-50">
                     <td className="p-6 text-sm font-medium text-zinc-500">Desconto</td>
                     {compareProducts.map((product) => {
-                      const discount = product.original_price 
-                        ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
-                        : null;
+                      const pricing = resolvePricePresentation(product);
+                      const discount = typeof pricing.discountPercent === 'number' ? pricing.discountPercent : null;
                       return (
                         <td key={product.id} className="p-6 text-center">
                           {discount ? (

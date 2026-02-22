@@ -4,6 +4,7 @@ import { ArrowLeft, Flame, Loader2, Package } from "lucide-react";
 import { ProductCard } from "@/Components/ProductCard";
 import SEOHead from "@/Components/SEOHead";
 import { useProducts } from "@/hooks/useProducts";
+import { resolvePricePresentation } from "@/lib/pricing.js";
 
 const normalize = (value?: string | null) =>
   String(value || "")
@@ -67,13 +68,15 @@ export default function ArsenalCollection() {
     });
 
     const scored = list.sort((a: any, b: any) => {
-      const aDiscount = Number(a.discount_percentage || 0);
-      const bDiscount = Number(b.discount_percentage || 0);
+      const aPricing = resolvePricePresentation(a);
+      const bPricing = resolvePricePresentation(b);
+      const aDiscount = Number(aPricing.discountPercent || 0);
+      const bDiscount = Number(bPricing.discountPercent || 0);
       const aBest = aDiscount >= 20 ? 1 : 0;
       const bBest = bDiscount >= 20 ? 1 : 0;
       if (aBest !== bBest) return bBest - aBest;
-      const aPromo = aDiscount > 0 || a.is_on_sale ? 1 : 0;
-      const bPromo = bDiscount > 0 || b.is_on_sale ? 1 : 0;
+      const aPromo = aDiscount > 0 ? 1 : 0;
+      const bPromo = bDiscount > 0 ? 1 : 0;
       if (aPromo !== bPromo) return bPromo - aPromo;
       const aClicks = Number(a.clicks_count || 0);
       const bClicks = Number(b.clicks_count || 0);

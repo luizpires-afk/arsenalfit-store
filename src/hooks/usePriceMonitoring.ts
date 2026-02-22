@@ -23,37 +23,14 @@ type ProductSnapshot = {
   price: number;
 };
 
-const STORAGE_KEY = "arsenalfit:monitoring:v1";
-
-const readLocal = (): Record<string, MonitoredItem> => {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, MonitoredItem>;
-  } catch {
-    return {};
-  }
-};
-
-const writeLocal = (items: Record<string, MonitoredItem>) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch {
-    // ignore
-  }
-};
-
 export function usePriceMonitoring(user?: { id: string; email?: string | null } | null) {
   const [items, setItems] = useState<Record<string, MonitoredItem>>({});
   const [loading, setLoading] = useState(false);
 
   const hydrate = useCallback(
-    async (fallbackOnly?: boolean) => {
-      if (!user?.id || fallbackOnly) {
-        const localItems = readLocal();
-        setItems(localItems);
+    async () => {
+      if (!user?.id) {
+        setItems({});
         return;
       }
 
@@ -73,10 +50,8 @@ export function usePriceMonitoring(user?: { id: string; email?: string | null } 
           {}
         );
         setItems(mapped);
-        writeLocal(mapped);
       } catch {
-        const localItems = readLocal();
-        setItems(localItems);
+        setItems({});
       } finally {
         setLoading(false);
       }
@@ -100,23 +75,7 @@ export function usePriceMonitoring(user?: { id: string; email?: string | null } 
       const nowIso = new Date().toISOString();
 
       if (!user?.id) {
-        const next: MonitoredItem = {
-          id: existing?.id ?? product.id,
-          user_id: "local",
-          product_id: product.id,
-          product_title: product.title,
-          image_url: product.imageUrl ?? null,
-          baseline_price: product.price,
-          last_notified_price: existing?.last_notified_price ?? null,
-          last_notified_at: existing?.last_notified_at ?? null,
-          is_enabled: enable,
-          updated_at: nowIso,
-          created_at: existing?.created_at ?? nowIso,
-        };
-        const nextItems = { ...items, [product.id]: next };
-        setItems(nextItems);
-        writeLocal(nextItems);
-        return enable;
+        return false;
       }
 
       try {
@@ -140,7 +99,6 @@ export function usePriceMonitoring(user?: { id: string; email?: string | null } 
           if (error) throw error;
           const nextItems = { ...items, [product.id]: data as MonitoredItem };
           setItems(nextItems);
-          writeLocal(nextItems);
           return true;
         }
 
@@ -155,14 +113,13 @@ export function usePriceMonitoring(user?: { id: string; email?: string | null } 
             [product.id]: { ...existing, is_enabled: false, updated_at: nowIso },
           };
           setItems(nextItems);
-          writeLocal(nextItems);
           return false;
         }
 
         return false;
       } catch {
-        await hydrate(true);
-        return enable;
+        await hydrate();
+        return false;
       }
     },
     [items, user?.id, user?.email, hydrate]

@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-02-21T23:10:08.505Z",
+  "started_at": "2026-02-21T23:10:07.858Z",
+  "duration_ms": 649,
+  "config": {
+    "warn_pct": 25,
+    "warn_abs": 20,
+    "critical_pct": 50,
+    "critical_abs": 30,
+    "top_limit": 50,
+    "include_audit_rpc": true
+  },
+  "totals": {
+    "total_active": 66,
+    "mismatch_total": 0,
+    "mismatch_critical": 0,
+    "broken_link_total": 0,
+    "active_without_ml_item_total": 0,
+    "destination_ml_mismatch_total": 0,
+    "suspect_total": 2
+  },
+  "audit_rpc_result": {
+    "ok": true,
+    "opened": 0,
+    "critical": 0,
+    "processed": 96
+  },
+  "top_cases": [
+    {
+      "id": "091b9e54-6859-4400-8d56-74bff3869dc6",
+      "name": "Nutri Whey Protein Pouch Chocolate 900g Integralmédica",
+      "ml_item_id": "MLB4472465985",
+      "destination_ml_item_id": "MLB4472465985",
+      "site_price": 53.68,
+      "ml_price": null,
+      "delta_abs": null,
+      "delta_pct": null,
+      "url_final": "https://mercadolivre.com/sec/1H1c36W",
+      "data_health_status": "SUSPECT_PRICE",
+      "reason_code": "SUSPECT_PRICE",
+      "reason_detail": "pending_recheck",
+      "last_sync": "2026-02-21T22:52:23.599+00:00",
+      "updated_at": "2026-02-21T23:10:01.119689+00:00"
+    },
+    {
+      "id": "2dc08cfd-3d12-46fe-8e86-d0f3514c1f82",
+      "name": "(Kit 2x) Creatina Monohidratada Pó Growth Suplementos Sem Sabor",
+      "ml_item_id": "MLB6173287630",
+      "destination_ml_item_id": "MLB6173287630",
+      "site_price": 115,
+      "ml_price": null,
+      "delta_abs": null,
+      "delta_pct": null,
+      "url_final": "https://mercadolivre.com/sec/1KdZ6HV",
+      "data_health_status": "SUSPECT_PRICE",
+      "reason_code": "SUSPECT_PRICE",
+      "reason_detail": "pending_recheck",
+      "last_sync": "2026-02-21T11:13:01.706+00:00",
+      "updated_at": "2026-02-21T23:10:00.354446+00:00"
+    }
+  ]
+}

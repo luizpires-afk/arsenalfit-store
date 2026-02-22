@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { PriceDisclaimer } from "@/Components/PriceDisclaimer";
 import { useCart } from "@/hooks/useCart";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
-import { resolveFinalPriceInfo } from "@/lib/pricing.js";
+import { resolvePricePresentation } from "@/lib/pricing.js";
 import {
   buildOutProductPath,
   getOfferUnavailableMessage,
@@ -44,6 +44,8 @@ interface ProductProps {
     slug: string;
     affiliate_link: string | null;
     source_url?: string | null;
+    canonical_offer_url?: string | null;
+    ml_item_id?: string | null;
     checkout_url?: string | null;
     is_featured?: boolean;
     is_on_sale?: boolean;
@@ -106,9 +108,11 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
         ? new Date(product.ultima_verificacao)
         : null;
 
-  const pricing = resolveFinalPriceInfo(product);
-  const finalPrice = pricing.finalPrice;
-  const listPrice = pricing.listPrice;
+  const pricing = resolvePricePresentation(product);
+  const finalPrice = pricing.displayPricePrimary;
+  const listPrice = pricing.displayStrikethrough;
+  const secondaryPrice = pricing.displayPriceSecondary;
+  const hasPixSecondary = secondaryPrice !== null && secondaryPrice > finalPrice;
   const saving = pricing.savings;
   const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
   const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
@@ -119,11 +123,7 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
     offerResolution,
     product.marketplace,
   );
-  const discount =
-    pricing.discountPercent ??
-    (product.discount_percentage && product.discount_percentage > 0
-      ? Math.round(product.discount_percentage)
-      : null);
+  const discount = pricing.discountPercent ?? null;
 
   const fixedBadge = product.free_shipping
     ? {
@@ -254,32 +254,35 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
   };
 
   const handleBuyNow = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+    if (!canOpenOffer) {
+      e.preventDefault();
+      e.stopPropagation();
+      toast.error(offerUnavailableMessage);
+      return;
+    }
 
-    if (canOpenOffer) {
+    try {
       ReactGA.event({
         category: "Conversion",
         action: "Click_Affiliate",
         label: `${displayTitle} (${product.id})`,
         value: Number(finalPrice),
       });
-
-      supabase.rpc("increment_product_clicks", { product_id: product.id });
-      supabase
-        .rpc("enqueue_price_check_refresh", {
-          p_product_id: product.id,
-          p_force: false,
-          p_reason: "offer_click",
-        })
-        .catch(() => {});
-      trackLocalInterest();
-
-      const outPath = buildOutProductPath(product.id, "product_card");
-      window.open(outPath, "_blank", "noopener,noreferrer");
-    } else {
-      toast.error(offerUnavailableMessage);
+    } catch {
+      // Nao bloquear redirect por falha de analytics.
     }
+
+    void Promise.resolve(
+      supabase.rpc("increment_product_clicks", { product_id: product.id })
+    ).catch(() => {});
+    void Promise.resolve(
+      supabase.rpc("enqueue_price_check_refresh", {
+        p_product_id: product.id,
+        p_force: false,
+        p_reason: "offer_click",
+      })
+    ).catch(() => {});
+    trackLocalInterest();
   };
 
   return (
@@ -386,7 +389,9 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
               )}
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-widest">Por</span>
+                  <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-widest">
+                    {hasPixSecondary ? "No Pix" : "Por"}
+                  </span>
                   <span
                     className={`font-black text-white tracking-tighter italic ${
                       isHighlight
@@ -400,6 +405,16 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
                   </span>
                 </div>
               </div>
+              {secondaryPrice !== null && secondaryPrice > finalPrice && (
+                <span className="text-[11px] text-zinc-300/90">
+                  ou{" "}
+                  {Number(secondaryPrice).toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}{" "}
+                  em outros meios
+                </span>
+              )}
               {showSavings && saving && (
                 <span className="text-[11px] text-emerald-300/90 font-semibold">
                   Economize R${" "}
@@ -420,14 +435,19 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
             </div>
 
             <Button
-              onClick={handleBuyNow}
+              asChild
               disabled={!canOpenOffer}
               className={`w-full bg-[#a3e635] hover:bg-[#b7f24c] text-black font-black rounded-xl transition-all flex items-center justify-center gap-2 uppercase italic tracking-wide shadow-[0_0_15px_rgba(163,230,53,0.1)] group-hover:shadow-[0_0_24px_rgba(163,230,53,0.4)] hover:scale-[1.01] ${
                 isCompact ? "h-11 text-[11px]" : "h-11 text-sm"
               }`}
               aria-label={`Ver oferta de ${displayTitle}`}
             >
-              {canOpenOffer ? "Ver oferta" : "Aguardando validacao"} <ExternalLink size={16} strokeWidth={2.5} />
+              <a
+                href={canOpenOffer ? buildOutProductPath(product.id, "product_card") : "#"}
+                onClick={handleBuyNow}
+              >
+                {canOpenOffer ? "Ver oferta" : "Aguardando validacao"} <ExternalLink size={16} strokeWidth={2.5} />
+              </a>
             </Button>
             {showMicrotext && (
               <p className="text-[10px] text-zinc-500/80 text-center">

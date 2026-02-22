@@ -1,4 +1,4 @@
-﻿-- Tabela para registrar mudanças de preço (relatório diário)
+-- Tabela para registrar mudanças de preço (relatório diário)
 create table if not exists public.price_sync_changes (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null,

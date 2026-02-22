@@ -1,4 +1,4 @@
-﻿-- Normaliza external_id do Mercado Livre (extrai MLB... e remove hífen)
+-- Normaliza external_id do Mercado Livre (extrai MLB... e remove hífen)
 create or replace function public.normalize_mlb_external_id()
 returns trigger
 language plpgsql

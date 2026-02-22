@@ -7,7 +7,7 @@ import { useCart } from '@/hooks/useCart';
 import { toast } from 'sonner';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from '@/lib/cartFeedback';
-import { resolveFinalPriceInfo } from '@/lib/pricing.js';
+import { resolvePricePresentation } from '@/lib/pricing.js';
 import {
   buildOutProductPath,
   getOfferUnavailableMessage,
@@ -29,6 +29,9 @@ interface Product {
   image_url?: string;
   images?: string[];
   affiliate_link?: string | null;
+  source_url?: string | null;
+  canonical_offer_url?: string | null;
+  ml_item_id?: string | null;
   last_sync?: string | null;
   updated_at?: string | null;
   ultima_verificacao?: string | null;
@@ -81,8 +84,12 @@ export const OfferCard = ({ product }: OfferCardProps) => {
       toast.error(offerUnavailableMessage);
       return;
     }
-    const outPath = buildOutProductPath(product.id, 'offer_card');
-    window.open(outPath, '_blank', 'noopener,noreferrer');
+    try {
+      const outPath = buildOutProductPath(product.id, 'offer_card');
+      window.location.assign(outPath);
+    } catch {
+      toast.error('Falha ao abrir oferta. Tente novamente.');
+    }
   };
 
   // Ajuste de lógica para pegar a imagem correta
@@ -90,23 +97,18 @@ export const OfferCard = ({ product }: OfferCardProps) => {
     ? product.image_url 
     : (product.images && product.images.length > 0 ? product.images[0] : '/placeholder.svg');
 
-  const pricing = resolveFinalPriceInfo(product);
-  const finalPrice = pricing.finalPrice;
-  const listPrice = pricing.listPrice;
+  const pricing = resolvePricePresentation(product);
+  const finalPrice = pricing.displayPricePrimary;
+  const listPrice = pricing.displayStrikethrough;
+  const secondaryPrice = pricing.displayPriceSecondary;
+  const hasPixSecondary = secondaryPrice !== null && secondaryPrice > finalPrice;
   const offerResolution = resolveOfferUrl(product);
   const canOpenOffer = Boolean(offerResolution.canRedirect && product.id);
   const offerUnavailableMessage = getOfferUnavailableMessage(
     offerResolution,
     product.marketplace,
   );
-  const discountPercentage = product.discount_percentage || 0;
-  
-  // Cálculo de desconto em tempo real
-  const calculatedDiscount =
-    pricing.discountPercent ??
-    (product.original_price && product.original_price > finalPrice
-      ? Math.round(((product.original_price - finalPrice) / product.original_price) * 100)
-      : discountPercentage);
+  const calculatedDiscount = pricing.discountPercent ?? 0;
 
   const hasDiscount = calculatedDiscount > 0;
   const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
@@ -159,14 +161,22 @@ export const OfferCard = ({ product }: OfferCardProps) => {
 
           {/* Price Section */}
           <div className="mb-4 space-y-0">
-            {(hasDiscount || (listPrice && listPrice > finalPrice)) && (
+            {(listPrice && listPrice > finalPrice) && (
               <span className="text-xs text-zinc-500 line-through block font-bold">
-                R$ {(listPrice ?? product.original_price)?.toFixed(2).replace('.', ',')}
+                R$ {listPrice.toFixed(2).replace('.', ',')}
               </span>
             )}
+            <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 block mb-1">
+              {hasPixSecondary ? "Preco no Pix" : "Preco"}
+            </span>
             <span className="text-2xl font-black text-[#a3e635] italic">
               R$ {finalPrice.toFixed(2).replace('.', ',')}
             </span>
+            {secondaryPrice !== null && secondaryPrice > finalPrice && (
+              <span className="text-xs text-zinc-300 block mt-0.5">
+                ou R$ {secondaryPrice.toFixed(2).replace('.', ',')} em outros meios
+              </span>
+            )}
             <PriceDisclaimer
               lastUpdated={lastUpdated}
               className="text-[10px] text-zinc-500 block mt-1"

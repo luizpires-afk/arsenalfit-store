@@ -1,14 +1,22 @@
 const fs = require("fs");
 
 const args = process.argv.slice(2);
-const getArg = (name, fallback) => {
-  const idx = args.indexOf(name);
-  if (idx >= 0 && idx + 1 < args.length) return args[idx + 1];
+const hasArg = (name) => args.includes(name);
+const getArgAny = (names, fallback) => {
+  for (const name of names) {
+    const idx = args.indexOf(name);
+    if (idx >= 0 && idx + 1 < args.length) return args[idx + 1];
+  }
   return fallback;
 };
 
-const envFile = getArg("--env", "supabase/functions/.env.scheduler");
-const sinceHours = Number(getArg("--since-hours", "24")) || 24;
+const envFile = getArgAny(["--env"], "supabase/functions/.env.scheduler");
+const sinceHours = Number(getArgAny(["--since-hours", "--since_hours"], "24")) || 24;
+const reportDate = getArgAny(["--date", "--report-date", "--report_date"], null);
+const maxRetries = Number(getArgAny(["--max-retries", "--max_retries"], "3")) || 3;
+const explicitMode = getArgAny(["--mode"], null);
+const resendMode = hasArg("--resend") || hasArg("--retry") || explicitMode === "resend";
+const mode = explicitMode || (resendMode ? "resend" : "generate_daily");
 
 const parseEnvFile = (filePath) => {
   if (!fs.existsSync(filePath)) return {};
@@ -47,11 +55,11 @@ const CRON_SECRET =
   rootEnv.CRON_SECRET;
 
 if (!SUPABASE_URL) {
-  console.error("SUPABASE_URL não definido. Informe no ambiente ou no arquivo:", envFile);
+  console.error("SUPABASE_URL nao definido. Informe no ambiente ou no arquivo:", envFile);
   process.exit(1);
 }
 if (!CRON_SECRET) {
-  console.error("CRON_SECRET não definido. Informe no ambiente ou no arquivo:", envFile);
+  console.error("CRON_SECRET nao definido. Informe no ambiente ou no arquivo:", envFile);
   process.exit(1);
 }
 
@@ -70,13 +78,21 @@ const timeoutMs = 30000;
 const controller = new AbortController();
 const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+const body = {
+  source: resendMode ? "manual_resend" : "manual_generate",
+  mode,
+  sinceHours,
+  max_retries: maxRetries,
+  ...(reportDate ? { report_date: reportDate } : {}),
+};
+
 fetch(endpoint, {
   method: "POST",
   headers: {
     "content-type": "application/json",
     "x-cron-secret": CRON_SECRET,
   },
-  body: JSON.stringify({ sinceHours }),
+  body: JSON.stringify(body),
   signal: controller.signal,
 })
   .then(async (resp) => {

@@ -8,6 +8,7 @@ import ScrollToTop from "@/Components/ScrollToTop";
 import { Header } from "@/Components/Header";
 import { MonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog";
 import { SiteFooter } from "@/Components/SiteFooter";
+import { RouteErrorBoundary } from "@/Components/RouteErrorBoundary";
 
 // Pages
 import HomeV2 from "@/Pages/HomeV2";
@@ -39,6 +40,7 @@ import Affiliates from "@/Pages/Affiliates";
 import Verify from "@/Pages/Verify";
 import ResetPassword from "@/Pages/ResetPassword";
 import OutProduct from "@/Pages/OutProduct";
+import ComoMonitorar from "@/Pages/ComoMonitorar";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,7 +68,14 @@ const AppRoutes = () => {
         <Route path="/admin" element={<Admin />} />
         <Route path="/admin/price-adjustments" element={<PriceAdjustments />} />
         <Route path="/admin/price-sync" element={<PriceSyncReport />} />
-        <Route path="/produto/:slug" element={<ProductDetail />} />
+        <Route
+          path="/produto/:slug"
+          element={
+            <RouteErrorBoundary>
+              <ProductDetail />
+            </RouteErrorBoundary>
+          }
+        />
         <Route path="/categoria/:slug" element={<CategoryPage />} />
         <Route path="/categorias" element={<Categories />} />
         <Route path="/arsenal/:collection" element={<ArsenalCollection />} />
@@ -78,6 +87,7 @@ const AppRoutes = () => {
         <Route path="/afiliados" element={<Affiliates />} />
         <Route path="/verificar" element={<Verify />} />
         <Route path="/redefinir-senha" element={<ResetPassword />} />
+        <Route path="/como-monitorar" element={<ComoMonitorar />} />
         <Route path="/out/product/:id" element={<OutProduct />} />
         <Route path="/ofertas" element={<Navigate to="/" replace />} />
         <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />

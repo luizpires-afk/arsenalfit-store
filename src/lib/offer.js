@@ -7,6 +7,8 @@ const STANDBY_STATUSES = new Set([
   "pendente_validacao",
 ]);
 
+const MLB_REGEX = /MLB\d{6,14}/i;
+
 const toBoolean = (value, fallback = false) => {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -38,6 +40,56 @@ const extractHost = (value) => {
     return new URL(String(value)).host.toLowerCase();
   } catch {
     return "";
+  }
+};
+
+const isLikelyBrokenMlCanonicalUrl = (value) => {
+  const link = normalizeHttpUrl(value);
+  if (!link) return false;
+  try {
+    const parsed = new URL(link);
+    const host = parsed.host.toLowerCase();
+    if (host !== "produto.mercadolivre.com.br" && host !== "www.produto.mercadolivre.com.br") {
+      return false;
+    }
+    const pathname = (parsed.pathname || "").replace(/\/+$/, "");
+    return /^\/mlb\d{6,14}$/i.test(pathname);
+  } catch {
+    return false;
+  }
+};
+
+const normalizeMlItemId = (value) => {
+  if (!value) return null;
+  const match = String(value).toUpperCase().match(MLB_REGEX);
+  return match?.[0] ?? null;
+};
+
+const extractMlItemIdFromUrl = (urlValue) => {
+  if (!urlValue || typeof urlValue !== "string") return null;
+  const raw = urlValue.trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    return (
+      normalizeMlItemId(parsed.searchParams.get("item_id")) ||
+      normalizeMlItemId(parsed.searchParams.get("wid")) ||
+      normalizeMlItemId(parsed.pathname) ||
+      normalizeMlItemId(raw)
+    );
+  } catch {
+    return normalizeMlItemId(raw);
+  }
+};
+
+const bindSecAffiliateToMlItem = (affiliateUrl, mlItemId) => {
+  if (!affiliateUrl || !mlItemId || !isMercadoLivreSecLink(affiliateUrl)) return affiliateUrl;
+  try {
+    const parsed = new URL(affiliateUrl);
+    parsed.searchParams.set("item_id", mlItemId);
+    return parsed.toString();
+  } catch {
+    return affiliateUrl;
   }
 };
 
@@ -77,11 +129,33 @@ export const resolveOfferUrl = (product, options = {}) => {
   const isMercadoLivre = marketplace.includes("mercado");
   const status = String(product?.status ?? "").trim().toLowerCase();
   const isBlocked = String(product?.auto_disabled_reason ?? "").trim().toLowerCase() === "blocked";
-  const isActive = product?.is_active === true || status === "active";
-  const isStandby = STANDBY_STATUSES.has(status) || !isActive;
+  const hasExplicitStatus =
+    typeof product?.is_active === "boolean" || status.length > 0;
 
   const affiliateUrl = normalizeHttpUrl(product?.affiliate_link ?? null);
-  const sourceUrl = normalizeHttpUrl(product?.source_url ?? null);
+  const canonicalSourceUrlRaw = normalizeHttpUrl(product?.canonical_offer_url ?? null);
+  const sourceUrlRaw = normalizeHttpUrl(product?.source_url ?? null);
+  const canonicalSourceUrl =
+    canonicalSourceUrlRaw && !isLikelyBrokenMlCanonicalUrl(canonicalSourceUrlRaw)
+      ? canonicalSourceUrlRaw
+      : null;
+  const sourceUrl = canonicalSourceUrl ?? sourceUrlRaw;
+  const sourceKind = canonicalSourceUrl ? "canonical_source" : "source";
+  const hasSecAffiliate = isMercadoLivreSecLink(affiliateUrl);
+  const canonicalMlItemId =
+    normalizeMlItemId(product?.ml_item_id) ||
+    extractMlItemIdFromUrl(canonicalSourceUrl) ||
+    extractMlItemIdFromUrl(sourceUrlRaw);
+  const affiliateBoundUrl = bindSecAffiliateToMlItem(affiliateUrl, canonicalMlItemId);
+
+  // Defensive fallback for payloads that omit status/is_active:
+  // a valid ML /sec/ link implies a curated, validated offer.
+  const inferredActiveFromAffiliate =
+    isMercadoLivre && !hasExplicitStatus && hasSecAffiliate;
+
+  const isActive =
+    product?.is_active === true || status === "active" || inferredActiveFromAffiliate;
+  const isStandby = STANDBY_STATUSES.has(status) || !isActive;
 
   if (isBlocked) {
     return {
@@ -94,13 +168,12 @@ export const resolveOfferUrl = (product, options = {}) => {
   }
 
   if (isMercadoLivre) {
-    const hasSecAffiliate = isMercadoLivreSecLink(affiliateUrl);
-    if (isActive && hasSecAffiliate && isAllowedOfferDomain(affiliateUrl, marketplace)) {
+    if (isActive && hasSecAffiliate && isAllowedOfferDomain(affiliateBoundUrl, marketplace)) {
       return {
         canRedirect: true,
-        url: affiliateUrl,
+        url: affiliateBoundUrl,
         resolvedSource: "affiliate",
-        reason: "affiliate_validated",
+        reason: canonicalMlItemId ? "affiliate_bound_to_canonical_item" : "affiliate_validated",
         allowStandbyRedirect,
       };
     }
@@ -108,7 +181,7 @@ export const resolveOfferUrl = (product, options = {}) => {
       return {
         canRedirect: true,
         url: sourceUrl,
-        resolvedSource: "source",
+        resolvedSource: sourceKind,
         reason: "standby_source_allowed",
         allowStandbyRedirect,
       };
@@ -136,7 +209,7 @@ export const resolveOfferUrl = (product, options = {}) => {
     return {
       canRedirect: true,
       url: sourceUrl,
-      resolvedSource: "source",
+      resolvedSource: sourceKind,
       reason: isActive ? "source_active" : "source_standby",
       allowStandbyRedirect,
     };
@@ -162,6 +235,9 @@ export const getOfferUnavailableMessage = (resolution, marketplace = "") => {
   }
   if (reason === "invalid_target_domain") {
     return "URL de destino invalida.";
+  }
+  if (reason === "missing_ml_item_id") {
+    return "Produto aguardando identificacao canonica do anuncio.";
   }
   return isMercadoLivre
     ? "Link de afiliado indisponivel para este produto."

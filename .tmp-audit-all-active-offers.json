@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-02-21T23:13:51.573Z",
+  "started_at": "2026-02-21T23:13:51.062Z",
+  "duration_ms": 512,
+  "config": {
+    "warn_pct": 25,
+    "warn_abs": 20,
+    "critical_pct": 50,
+    "critical_abs": 30,
+    "top_limit": 50,
+    "include_audit_rpc": false
+  },
+  "totals": {
+    "total_active": 85,
+    "mismatch_total": 0,
+    "mismatch_critical": 0,
+    "broken_link_total": 0,
+    "active_without_ml_item_total": 0,
+    "destination_ml_mismatch_total": 0,
+    "suspect_total": 0
+  },
+  "audit_rpc_result": null,
+  "top_cases": []
+}

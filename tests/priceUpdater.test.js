@@ -51,6 +51,29 @@ test("processProduct: 304 agenda 6h e nao altera preco", async () => {
   assert.equal("price" in updatePayload, false);
 });
 
+test("processProduct: 304 limpa SUSPECT_PRICE para HEALTHY", async () => {
+  const now = new Date("2026-02-03T12:00:00Z");
+  const provider = {
+    fetchItem: async () => ({ statusCode: 304 }),
+  };
+  let updatePayload = null;
+
+  const { action } = await processProduct({
+    product: { ...baseProduct, data_health_status: "SUSPECT_PRICE" },
+    provider,
+    now,
+    accessToken: null,
+    timeoutMs: 1000,
+    onUpdate: async (_id, update) => {
+      updatePayload = update;
+    },
+    log: null,
+  });
+
+  assert.equal(action, "not_modified");
+  assert.equal(updatePayload.data_health_status, "HEALTHY");
+});
+
 test("processProduct: 200 atualiza preco e etag (active)", async () => {
   const { action, updatePayload, now } = await runProcess({
     result: { statusCode: 200, price: 150, etag: "etag-new", status: "active" },

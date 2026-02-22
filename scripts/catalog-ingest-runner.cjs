@@ -16,6 +16,10 @@ const envFile = getArgAny(["--env"], "supabase/functions/.env.scheduler");
 const source = getArgAny(["--source"], dailyImport ? "daily_import" : "manual");
 const timeoutMs = Number(getArgAny(["--timeout"], "180000")) || 180000;
 const configFile = getArgAny(["--config"], "config/daily_catalog_config.json");
+const searchFilterConfigFile = getArgAny(
+  ["--search-filter-config", "--search_filter_config"],
+  "config/catalog_search_filter.json",
+);
 
 const parseEnvFile = (filePath) => {
   if (!fs.existsSync(filePath)) return {};
@@ -106,6 +110,7 @@ const defaultSellerIds = parseListArg(["--default-seller-ids"])
   .map((value) => Math.floor(value));
 const siteCategories = parseListArg(["--site-categories", "--site_categories"]);
 const dailyConfig = parseJsonFile(configFile) || {};
+const searchFilterConfig = parseJsonFile(searchFilterConfigFile);
 const cliMaxMappings = parseNumberArg(["--max-mappings"]);
 const cliMaxItems = parseNumberArg(["--max-items"]);
 const cliMaxRuntime = parseNumberArg(["--max-runtime"]);
@@ -174,6 +179,9 @@ const body = {
   ...(dailyImport && dailyQuotas ? { daily_quotas: dailyQuotas } : {}),
   ...(dailyImport && maxBrandPerDay !== null ? { max_brand_per_day: maxBrandPerDay } : {}),
   ...(dailyImport && candidatePoolSize !== null ? { candidate_pool_size: candidatePoolSize } : {}),
+  ...(searchFilterConfig && typeof searchFilterConfig === "object"
+    ? { search_filter_config: searchFilterConfig }
+    : {}),
   ...(effectiveSiteCategories.length ? { site_categories: effectiveSiteCategories } : {}),
   ...(hasDailyTargets ? targetsBySiteCategory : {}),
 };

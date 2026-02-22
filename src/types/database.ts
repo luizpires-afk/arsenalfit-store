@@ -42,6 +42,8 @@ export interface Product {
   affiliate_link: string | null;
   affiliate_verified?: boolean | null;
   affiliate_generated_at?: string | null;
+  affiliate_validation_status?: string | null;
+  affiliate_validation_error?: string | null;
   validated_at?: string | null;
   validated_by?: string | null;
   affiliate_url_used?: string | null;
@@ -78,6 +80,16 @@ export interface Product {
   data_health_status?: string | null;
   deactivation_reason?: string | null;
   last_health_check_at?: string | null;
+  removed_at?: string | null;
+  removed_reason?: string | null;
+  removed_by?: string | null;
+  removed_note?: string | null;
+  price_mismatch_status?: string | null;
+  expected_price?: number | null;
+  site_price_snapshot?: number | null;
+  last_price_audit_at?: string | null;
+  price_mismatch_reason?: string | null;
+  price_mismatch_resolved_at?: string | null;
 
   created_at: string | null;
   updated_at: string | null;

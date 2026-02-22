@@ -1,0 +1,319 @@
+{
+  "generated_at": "2026-02-22T00:17:00.528Z",
+  "total_active_checked": 86,
+  "total_flagged": 11,
+  "total_hard_flagged": 10,
+  "total_soft_flagged": 1,
+  "live_check_enabled": true,
+  "live_checked_count": 40,
+  "apply_standby": true,
+  "applied_count": 10,
+  "sample_hard_flagged": [
+    {
+      "id": "01a3445a-2b44-41b0-a0e1-4a7c1b8b3a06",
+      "name": "Creatina Max Titanium Creatine Monohidratada 100g",
+      "ml_item_id": "MLB2732379146",
+      "price": 79.99,
+      "original_price": 54.17,
+      "discount_percentage": 58,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "creatina max titanium creatine monohidratada 100g",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high"
+      ],
+      "hard_issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high"
+      ],
+      "soft_issues": [],
+      "issue_count": 2
+    },
+    {
+      "id": "68070262-404d-40f9-8473-cfca0164a232",
+      "name": "Kit 20 Itens Treino Elástico Extensor Exercício Funcional Miniband Faixa Elástica Corda de Pular Ginástica Academia Fisioterapia Exercícios Pdo Store",
+      "ml_item_id": "MLB4086821385",
+      "price": 99.9,
+      "original_price": 99.9,
+      "discount_percentage": 32,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "kit 20 itens treino elastico extensor exercicio funcional",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_without_valid_original_price"
+      ],
+      "hard_issues": [
+        "promo_without_valid_original_price"
+      ],
+      "soft_issues": [],
+      "issue_count": 1
+    },
+    {
+      "id": "db2e4b81-b57a-4586-b2e7-844f6e34e3c5",
+      "name": "PROHIBIDO PRÉ TREINO 360g - Sabor: Strawberry Margarita (Morango)",
+      "ml_item_id": "MLB3171380156",
+      "price": 125.99,
+      "original_price": 125.99,
+      "discount_percentage": 41,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "prohibido pre treino 360g sabor strawberry margarita morango",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_without_valid_original_price"
+      ],
+      "hard_issues": [
+        "promo_without_valid_original_price"
+      ],
+      "soft_issues": [],
+      "issue_count": 1
+    },
+    {
+      "id": "33848a0c-7d13-4cd8-8b02-2c002f861773",
+      "name": "Creatina Monohidratada 250g Growth Supplements - Sem sabor em Pó",
+      "ml_item_id": "MLB5536702604",
+      "price": 79,
+      "original_price": 62.9,
+      "discount_percentage": 37,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "creatina monohidratada 250g growth supp sem sabor po",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high"
+      ],
+      "hard_issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high"
+      ],
+      "soft_issues": [],
+      "issue_count": 2
+    },
+    {
+      "id": "0a379878-f838-47a6-a779-71f28f52e683",
+      "name": "Suplemento Em Pó Pre Treino Pre Workout Pote 150g Sabor Energético FTW - DIABO VERDE",
+      "ml_item_id": "MLB5787991242",
+      "price": 89.9,
+      "original_price": 52.4,
+      "discount_percentage": 26,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "supp po pre treino pre workout pote 150g",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high",
+        "duplicate_family_active"
+      ],
+      "hard_issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high",
+        "duplicate_family_active"
+      ],
+      "soft_issues": [],
+      "issue_count": 3
+    },
+    {
+      "id": "d46c44ca-ae5e-4dd7-b0b4-2f0a5d0e1a26",
+      "name": "Creatina Integralmedica 100% Pura 150g - Potencialize sua Performance e Melhore a Recuperação Muscular",
+      "ml_item_id": "MLB5933483436",
+      "price": 79,
+      "original_price": 49.9,
+      "discount_percentage": 46,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "creatina integralmedica 100 pura 150g potencialize sua performance",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high"
+      ],
+      "hard_issues": [
+        "promo_without_valid_original_price",
+        "live_price_divergence_high"
+      ],
+      "soft_issues": [],
+      "issue_count": 2
+    },
+    {
+      "id": "b2d37072-9369-48dc-abe2-c96b28205f8a",
+      "name": "Creatina Monohidratada 1Kg Soldiers Nutrition 100% Pura Importada Alta Performance Músculo Treino",
+      "ml_item_id": "MLB2766771378",
+      "price": 239.9,
+      "original_price": null,
+      "discount_percentage": 0,
+      "is_on_sale": false,
+      "last_price_source": "catalog",
+      "family_key": "creatina monohidratada 1kg soldiers nutrition 100 pura importada",
+      "updated_at": "2026-02-22T00:07:00.023914+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "live_price_divergence_high"
+      ],
+      "hard_issues": [
+        "live_price_divergence_high"
+      ],
+      "soft_issues": [],
+      "issue_count": 1
+    },
+    {
+      "id": "10b7c056-5109-47ec-ae90-81ab08866a17",
+      "name": "Creatina Monohidratada 500g Soldiers Nutrition 100% Pura Importada Alta Performance Músculo Treino",
+      "ml_item_id": "MLB2794699684",
+      "price": 39.67,
+      "original_price": 159.9,
+      "discount_percentage": 75,
+      "is_on_sale": true,
+      "last_price_source": "scraper",
+      "family_key": "creatina monohidratada 500g soldiers nutrition 100 pura importada",
+      "updated_at": "2026-02-22T00:05:48.539221+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "promo_excessive_original_ratio"
+      ],
+      "hard_issues": [
+        "promo_excessive_original_ratio"
+      ],
+      "soft_issues": [],
+      "issue_count": 1
+    },
+    {
+      "id": "36479814-3fbe-4d06-ab8e-e0cab91602e2",
+      "name": "Par Halter 3 Kg Emborrachado Academia Treino Cor Preto",
+      "ml_item_id": "MLB5337601414",
+      "price": 159.9,
+      "original_price": null,
+      "discount_percentage": 0,
+      "is_on_sale": false,
+      "last_price_source": "scraper",
+      "family_key": "par halter kg emborrachado academia treino cor preto",
+      "updated_at": "2026-02-21T23:56:13.913089+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "duplicate_family_active"
+      ],
+      "hard_issues": [
+        "duplicate_family_active"
+      ],
+      "soft_issues": [],
+      "issue_count": 1
+    },
+    {
+      "id": "e35a7728-59f0-4fd2-89bb-4cffeb34e400",
+      "name": "Smartwatch Samsung Galaxy Fit3 Display 1.6\" Rosé",
+      "ml_item_id": "MLB5534116798",
+      "price": 298.49,
+      "original_price": null,
+      "discount_percentage": 0,
+      "is_on_sale": false,
+      "last_price_source": "scraper",
+      "family_key": "smartwatch samsung galaxy fit3 display rose",
+      "updated_at": "2026-02-21T23:55:17.339364+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "duplicate_family_active"
+      ],
+      "hard_issues": [
+        "duplicate_family_active"
+      ],
+      "soft_issues": [],
+      "issue_count": 1
+    }
+  ],
+  "sample_soft_flagged": [
+    {
+      "id": "8f01f993-253a-4dd7-9ca6-d45d30edc8fa",
+      "name": "Barra Whey Grego 40g Display com 12 unidades Morango com Chantilly Nutrata",
+      "ml_item_id": "MLB3729712149",
+      "price": 64,
+      "original_price": 64.1,
+      "discount_percentage": 0,
+      "is_on_sale": false,
+      "last_price_source": "scraper",
+      "family_key": "barra whey grego 40g display 12 unidades morango",
+      "updated_at": "2026-02-22T00:06:03.992368+00:00",
+      "status": "active",
+      "is_active": true,
+      "issues": [
+        "missing_promo_flag_with_price_drop"
+      ],
+      "hard_issues": [],
+      "soft_issues": [
+        "missing_promo_flag_with_price_drop"
+      ],
+      "issue_count": 1
+    }
+  ],
+  "applied": [
+    {
+      "id": "01a3445a-2b44-41b0-a0e1-4a7c1b8b3a06",
+      "name": "Creatina Max Titanium Creatine Monohidratada 100g",
+      "action": "standby"
+    },
+    {
+      "id": "68070262-404d-40f9-8473-cfca0164a232",
+      "name": "Kit 20 Itens Treino Elástico Extensor Exercício Funcional Miniband Faixa Elástica Corda de Pular Ginástica Academia Fisioterapia Exercícios Pdo Store",
+      "action": "standby"
+    },
+    {
+      "id": "db2e4b81-b57a-4586-b2e7-844f6e34e3c5",
+      "name": "PROHIBIDO PRÉ TREINO 360g - Sabor: Strawberry Margarita (Morango)",
+      "action": "standby"
+    },
+    {
+      "id": "33848a0c-7d13-4cd8-8b02-2c002f861773",
+      "name": "Creatina Monohidratada 250g Growth Supplements - Sem sabor em Pó",
+      "action": "standby"
+    },
+    {
+      "id": "0a379878-f838-47a6-a779-71f28f52e683",
+      "name": "Suplemento Em Pó Pre Treino Pre Workout Pote 150g Sabor Energético FTW - DIABO VERDE",
+      "action": "standby"
+    },
+    {
+      "id": "d46c44ca-ae5e-4dd7-b0b4-2f0a5d0e1a26",
+      "name": "Creatina Integralmedica 100% Pura 150g - Potencialize sua Performance e Melhore a Recuperação Muscular",
+      "action": "standby"
+    },
+    {
+      "id": "b2d37072-9369-48dc-abe2-c96b28205f8a",
+      "name": "Creatina Monohidratada 1Kg Soldiers Nutrition 100% Pura Importada Alta Performance Músculo Treino",
+      "action": "standby"
+    },
+    {
+      "id": "10b7c056-5109-47ec-ae90-81ab08866a17",
+      "name": "Creatina Monohidratada 500g Soldiers Nutrition 100% Pura Importada Alta Performance Músculo Treino",
+      "action": "standby"
+    },
+    {
+      "id": "36479814-3fbe-4d06-ab8e-e0cab91602e2",
+      "name": "Par Halter 3 Kg Emborrachado Academia Treino Cor Preto",
+      "action": "standby"
+    },
+    {
+      "id": "e35a7728-59f0-4fd2-89bb-4cffeb34e400",
+      "name": "Smartwatch Samsung Galaxy Fit3 Display 1.6\" Rosé",
+      "action": "standby"
+    }
+  ]
+}

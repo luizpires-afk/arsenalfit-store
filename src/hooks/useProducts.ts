@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { compareBySubFilter, dedupeCatalogProducts } from '@/lib/catalog';
+import { resolvePricePresentation } from '@/lib/pricing.js';
 
 export interface Product {
   id: string;
@@ -21,6 +22,8 @@ export interface Product {
   affiliate_link?: string | null;
   affiliate_verified?: boolean | null;
   source_url?: string | null;
+  canonical_offer_url?: string | null;
+  ml_item_id?: string | null;
   external_id?: string | null;
   category_id?: string | null;
   category?: any;
@@ -28,6 +31,9 @@ export interface Product {
   subcategory?: string | null;
   tech_sheet?: string | null;
   is_active: boolean;
+  status?: string | null;
+  data_health_status?: string | null;
+  auto_disabled_reason?: string | null;
   is_featured: boolean;
   is_on_sale: boolean;
   curation_badges?: string[] | null;
@@ -52,6 +58,8 @@ export const useProducts = () => {
         .from('products')
         .select('*, category:categories(*)')
         .eq('is_active', true)
+        .eq('status', 'active')
+        .eq('data_health_status', 'HEALTHY')
         .eq('is_blocked', false)
         .or('auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked')
         .order('created_at', { ascending: false });
@@ -61,7 +69,13 @@ export const useProducts = () => {
   });
 
   const products = useMemo(() => {
-    const raw = (productsQuery.data || []) as Product[];
+    const raw = ((productsQuery.data || []) as Product[]).filter((product) => {
+      const status = String(product.status ?? "").toLowerCase();
+      const isActive = product.is_active === true && status === "active";
+      const health = String(product.data_health_status ?? "").toUpperCase();
+      const autoDisabledReason = String((product as any).auto_disabled_reason ?? "").toLowerCase();
+      return isActive && health === "HEALTHY" && autoDisabledReason !== "blocked";
+    });
     const deduped = dedupeCatalogProducts(raw as any[]) as Product[];
     return [...deduped].sort((a, b) => compareBySubFilter(a as any, b as any, 'melhores'));
   }, [productsQuery.data]);
@@ -80,14 +94,19 @@ export const useProducts = () => {
     () => () => {
       const now = Date.now();
       const limit = 24 * 60 * 60 * 1000;
+      const minDiscountPercent = 20;
       return products.filter((p) => {
-        if (!p.detected_at || p.previous_price === null || p.previous_price === undefined) {
+        if (!p.detected_at) {
           return false;
         }
         const detectedTime = new Date(p.detected_at).getTime();
         const isRecent = Number.isFinite(detectedTime) && now - detectedTime <= limit;
-        const isDrop = p.previous_price > p.price;
-        return isRecent && isDrop;
+        if (!isRecent) return false;
+
+        const pricing = resolvePricePresentation(p as any);
+        const discountPercent =
+          typeof pricing.discountPercent === "number" ? pricing.discountPercent : 0;
+        return discountPercent >= minDiscountPercent;
       });
     },
     [products]
@@ -115,9 +134,7 @@ export const useProduct = (slug: string) => {
         .from('products')
         .select('*, category:categories(*)')
         .eq('slug', slug)
-        .eq('is_active', true)
         .eq('is_blocked', false)
-        .or('auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked')
         .maybeSingle();
       if (error) throw error;
       if (!data) throw new Error('Produto não encontrado');

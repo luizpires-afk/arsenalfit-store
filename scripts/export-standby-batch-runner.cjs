@@ -67,10 +67,25 @@ const main = async () => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data, error } = await client.rpc("export_standby_affiliate_batch", {
+  let data = null;
+  let error = null;
+
+  const serviceCall = await client.rpc("export_standby_affiliate_batch_service", {
     p_limit: limit,
     p_source: source,
   });
+
+  if (serviceCall.error) {
+    const fallbackCall = await client.rpc("export_standby_affiliate_batch", {
+      p_limit: limit,
+      p_source: source,
+    });
+    data = fallbackCall.data;
+    error = fallbackCall.error;
+  } else {
+    data = serviceCall.data;
+    error = serviceCall.error;
+  }
 
   if (error) {
     console.error("Erro ao exportar batch:", error.message || error);

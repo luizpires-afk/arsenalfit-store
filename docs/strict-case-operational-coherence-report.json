@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-02-21T18:39:09.081Z",
+  "input_report": "C:\\Users\\LUIZ\\arsenalfit-store\\docs\\strict-case-fallback-report.json",
+  "totals": {
+    "selected_total": 30,
+    "selected_ok": 30,
+    "selected_fail": 0,
+    "active_total": 45,
+    "active_ok": 45,
+    "active_fail": 0
+  },
+  "selected_failures": [],
+  "active_failures": []
+}

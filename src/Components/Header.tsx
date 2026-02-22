@@ -1,5 +1,5 @@
-import { Link, useLocation } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Home, LayoutGrid, Menu, Package, Search, ShoppingCart, X } from "lucide-react";
 import { Button } from "@/Components/ui/button";
@@ -44,12 +44,13 @@ type BrandMarkProps = {
   showText?: boolean;
   textClassName?: string;
   imgClassName?: string;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 };
 
 const BRAND_ICON_SIZES: Record<NonNullable<BrandMarkProps["size"]>, string> = {
   sm: "h-10 w-10",
-  md: "h-12 w-12",
-  lg: "h-12 w-12",
+  md: "h-[52px] w-[52px]",
+  lg: "h-[56px] w-[56px]",
 };
 
 const BRAND_FULL_SIZES: Record<NonNullable<BrandMarkProps["size"]>, string> = {
@@ -66,6 +67,7 @@ const BrandMark = ({
   showText = false,
   textClassName = "",
   imgClassName = "",
+  onClick,
 }: BrandMarkProps) => {
   const [failed, setFailed] = useState(false);
   const isFull = variant === "full";
@@ -73,6 +75,7 @@ const BrandMark = ({
   return (
     <Link
       to={href}
+      onClick={onClick}
       className={`flex items-center gap-3 group shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-xl ${className}`}
       aria-label="Ir para a página inicial"
     >
@@ -119,6 +122,7 @@ export const Header = () => {
   const { cartCount } = useCart();
   const { user, isAdmin, signOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -223,6 +227,15 @@ export const Header = () => {
     window.dispatchEvent(new CustomEvent("arsenalfit:toggle-search"));
   };
 
+  const handleBrandClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!isHomeRoute) return;
+    event.preventDefault();
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    if (location.pathname !== "/") {
+      navigate("/", { replace: false });
+    }
+  };
+
   const menuTopOffset = isScrolled
     ? "top-[var(--header-height-scrolled)]"
     : "top-[var(--header-height)]";
@@ -318,8 +331,9 @@ export const Header = () => {
             variant="icon"
             size={brandSize}
             showText
-            textClassName="hidden lg:block"
+            textClassName="hidden lg:block text-[13px] tracking-[0.24em]"
             imgClassName="scale-[1.12]"
+            onClick={handleBrandClick}
           />
         </div>
 
