@@ -5,6 +5,7 @@ const MAX_LIST_PRICE_RATIO_WITH_PIX = 4.0;
 const MAX_LIST_PRICE_RATIO_WITH_PROMO_FLAG = 4.0;
 const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR = 0.35;
 const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO = 0.55;
+const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO_BOUND = 0.2;
 const DEFAULT_PREVIOUS_PRICE_TTL_HOURS = 48;
 const MIN_HISTORY_PROMO_PERCENT = 5;
 const TRUSTED_LIST_PRICE_SOURCES = new Set([
@@ -105,9 +106,65 @@ const isMercadoLivreMarketplace = (marketplace) => {
   return normalized.includes("mercado");
 };
 
+const MLB_ID_REGEX = /MLB\d{6,14}/i;
+
+const normalizeMlItemId = (value) => {
+  const raw = String(value ?? "").toUpperCase();
+  const match = raw.match(MLB_ID_REGEX);
+  return match?.[0] ?? null;
+};
+
+const extractMlItemIdFromUrl = (urlValue) => {
+  if (!urlValue || typeof urlValue !== "string") return null;
+  try {
+    const parsed = new URL(urlValue);
+    const fromQuery =
+      normalizeMlItemId(parsed.searchParams.get("item_id")) ||
+      normalizeMlItemId(parsed.searchParams.get("wid")) ||
+      normalizeMlItemId(parsed.searchParams.get("pdp_filters"));
+    if (fromQuery) return fromQuery;
+
+    const hash = String(parsed.hash || "").replace(/^#/, "");
+    if (hash) {
+      const hashParams = new URLSearchParams(hash);
+      const fromHash =
+        normalizeMlItemId(hashParams.get("wid")) ||
+        normalizeMlItemId(hashParams.get("item_id"));
+      if (fromHash) return fromHash;
+    }
+
+    const decodedRaw = decodeURIComponent(String(urlValue));
+    const fromDecoded = normalizeMlItemId(decodedRaw);
+    if (fromDecoded) return fromDecoded;
+
+    return normalizeMlItemId(parsed.pathname);
+  } catch {
+    try {
+      return normalizeMlItemId(decodeURIComponent(String(urlValue)));
+    } catch {
+      return normalizeMlItemId(urlValue);
+    }
+  }
+};
+
+const hasMercadoBoundSourceTrace = (product) => {
+  const canonicalId = normalizeMlItemId(product?.ml_item_id);
+  if (!canonicalId) return false;
+
+  const candidates = [
+    product?.source_url,
+    product?.canonical_offer_url,
+    product?.affiliate_link,
+  ];
+
+  return candidates.some((value) => extractMlItemIdFromUrl(value) === canonicalId);
+};
+
 const resolveScraperBasePriceMinRatio = (product) =>
   isMercadoLivreMarketplace(product?.marketplace)
-    ? MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO
+    ? hasMercadoBoundSourceTrace(product)
+      ? MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO_BOUND
+      : MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO
     : MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR;
 
 const resolveListPriceMaxRatio = (product, hasPixPrice) => {
