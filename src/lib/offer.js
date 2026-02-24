@@ -291,6 +291,10 @@ export const buildOfferHref = (product, resolution, source = "offer_click") => {
   const isBlocked = String(product?.auto_disabled_reason ?? "").trim().toLowerCase() === "blocked";
   const productId = String(product?.id ?? "").trim();
 
+  if (isBlocked) {
+    return null;
+  }
+
   if (!canRedirect) {
     return null;
   }

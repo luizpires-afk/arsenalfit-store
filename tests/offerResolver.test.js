@@ -209,3 +209,25 @@ test("buildOfferHref: active product with resolvable offer uses out path", () =>
 
   assert.equal(href, "/out/product/prod-2?src=test");
 });
+
+test("buildOfferHref: blocked product never generates href", () => {
+  const resolved = {
+    canRedirect: true,
+    url: "https://meli.la/abc123",
+    reason: "affiliate_validated",
+  };
+
+  const href = buildOfferHref(
+    {
+      id: "prod-3",
+      marketplace: "mercadolivre",
+      status: "active",
+      is_active: true,
+      auto_disabled_reason: "blocked",
+    },
+    resolved,
+    "test",
+  );
+
+  assert.equal(href, null);
+});
