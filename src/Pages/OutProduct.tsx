@@ -53,6 +53,7 @@ export default function OutProduct() {
         let destination: string | null = null;
         let canRedirect = false;
         let reason: string | null = null;
+        let productMarketplace: string | null = null;
 
         try {
           const { data, error } = await supabase.rpc("resolve_product_offer_url", {
@@ -72,6 +73,28 @@ export default function OutProduct() {
           destination = payload?.url ?? null;
           canRedirect = Boolean(payload?.can_redirect && destination);
           reason = payload?.reason ?? null;
+
+          if (!canRedirect || !destination) {
+            const { data: productData } = await supabase
+              .from("products")
+              .select(
+                "id, marketplace, status, is_active, data_health_status, affiliate_verified, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason",
+              )
+              .eq("id", id)
+              .maybeSingle();
+
+            if (productData) {
+              productMarketplace = String(productData.marketplace || "");
+              const localResolution = resolveOfferUrl(productData as any, {
+                allowRedirectWhileStandby: allowStandby,
+              });
+              if (localResolution.canRedirect && localResolution.url) {
+                destination = localResolution.url;
+                canRedirect = true;
+                reason = localResolution.reason ?? reason;
+              }
+            }
+          }
         } catch {
           // Fallback local: se RPC nao estiver disponivel, resolve pelo helper local.
           const { data: productData } = await supabase
@@ -83,6 +106,7 @@ export default function OutProduct() {
             .maybeSingle();
 
           if (productData) {
+            productMarketplace = String(productData.marketplace || "");
             const localResolution = resolveOfferUrl(productData as any, {
               allowRedirectWhileStandby: allowStandby,
             });
@@ -95,7 +119,7 @@ export default function OutProduct() {
         if (!canRedirect || !destination) {
           if (!cancelled) {
             const localMessage = reason
-              ? getOfferUnavailableMessage({ reason }, "mercadolivre")
+              ? getOfferUnavailableMessage({ reason }, productMarketplace || "mercadolivre")
               : getFriendlyMessage(reason);
             setMessage(localMessage);
             setLoading(false);
