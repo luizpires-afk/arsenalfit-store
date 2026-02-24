@@ -116,6 +116,45 @@ runStep("Auditoria ativos", [
   envFile,
 ]);
 
+runStep("Auditoria promo cards (top risk)", [
+  "node",
+  "scripts/validate-all-products-pricing-runner.mjs",
+  "--env",
+  envFile,
+  "--top-limit",
+  "25",
+  "--out-json",
+  ".tmp-all-products-pricing-check.json",
+]);
+
+runStep("Enqueue revalidacao top risk promo", [
+  "node",
+  "scripts/enqueue-top-risk-promos-runner.cjs",
+  "--env",
+  envFile,
+  "--input",
+  ".tmp-all-products-pricing-check.json",
+  "--limit",
+  "15",
+  "--min-risk",
+  "40",
+  "--reason",
+  `${source}_promo_top_risk`,
+]);
+
+runStep("Enqueue revalidacao catalog sem auditoria recente", [
+  "node",
+  "scripts/enqueue-catalog-audit-gap-runner.cjs",
+  "--env",
+  envFile,
+  "--limit",
+  "60",
+  "--stale-hours",
+  "6",
+  "--reason",
+  `${source}_catalog_audit_gap`,
+]);
+
 runStep("Reliability monitor", [
   "npm",
   "run",

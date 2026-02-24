@@ -250,7 +250,7 @@ test("resolvePricePresentation keeps anti-drop guard for Mercado when trace is n
   assert.equal(pricing.displayPricePrimary, 151.1);
 });
 
-test("resolvePromotionMetrics keeps real discount signal even when scraper list is hidden", () => {
+test("resolvePromotionMetrics hides discount when no reliable strikethrough is available", () => {
   const promo = resolvePromotionMetrics({
     ml_item_id: "MLB5159053928",
     marketplace: "mercadolivre",
@@ -265,7 +265,47 @@ test("resolvePromotionMetrics keeps real discount signal even when scraper list 
     last_price_verified_at: new Date().toISOString(),
   });
 
-  assert.equal(promo.anchor, 67.98);
+  assert.equal(promo.anchor, null);
+  assert.equal(promo.discountPercent, 0);
+  assert.equal(promo.hasDiscount, false);
+});
+
+test("resolvePromotionMetrics keeps discount when trusted list price is displayable", () => {
+  const promo = resolvePromotionMetrics({
+    marketplace: "amazon",
+    price: 171.9,
+    original_price: 349,
+    discount_percentage: 51,
+    last_price_source: "auth",
+    last_price_verified_at: new Date().toISOString(),
+  });
+
+  assert.equal(promo.anchor, 349);
   assert.equal(promo.discountPercent, 51);
   assert.equal(promo.hasDiscount, true);
+  assert.equal(promo.isReliable, true);
+});
+
+test("resolvePromotionMetrics ignores declared promo without reliable anchor", () => {
+  const promo = resolvePromotionMetrics({
+    ml_item_id: "MLB4179901653",
+    marketplace: "mercadolivre",
+    price: 39,
+    original_price: 151.1,
+    previous_price: 151.1,
+    previous_price_source: "HISTORY",
+    previous_price_expires_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    discount_percentage: 74,
+    is_on_sale: true,
+    source_url:
+      "https://www.mercadolivre.com.br/opus-dei-pre-treino-pre-workout-300g-ftw-sabor-frutas-amarelas/p/MLB51534861?pdp_filters=item_id%3AMLB4179901653&matt_tool=38524122#origin=share&sid=share&wid=MLB4179901653",
+    canonical_offer_url: "https://produto.mercadolivre.com.br/mlb4179901653",
+    affiliate_link: "https://mercadolivre.com/sec/172szSy",
+    last_price_source: "scraper",
+    last_price_verified_at: new Date().toISOString(),
+  });
+
+  assert.equal(promo.anchor, null);
+  assert.equal(promo.discountPercent, 0);
+  assert.equal(promo.hasDiscount, false);
 });

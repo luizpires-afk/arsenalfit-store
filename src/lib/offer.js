@@ -160,6 +160,7 @@ export const resolveOfferUrl = (product, options = {}) => {
   const hasValidatedAffiliate = affiliateVerified || hasSecAffiliate || hasShortAffiliate;
   const healthStatus = String(product?.data_health_status ?? "").toUpperCase();
   const isHealthy = healthStatus === "HEALTHY";
+  const isHealthUnknown = healthStatus.length === 0;
   const canonicalMlItemId =
     normalizeMlItemId(product?.ml_item_id) ||
     extractMlItemIdFromUrl(canonicalSourceUrl) ||
@@ -200,12 +201,12 @@ export const resolveOfferUrl = (product, options = {}) => {
         allowStandbyRedirect,
       };
     }
-    if (isActive && isHealthy && sourceUrl && canonicalMlItemId && isAllowedOfferDomain(sourceUrl, marketplace)) {
+    if (isActive && (isHealthy || isHealthUnknown) && sourceUrl && canonicalMlItemId && isAllowedOfferDomain(sourceUrl, marketplace)) {
       return {
         canRedirect: true,
         url: sourceUrl,
         resolvedSource: sourceKind,
-        reason: "source_active_fallback",
+        reason: isHealthy ? "source_active_fallback" : "source_active_fallback_health_unknown",
         allowStandbyRedirect,
       };
     }
@@ -290,21 +291,12 @@ export const buildOfferHref = (product, resolution, source = "offer_click") => {
   const isBlocked = String(product?.auto_disabled_reason ?? "").trim().toLowerCase() === "blocked";
   const productId = String(product?.id ?? "").trim();
 
-  if (!isBlocked && isActive && productId) {
-    return buildOutProductPath(productId, source);
+  if (!canRedirect) {
+    return null;
   }
 
-  if (!canRedirect) {
-    if (!isActive || isBlocked) return null;
-    const fallbackUrl =
-      normalizeHttpUrl(product?.affiliate_link ?? null) ||
-      normalizeHttpUrl(product?.source_url ?? null) ||
-      normalizeHttpUrl(product?.canonical_offer_url ?? null);
-    if (!fallbackUrl || !isAllowedOfferDomain(fallbackUrl, product?.marketplace)) return null;
-
-    const productIdFallback = productId;
-    if (productIdFallback) return buildOutProductPath(productIdFallback, source);
-    return fallbackUrl;
+  if (!isBlocked && isActive && productId) {
+    return buildOutProductPath(productId, source);
   }
 
   if (productId) return buildOutProductPath(productId, source);

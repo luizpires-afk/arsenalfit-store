@@ -8,6 +8,7 @@ const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO = 0.55;
 const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO_BOUND = 0.2;
 const DEFAULT_PREVIOUS_PRICE_TTL_HOURS = 48;
 const MIN_HISTORY_PROMO_PERCENT = 5;
+const MAX_HISTORY_PREVIOUS_RATIO = 2.2;
 const TRUSTED_LIST_PRICE_SOURCES = new Set([
   "auth",
   "public",
@@ -236,6 +237,7 @@ const sanitizeBasePrice = (product, basePrice, originalPrice) => {
 const resolveHistoryPreviousPrice = (product, finalPrice) => {
   const previous = toFiniteNumber(product?.previous_price);
   if (!(previous !== null && previous > finalPrice)) return null;
+  if (previous > finalPrice * MAX_HISTORY_PREVIOUS_RATIO) return null;
 
   const previousSource = String(product?.previous_price_source ?? "").trim().toLowerCase();
   if (previousSource !== "history") return null;
@@ -366,30 +368,12 @@ const MAX_PROMO_ANCHOR_RATIO = 4;
 const canUseAnchor = (anchor, price) =>
   Number.isFinite(anchor) && anchor > price && anchor <= price * MAX_PROMO_ANCHOR_RATIO;
 
-const canUseProductPreviousPrice = (product) => {
-  const source = String(product?.previous_price_source ?? "").trim().toLowerCase();
-  if (source === "none") return false;
-
-  const expiresAt = product?.previous_price_expires_at;
-  if (!expiresAt) return true;
-
-  const expiresMs = new Date(expiresAt).getTime();
-  return Number.isFinite(expiresMs) ? expiresMs > Date.now() : true;
-};
-
 export const resolvePromotionMetrics = (product) => {
   const pricing = resolvePricePresentation(product);
   const price = toFiniteNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
 
   const presentationAnchor = toFiniteNumber(pricing.displayStrikethrough);
-  const originalAnchor = toFiniteNumber(product?.original_price);
-  const previousAnchor = canUseProductPreviousPrice(product)
-    ? toFiniteNumber(product?.previous_price)
-    : null;
-
-  const anchorCandidates = [presentationAnchor, originalAnchor, previousAnchor].filter((anchor) =>
-    canUseAnchor(anchor, price),
-  );
+  const anchorCandidates = [presentationAnchor].filter((anchor) => canUseAnchor(anchor, price));
   const anchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
   const discountValue = anchor !== null ? Math.max(anchor - price, 0) : 0;
   const discountPercent =
@@ -398,8 +382,10 @@ export const resolvePromotionMetrics = (product) => {
   return {
     price,
     anchor,
+    anchorSource: anchor !== null ? "presentation" : null,
     discountValue,
     discountPercent,
+    isReliable: anchor !== null,
     hasDiscount: discountPercent > 0,
   };
 };

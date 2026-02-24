@@ -41,6 +41,81 @@ export default function OutProduct() {
   useEffect(() => {
     let cancelled = false;
 
+    const productSelectFields =
+      "id, marketplace, status, is_active, data_health_status, affiliate_verified, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason, updated_at, last_sync, detected_at";
+
+    const resolveLocalOffer = (productData: any, allowStandby: boolean) => {
+      const localResolution = resolveOfferUrl(productData as any, {
+        allowRedirectWhileStandby: allowStandby,
+      });
+      return {
+        destination: localResolution.url ?? null,
+        canRedirect: Boolean(localResolution.canRedirect && localResolution.url),
+        reason: localResolution.reason ?? null,
+      };
+    };
+
+    const resolveFromProductOrSibling = async (productId: string, allowStandby: boolean) => {
+      let resolvedMarketplace: string | null = null;
+
+      const { data: productData } = await supabase
+        .from("products")
+        .select(productSelectFields)
+        .eq("id", productId)
+        .maybeSingle();
+
+      if (productData) {
+        resolvedMarketplace = String(productData.marketplace || "");
+        const local = resolveLocalOffer(productData, allowStandby);
+        if (local.canRedirect && local.destination) {
+          return {
+            ...local,
+            productMarketplace: resolvedMarketplace,
+          };
+        }
+
+        const mlItemId = String(productData.ml_item_id || "").trim();
+        if (mlItemId) {
+          const { data: siblingCandidates } = await supabase
+            .from("products")
+            .select(productSelectFields)
+            .eq("ml_item_id", mlItemId)
+            .eq("is_active", true)
+            .eq("status", "active")
+            .eq("data_health_status", "HEALTHY")
+            .or("auto_disabled_reason.is.null,auto_disabled_reason.neq.blocked")
+            .order("updated_at", { ascending: false })
+            .limit(5);
+
+          if (Array.isArray(siblingCandidates) && siblingCandidates.length > 0) {
+            for (const candidate of siblingCandidates) {
+              const siblingLocal = resolveLocalOffer(candidate, allowStandby);
+              if (siblingLocal.canRedirect && siblingLocal.destination) {
+                return {
+                  destination: siblingLocal.destination,
+                  canRedirect: true,
+                  reason: "sibling_ml_item_active_fallback",
+                  productMarketplace: String(candidate.marketplace || resolvedMarketplace || ""),
+                };
+              }
+            }
+          }
+        }
+
+        return {
+          ...local,
+          productMarketplace: resolvedMarketplace,
+        };
+      }
+
+      return {
+        destination: null,
+        canRedirect: false,
+        reason: null,
+        productMarketplace: resolvedMarketplace,
+      };
+    };
+
     const resolveAndRedirect = async () => {
       if (!id) {
         setMessage("Produto nao informado.");
@@ -75,45 +150,21 @@ export default function OutProduct() {
           reason = payload?.reason ?? null;
 
           if (!canRedirect || !destination) {
-            const { data: productData } = await supabase
-              .from("products")
-              .select(
-                "id, marketplace, status, is_active, data_health_status, affiliate_verified, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason",
-              )
-              .eq("id", id)
-              .maybeSingle();
-
-            if (productData) {
-              productMarketplace = String(productData.marketplace || "");
-              const localResolution = resolveOfferUrl(productData as any, {
-                allowRedirectWhileStandby: allowStandby,
-              });
-              if (localResolution.canRedirect && localResolution.url) {
-                destination = localResolution.url;
-                canRedirect = true;
-                reason = localResolution.reason ?? reason;
-              }
+            const localFallback = await resolveFromProductOrSibling(id, allowStandby);
+            productMarketplace = localFallback.productMarketplace;
+            if (localFallback.canRedirect && localFallback.destination) {
+              destination = localFallback.destination;
+              canRedirect = true;
+              reason = localFallback.reason ?? reason;
             }
           }
         } catch {
           // Fallback local: se RPC nao estiver disponivel, resolve pelo helper local.
-          const { data: productData } = await supabase
-            .from("products")
-            .select(
-              "id, marketplace, status, is_active, data_health_status, affiliate_verified, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason",
-            )
-            .eq("id", id)
-            .maybeSingle();
-
-          if (productData) {
-            productMarketplace = String(productData.marketplace || "");
-            const localResolution = resolveOfferUrl(productData as any, {
-              allowRedirectWhileStandby: allowStandby,
-            });
-            destination = localResolution.url ?? null;
-            canRedirect = Boolean(localResolution.canRedirect && destination);
-            reason = localResolution.reason ?? null;
-          }
+          const localFallback = await resolveFromProductOrSibling(id, allowStandby);
+          productMarketplace = localFallback.productMarketplace;
+          destination = localFallback.destination;
+          canRedirect = Boolean(localFallback.canRedirect && destination);
+          reason = localFallback.reason ?? null;
         }
 
         if (!canRedirect || !destination) {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveOfferUrl } from "../src/lib/offer.js";
+import { buildOfferHref, resolveOfferUrl } from "../src/lib/offer.js";
 
 test("offer resolver: active Mercado Livre with sec affiliate uses affiliate bound to item", () => {
   const result = resolveOfferUrl({
@@ -69,7 +69,7 @@ test("offer resolver: prefers canonical source URL when standby fallback is enab
   assert.equal(result.resolvedSource, "canonical_source");
 });
 
-test("offer resolver: active Mercado Livre without valid sec affiliate does not fallback to source", () => {
+test("offer resolver: active Mercado Livre without valid sec affiliate can fallback to source", () => {
   const result = resolveOfferUrl(
     {
       marketplace: "mercadolivre",
@@ -81,8 +81,9 @@ test("offer resolver: active Mercado Livre without valid sec affiliate does not 
     { allowRedirectWhileStandby: true },
   );
 
-  assert.equal(result.canRedirect, false);
-  assert.equal(result.reason, "awaiting_affiliate_validation");
+  assert.equal(result.canRedirect, true);
+  assert.equal(result.resolvedSource, "source");
+  assert.equal(result.reason, "source_active_fallback_health_unknown");
 });
 
 test("offer resolver: infers active and uses affiliate bound item when payload omits status", () => {
@@ -131,7 +132,7 @@ test("offer resolver: active Mercado Livre ignores malformed canonical URL and b
   );
 });
 
-test("offer resolver: explicit standby keeps gated even with sec link", () => {
+test("offer resolver: explicit standby with sec link allows validated affiliate redirect", () => {
   const result = resolveOfferUrl(
     {
       marketplace: "mercadolivre",
@@ -143,6 +144,68 @@ test("offer resolver: explicit standby keeps gated even with sec link", () => {
     { allowRedirectWhileStandby: false },
   );
 
-  assert.equal(result.canRedirect, false);
-  assert.equal(result.reason, "awaiting_affiliate_validation");
+  assert.equal(result.canRedirect, true);
+  assert.equal(result.resolvedSource, "affiliate");
+  assert.equal(result.reason, "affiliate_standby_validated");
+});
+
+test("offer resolver: active Mercado Livre allows source fallback when health status is omitted", () => {
+  const result = resolveOfferUrl({
+    marketplace: "mercadolivre",
+    status: "active",
+    is_active: true,
+    affiliate_link: null,
+    source_url: "https://www.mercadolivre.com.br/p/MLB123456",
+  });
+
+  assert.equal(result.canRedirect, true);
+  assert.equal(result.resolvedSource, "source");
+  assert.equal(result.reason, "source_active_fallback_health_unknown");
+});
+
+test("buildOfferHref: active product with unresolved offer returns null", () => {
+  const unresolved = {
+    canRedirect: false,
+    url: null,
+    reason: "awaiting_affiliate_validation",
+  };
+
+  const href = buildOfferHref(
+    {
+      id: "prod-1",
+      marketplace: "mercadolivre",
+      status: "active",
+      is_active: true,
+      auto_disabled_reason: null,
+      affiliate_link: null,
+      source_url: null,
+      canonical_offer_url: null,
+    },
+    unresolved,
+    "test",
+  );
+
+  assert.equal(href, null);
+});
+
+test("buildOfferHref: active product with resolvable offer uses out path", () => {
+  const resolved = {
+    canRedirect: true,
+    url: "https://meli.la/abc123",
+    reason: "affiliate_validated",
+  };
+
+  const href = buildOfferHref(
+    {
+      id: "prod-2",
+      marketplace: "mercadolivre",
+      status: "active",
+      is_active: true,
+      auto_disabled_reason: null,
+    },
+    resolved,
+    "test",
+  );
+
+  assert.equal(href, "/out/product/prod-2?src=test");
 });
