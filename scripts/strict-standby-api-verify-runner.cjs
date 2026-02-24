@@ -1,4 +1,4 @@
-const { readRunnerEnv, createSupabaseRestClient } = require("./_supabase_runner_utils.cjs");
+const { readRunnerEnv, createSupabaseRestClient, isMercadoLivreSecLink } = require("./_supabase_runner_utils.cjs");
 
 const args = process.argv.slice(2);
 
@@ -16,6 +16,16 @@ const waitMs = Math.max(0, Math.min(3000, Number(getArg("--wait-ms", "120")) || 
 const warnPct = Number(getArg("--warn-pct", "25")) || 25;
 const warnAbs = Number(getArg("--warn-abs", "20")) || 20;
 const dryRun = hasArg("--dry-run");
+const requestTimeoutMs = Math.max(4000, Math.min(30000, Number(getArg("--request-timeout-ms", "12000")) || 12000));
+
+const DEFAULT_API_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Accept": "application/json,text/plain,*/*",
+  "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+  "Cache-Control": "no-cache",
+  "Pragma": "no-cache",
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -44,14 +54,31 @@ const isStandbyLike = (row) => {
   );
 };
 
+const isMercadoLivreShortAffiliateLink = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    const host = String(parsed.host || "").toLowerCase();
+    if (!(host === "meli.la" || host === "www.meli.la")) return false;
+    return /^\/[a-z0-9]+/i.test(parsed.pathname || "");
+  } catch {
+    return false;
+  }
+};
+
+const hasValidatedAffiliateLink = (row) => {
+  const affiliate = String(row?.affiliate_link || "").trim();
+  return isMercadoLivreSecLink(affiliate) || isMercadoLivreShortAffiliateLink(affiliate);
+};
+
 const isNearEligible = (row) => {
   if (!isStandbyLike(row)) return false;
-  if (String(row?.data_health_status || "HEALTHY") !== "HEALTHY") return false;
   if (String(row?.price_mismatch_status || "NONE") === "OPEN") return false;
+  if (String(row?.auto_disabled_reason || "").toLowerCase() === "blocked") return false;
   if (!(Number(row?.price || 0) > 0)) return false;
   if (!String(row?.ml_item_id || "").trim()) return false;
-  const hasUrl = String(row?.source_url || "").trim() || String(row?.affiliate_link || "").trim();
-  if (!hasUrl) return false;
+  if (!hasValidatedAffiliateLink(row)) return false;
   return true;
 };
 
@@ -79,12 +106,20 @@ const main = async () => {
   const result = {
     ok: true,
     dry_run: dryRun,
-    config: { limit, wait_ms: waitMs, warn_pct: warnPct, warn_abs: warnAbs },
+    config: {
+      limit,
+      wait_ms: waitMs,
+      warn_pct: warnPct,
+      warn_abs: warnAbs,
+      request_timeout_ms: requestTimeoutMs,
+    },
     totals: {
       scanned_candidates: candidates.length,
       api_ok: 0,
       api_fail: 0,
+      queued_refresh_on_403: 0,
       patched_api_base: 0,
+      promoted_active: 0,
       skipped_mismatch: 0,
       skipped_invalid_price: 0,
     },
@@ -98,9 +133,29 @@ const main = async () => {
     let status = 0;
 
     try {
-      const response = await fetch(`https://api.mercadolibre.com/items/${encodeURIComponent(mlItemId)}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+      const response = await fetch(`https://api.mercadolibre.com/items/${encodeURIComponent(mlItemId)}`, {
+        method: "GET",
+        redirect: "follow",
+        headers: DEFAULT_API_HEADERS,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
       status = response.status;
       if (!response.ok) {
+        if (!dryRun && status === 403) {
+          try {
+            await client.rpc("enqueue_price_check_refresh", {
+              p_product_id: row.id,
+              p_force: true,
+              p_reason: "strict_standby_api_verify_403",
+            });
+            result.totals.queued_refresh_on_403 += 1;
+          } catch {
+            // best effort
+          }
+        }
         result.totals.api_fail += 1;
         if (result.sample_skips.length < 20) {
           result.sample_skips.push({
@@ -153,12 +208,29 @@ const main = async () => {
 
       if (!dryRun) {
         const nowIso = new Date().toISOString();
-        await client.patch(`/products?id=eq.${encodeURIComponent(row.id)}`, {
+        const patch = {
           last_price_source: "API_BASE",
           last_price_verified_at: nowIso,
           last_health_check_at: nowIso,
           updated_at: nowIso,
-        });
+        };
+
+        if (isStandbyLike(row) && hasValidatedAffiliateLink(row)) {
+          patch.status = "active";
+          patch.is_active = true;
+          patch.data_health_status = "HEALTHY";
+          patch.deactivation_reason = null;
+          patch.auto_disabled_reason = null;
+          patch.auto_disabled_at = null;
+          patch.price_mismatch_status = "RESOLVED";
+          patch.price_mismatch_reason = null;
+          patch.price_mismatch_resolved_at = nowIso;
+          patch.expected_price = null;
+          patch.site_price_snapshot = null;
+          result.totals.promoted_active += 1;
+        }
+
+        await client.patch(`/products?id=eq.${encodeURIComponent(row.id)}`, patch);
       }
 
       result.totals.patched_api_base += 1;
@@ -171,15 +243,17 @@ const main = async () => {
           api_price: apiPrice,
           delta_abs: delta.deltaAbs,
           delta_pct: delta.deltaPct,
+          promoted_active: isStandbyLike(row) && hasValidatedAffiliateLink(row),
         });
       }
     } catch (error) {
       result.totals.api_fail += 1;
       if (result.sample_skips.length < 20) {
+        const isAbort = String(error?.name || "").toLowerCase() === "aborterror";
         result.sample_skips.push({
           id: row.id,
           name: row.name,
-          reason: `api_error:${error?.message || String(error)}`,
+          reason: isAbort ? `api_timeout_${requestTimeoutMs}ms` : `api_error:${error?.message || String(error)}`,
           ml_item_id: mlItemId,
         });
       }

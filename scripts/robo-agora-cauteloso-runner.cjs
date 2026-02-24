@@ -10,6 +10,7 @@ const getArg = (name, fallback = null) => {
 const envFile = getArg("--env", "supabase/functions/.env.scheduler");
 const source = getArg("--source", "robo_agora_cauteloso");
 const timeout = getArg("--timeout", "240000");
+const blockedMlItems = getArg("--blocked-ml-items", process.env.BLOCKED_ML_ITEMS || "MLB6173287630");
 const quoteArg = (value) => {
   const raw = String(value ?? "");
   if (!raw) return '""';
@@ -74,6 +75,7 @@ runStep("Repair ativos (apply)", [
   "1",
   "--auto-fix-limit",
   "80",
+  ...(blockedMlItems ? ["--blocked-ml-items", blockedMlItems] : []),
 ]);
 
 runStep("Price maintenance (recheck critico reforcado)", [
@@ -92,10 +94,8 @@ runStep("Price maintenance (recheck critico reforcado)", [
 ]);
 
 runStep("Auto recover mercado products (dedupe + standby recovery + promo capture)", [
-  "npm",
-  "run",
-  "auto_recover_mercado_products",
-  "--",
+  "node",
+  "scripts/auto-recover-mercado-products-runner.cjs",
   "--env",
   envFile,
   "--limit",
@@ -103,7 +103,8 @@ runStep("Auto recover mercado products (dedupe + standby recovery + promo captur
   "--fetch-limit",
   "500",
   "--recent-hours",
-  "24",
+  "72",
+  ...(blockedMlItems ? ["--blocked-ml-items", blockedMlItems] : []),
 ]);
 
 runStep("Auditoria ativos", [
@@ -124,6 +125,18 @@ runStep("Reliability monitor", [
   envFile,
   "--source",
   `${source}_final`,
+]);
+
+runStep("Operational health snapshot", [
+  "npm",
+  "run",
+  "operational_health_snapshot",
+  "--",
+  "--env",
+  envFile,
+  "--source",
+  `${source}_final`,
+  "--auto-enqueue-cta-unresolved",
 ]);
 
 runStep("Check export standby strict", [

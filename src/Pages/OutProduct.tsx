@@ -77,7 +77,7 @@ export default function OutProduct() {
           const { data: productData } = await supabase
             .from("products")
             .select(
-              "id, marketplace, status, is_active, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason",
+              "id, marketplace, status, is_active, data_health_status, affiliate_verified, affiliate_link, source_url, canonical_offer_url, ml_item_id, auto_disabled_reason",
             )
             .eq("id", id)
             .maybeSingle();

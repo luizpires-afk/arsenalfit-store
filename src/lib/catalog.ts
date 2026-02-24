@@ -75,6 +75,9 @@ const isMercadoLivreSecAffiliate = (value?: string | null) => {
   try {
     const url = new URL(String(value).trim());
     const host = url.host.toLowerCase();
+    if (host === "meli.la" || host === "www.meli.la") {
+      return /^\/[a-z0-9]+/i.test(url.pathname || "");
+    }
     if (!(host === "mercadolivre.com" || host === "www.mercadolivre.com")) return false;
     return /^\/sec\/[a-z0-9]+/i.test(url.pathname || "");
   } catch {

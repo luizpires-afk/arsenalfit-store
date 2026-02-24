@@ -28,7 +28,7 @@ import { toast } from 'sonner';
 import cartHeroImage from '../assets/cart-hero.png';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/Components/ui/collapsible';
 import {
-  buildOutProductPath,
+  buildOfferHref,
   getOfferUnavailableMessage,
   resolveOfferUrl,
 } from '@/lib/offer.js';
@@ -137,7 +137,7 @@ const Cart = () => {
         const product = item.products as any;
         if (!product) return null;
         const resolution = resolveOfferUrl(product);
-        const outPath = resolution.canRedirect ? buildOutProductPath(product.id, 'cart') : null;
+        const outPath = buildOfferHref(product, resolution, 'cart');
         const unavailableMessage = getOfferUnavailableMessage(
           resolution,
           product.marketplace || '',

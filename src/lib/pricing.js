@@ -3,6 +3,8 @@ const MIN_PIX_DIFF_RATIO = 0.005;
 const MAX_LIST_PRICE_RATIO_STANDARD = 1.8;
 const MAX_LIST_PRICE_RATIO_WITH_PIX = 4.0;
 const MAX_LIST_PRICE_RATIO_WITH_PROMO_FLAG = 4.0;
+const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR = 0.35;
+const MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO = 0.55;
 const DEFAULT_PREVIOUS_PRICE_TTL_HOURS = 48;
 const MIN_HISTORY_PROMO_PERCENT = 5;
 const TRUSTED_LIST_PRICE_SOURCES = new Set([
@@ -103,6 +105,11 @@ const isMercadoLivreMarketplace = (marketplace) => {
   return normalized.includes("mercado");
 };
 
+const resolveScraperBasePriceMinRatio = (product) =>
+  isMercadoLivreMarketplace(product?.marketplace)
+    ? MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR_MERCADO
+    : MIN_SCRAPER_BASE_PRICE_RATIO_VS_ANCHOR;
+
 const resolveListPriceMaxRatio = (product, hasPixPrice) => {
   if (hasPixPrice) return MAX_LIST_PRICE_RATIO_WITH_PIX;
   const promoFlag = toFiniteNumber(product?.discount_percentage);
@@ -146,6 +153,29 @@ const parseDateMs = (value) => {
   return Number.isFinite(ms) ? ms : null;
 };
 
+const sanitizeBasePrice = (product, basePrice, originalPrice) => {
+  if (!(basePrice !== null && basePrice > 0)) return basePrice;
+
+  const source = String(product?.last_price_source ?? "").trim().toLowerCase();
+  if (source !== "scraper") return basePrice;
+
+  const anchors = [];
+  if (Number.isFinite(originalPrice) && originalPrice > 0) anchors.push(originalPrice);
+
+  const previous = toFiniteNumber(product?.previous_price);
+  if (Number.isFinite(previous) && previous > 0) anchors.push(previous);
+
+  if (anchors.length === 0) return basePrice;
+
+  const anchor = Math.max(...anchors);
+  if (!(anchor > 0)) return basePrice;
+
+  const ratio = basePrice / anchor;
+  if (ratio >= resolveScraperBasePriceMinRatio(product)) return basePrice;
+
+  return anchor;
+};
+
 const resolveHistoryPreviousPrice = (product, finalPrice) => {
   const previous = toFiniteNumber(product?.previous_price);
   if (!(previous !== null && previous > finalPrice)) return null;
@@ -177,8 +207,9 @@ const resolveHistoryPreviousPrice = (product, finalPrice) => {
 };
 
 export const resolveFinalPriceInfo = (product) => {
-  const basePrice = toFiniteNumber(product?.price);
+  const rawBasePrice = toFiniteNumber(product?.price);
   const originalPrice = toFiniteNumber(product?.original_price);
+  const basePrice = sanitizeBasePrice(product, rawBasePrice, originalPrice);
   const pixRaw = toFiniteNumber(product?.pix_price);
   const pixSource = product?.pix_price_source ?? null;
   const lastPriceSource = product?.last_price_source ?? null;

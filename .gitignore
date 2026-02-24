@@ -14,3 +14,7 @@ supabase/.temp/
 .env.*
 .vscode/
 supabase/functions/**/serve*.log
+
+# Local temp artifacts and operational logs
+.tmp-*
+logs/*.log

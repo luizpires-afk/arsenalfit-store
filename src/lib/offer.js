@@ -106,6 +106,19 @@ export const isMercadoLivreSecLink = (value) => {
   }
 };
 
+export const isMercadoLivreShortAffiliateLink = (value) => {
+  const link = normalizeHttpUrl(value);
+  if (!link) return false;
+  const host = extractHost(link);
+  if (!(host === "meli.la" || host === "www.meli.la")) return false;
+  try {
+    const pathname = new URL(link).pathname || "";
+    return /^\/[a-z0-9]+/i.test(pathname);
+  } catch {
+    return false;
+  }
+};
+
 export const isAllowedOfferDomain = (url, marketplace) => {
   const normalized = normalizeHttpUrl(url);
   if (!normalized) return false;
@@ -114,7 +127,7 @@ export const isAllowedOfferDomain = (url, marketplace) => {
 
   const market = String(marketplace ?? "").toLowerCase();
   if (market.includes("mercado")) {
-    return host.includes("mercadolivre") || host.includes("mercadolibre");
+    return host.includes("mercadolivre") || host.includes("mercadolibre") || host === "meli.la" || host === "www.meli.la";
   }
   if (market.includes("amazon")) {
     return host === "amzn.to" || host.includes("amazon.");
@@ -142,6 +155,11 @@ export const resolveOfferUrl = (product, options = {}) => {
   const sourceUrl = canonicalSourceUrl ?? sourceUrlRaw;
   const sourceKind = canonicalSourceUrl ? "canonical_source" : "source";
   const hasSecAffiliate = isMercadoLivreSecLink(affiliateUrl);
+  const hasShortAffiliate = isMercadoLivreShortAffiliateLink(affiliateUrl);
+  const affiliateVerified = product?.affiliate_verified === true;
+  const hasValidatedAffiliate = affiliateVerified || hasSecAffiliate || hasShortAffiliate;
+  const healthStatus = String(product?.data_health_status ?? "").toUpperCase();
+  const isHealthy = healthStatus === "HEALTHY";
   const canonicalMlItemId =
     normalizeMlItemId(product?.ml_item_id) ||
     extractMlItemIdFromUrl(canonicalSourceUrl) ||
@@ -151,7 +169,7 @@ export const resolveOfferUrl = (product, options = {}) => {
   // Defensive fallback for payloads that omit status/is_active:
   // a valid ML /sec/ link implies a curated, validated offer.
   const inferredActiveFromAffiliate =
-    isMercadoLivre && !hasExplicitStatus && hasSecAffiliate;
+    isMercadoLivre && !hasExplicitStatus && (hasSecAffiliate || hasShortAffiliate);
 
   const isActive =
     product?.is_active === true || status === "active" || inferredActiveFromAffiliate;
@@ -168,12 +186,26 @@ export const resolveOfferUrl = (product, options = {}) => {
   }
 
   if (isMercadoLivre) {
-    if (isActive && hasSecAffiliate && isAllowedOfferDomain(affiliateBoundUrl, marketplace)) {
+    if ((isActive || (isStandby && hasValidatedAffiliate)) && (hasSecAffiliate || hasShortAffiliate) && isAllowedOfferDomain(affiliateBoundUrl, marketplace)) {
       return {
         canRedirect: true,
         url: affiliateBoundUrl,
         resolvedSource: "affiliate",
-        reason: canonicalMlItemId ? "affiliate_bound_to_canonical_item" : "affiliate_validated",
+        reason:
+          isActive
+            ? canonicalMlItemId && hasSecAffiliate
+              ? "affiliate_bound_to_canonical_item"
+              : "affiliate_validated"
+            : "affiliate_standby_validated",
+        allowStandbyRedirect,
+      };
+    }
+    if (isActive && isHealthy && sourceUrl && canonicalMlItemId && isAllowedOfferDomain(sourceUrl, marketplace)) {
+      return {
+        canRedirect: true,
+        url: sourceUrl,
+        resolvedSource: sourceKind,
+        reason: "source_active_fallback",
         allowStandbyRedirect,
       };
     }
@@ -248,4 +280,35 @@ export const buildOutProductPath = (productId, source = "offer_click") => {
   const safeId = encodeURIComponent(String(productId ?? "").trim());
   const safeSource = encodeURIComponent(String(source ?? "offer_click").trim() || "offer_click");
   return `/out/product/${safeId}?src=${safeSource}`;
+};
+
+export const buildOfferHref = (product, resolution, source = "offer_click") => {
+  const canRedirect = Boolean(resolution?.canRedirect);
+
+  const status = String(product?.status ?? "").trim().toLowerCase();
+  const isActive = product?.is_active === true || status === "active";
+  const isBlocked = String(product?.auto_disabled_reason ?? "").trim().toLowerCase() === "blocked";
+  const productId = String(product?.id ?? "").trim();
+
+  if (!isBlocked && isActive && productId) {
+    return buildOutProductPath(productId, source);
+  }
+
+  if (!canRedirect) {
+    if (!isActive || isBlocked) return null;
+    const fallbackUrl =
+      normalizeHttpUrl(product?.affiliate_link ?? null) ||
+      normalizeHttpUrl(product?.source_url ?? null) ||
+      normalizeHttpUrl(product?.canonical_offer_url ?? null);
+    if (!fallbackUrl || !isAllowedOfferDomain(fallbackUrl, product?.marketplace)) return null;
+
+    const productIdFallback = productId;
+    if (productIdFallback) return buildOutProductPath(productIdFallback, source);
+    return fallbackUrl;
+  }
+
+  if (productId) return buildOutProductPath(productId, source);
+
+  const directUrl = normalizeHttpUrl(resolution?.url ?? null);
+  return directUrl || null;
 };

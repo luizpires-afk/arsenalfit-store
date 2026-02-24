@@ -32,6 +32,7 @@ import { resolvePricePresentation } from "@/lib/pricing.js";
 import { useAuth } from "@/hooks/useAuth";
 
 const BEST_DEAL_MIN_DISCOUNT = 20;
+const BEST_DEAL_POOL_LIMIT = 600;
 const BEST_DEAL_MAX_VERIFY_AGE_HOURS = 12;
 const BEST_DEAL_MAX_VERIFY_AGE_MS = BEST_DEAL_MAX_VERIFY_AGE_HOURS * 60 * 60 * 1000;
 const BEST_DEAL_FALLBACK_MAX_AGE_HOURS = 24;
@@ -782,7 +783,7 @@ export default function HomeV2() {
           .eq("is_blocked", false)
           .or(VISIBLE_PRODUCTS_FILTER)
           .order("updated_at", { ascending: false })
-          .limit(80),
+          .limit(BEST_DEAL_POOL_LIMIT),
       );
     },
   });
@@ -842,27 +843,48 @@ export default function HomeV2() {
     const toNumber = (value: unknown) => {
       if (typeof value === "number" && Number.isFinite(value)) return value;
       if (typeof value === "string" && value.trim() !== "") {
-        const parsed = Number(value);
+        const parsed = Number(value.replace(",", "."));
         return Number.isFinite(parsed) ? parsed : null;
       }
       return null;
+    };
+
+    const MAX_BEST_DEAL_ANCHOR_RATIO = 4;
+    const canUseAsAnchor = (anchor: number | null, price: number) =>
+      anchor !== null && anchor > price && anchor <= price * MAX_BEST_DEAL_ANCHOR_RATIO;
+
+    const canUsePreviousPrice = (product: any) => {
+      const source = String(product?.previous_price_source || "").toLowerCase();
+      if (source === "none") return false;
+      const expiresAt = product?.previous_price_expires_at;
+      if (!expiresAt) return true;
+      const expiresMs = new Date(expiresAt).getTime();
+      return Number.isFinite(expiresMs) ? expiresMs > nowMs : true;
     };
 
     const candidates = pool
       .map((product: any) => {
         const pricing = resolvePricePresentation(product);
         const price = toNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
-        const prev = toNumber(pricing.displayStrikethrough);
-        const discountValue = prev ? Math.max(prev - price, 0) : 0;
+        const presentationAnchor = toNumber(pricing.displayStrikethrough);
+        const originalAnchor = toNumber(product?.original_price);
+        const previousAnchor = canUsePreviousPrice(product)
+          ? toNumber(product?.previous_price)
+          : null;
+        const anchorCandidates = [presentationAnchor, originalAnchor, previousAnchor].filter(
+          (anchor): anchor is number => canUseAsAnchor(anchor, price),
+        );
+        const bestAnchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
+        const discountValue = bestAnchor ? Math.max(bestAnchor - price, 0) : 0;
         const discountPercent =
-          prev && prev > 0 ? (discountValue / prev) * 100 : 0;
+          bestAnchor && bestAnchor > 0 ? (discountValue / bestAnchor) * 100 : 0;
         const usesPix = Boolean(pricing.pixPrice);
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
         return {
           product,
-          prev,
+          prev: bestAnchor,
           usesPix,
           discountValue,
           discountPercent,
@@ -897,7 +919,7 @@ export default function HomeV2() {
         .map((item) => item.product);
 
       return {
-        items: fallbackProducts.slice(0, CAROUSEL_LIMIT),
+        items: fallbackProducts,
         primaryCount: fallbackProducts.length,
         fallbackUsed: true,
       };
@@ -931,7 +953,7 @@ export default function HomeV2() {
     );
 
     return {
-      items: primaryProducts.slice(0, CAROUSEL_LIMIT),
+      items: primaryProducts,
       primaryCount: primaryProducts.length,
       fallbackUsed,
     };
@@ -950,7 +972,7 @@ export default function HomeV2() {
           .eq("is_blocked", false)
           .or(VISIBLE_PRODUCTS_FILTER)
           .order("updated_at", { ascending: false })
-          .limit(120),
+          .limit(BEST_DEAL_POOL_LIMIT),
       );
     },
   });
@@ -972,21 +994,25 @@ export default function HomeV2() {
 
   const priceDropsToday = useMemo(() => {
     const allDropsCandidates = dedupeByCatalog(dropsData || []);
+    const bestDealIds = new Set((bestDeals || []).map((product: any) => product.id));
 
     const primary = allDropsCandidates
       .filter((product: any) => {
+        if (bestDealIds.has(product.id)) return false;
         const pricing = resolvePricePresentation(product);
         const price = Number(pricing.displayPricePrimary || 0);
+        const discountPercent = Number(pricing.discountPercent || 0);
         const prev = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
         const original = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
         const hasDrop =
           (prev !== null && prev > price) ||
           (original !== null && original > price);
-        return hasDrop;
+        return hasDrop && discountPercent > 0 && discountPercent < BEST_DEAL_MIN_DISCOUNT;
       })
       .map((product: any) => {
         const pricing = resolvePricePresentation(product);
         const price = Number(pricing.displayPricePrimary || 0);
+        const discountPercent = Number(pricing.discountPercent || 0);
         const prev =
           typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
         const original = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
@@ -995,9 +1021,11 @@ export default function HomeV2() {
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
-        return { product, dropValue, lastUpdatedMs };
+        return { product, discountPercent, dropValue, lastUpdatedMs };
       })
       .sort((a, b) => {
+        if (b.discountPercent !== a.discountPercent)
+          return b.discountPercent - a.discountPercent;
         if (b.lastUpdatedMs !== a.lastUpdatedMs)
           return b.lastUpdatedMs - a.lastUpdatedMs;
         return b.dropValue - a.dropValue;
@@ -1008,6 +1036,9 @@ export default function HomeV2() {
 
     const fallbackPromos = allDropsCandidates
       .map((product: any) => {
+        if (bestDealIds.has(product.id)) {
+          return { product: null, discountPercent: 0, lastUpdatedMs: 0 };
+        }
         const pricing = resolvePricePresentation(product);
         const discountPercent = Number(pricing.discountPercent || 0);
         const lastUpdated =
@@ -1015,7 +1046,7 @@ export default function HomeV2() {
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
         return { product, discountPercent, lastUpdatedMs };
       })
-      .filter((item) => item.discountPercent > 0)
+      .filter((item) => item.product && item.discountPercent > 0 && item.discountPercent < BEST_DEAL_MIN_DISCOUNT)
       .sort((a, b) => {
         if (b.discountPercent !== a.discountPercent)
           return b.discountPercent - a.discountPercent;
@@ -1027,20 +1058,31 @@ export default function HomeV2() {
 
     const fallbackRecent = allDropsCandidates
       .map((product: any) => {
+        if (bestDealIds.has(product.id)) {
+          return {
+            product: null,
+            primaryPrice: 0,
+            featured: 0,
+            clicks: 0,
+            lastUpdatedMs: 0,
+          };
+        }
         const pricing = resolvePricePresentation(product);
         const primaryPrice = Number(pricing.displayPricePrimary || pricing.finalPrice || 0);
+        const discountPercent = Number(pricing.discountPercent || 0);
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
         return {
           product,
           primaryPrice,
+          discountPercent,
           featured: product?.is_featured === true ? 1 : 0,
           clicks: Number(product?.clicks_count ?? 0) || 0,
           lastUpdatedMs,
         };
       })
-      .filter((item) => item.primaryPrice > 0)
+      .filter((item) => item.product && item.primaryPrice > 0 && item.discountPercent < BEST_DEAL_MIN_DISCOUNT)
       .sort((a, b) => {
         if (b.featured !== a.featured) return b.featured - a.featured;
         if (b.clicks !== a.clicks) return b.clicks - a.clicks;
@@ -1049,7 +1091,7 @@ export default function HomeV2() {
       .map((item) => item.product);
 
     return fallbackRecent;
-  }, [dropsData]);
+  }, [dropsData, bestDeals]);
 
   const { data: eliteData = [], isLoading: eliteLoading } = useQuery({
     queryKey: ["home-v2", "elite"],
@@ -1159,7 +1201,7 @@ export default function HomeV2() {
   const bestDealsShow = useMemo(() => bestDeals, [bestDeals]);
 
   const bestDealsShowLimited = useMemo(
-    () => bestDealsShow.slice(0, CAROUSEL_LIMIT),
+    () => bestDealsShow,
     [bestDealsShow],
   );
 
@@ -1200,7 +1242,7 @@ export default function HomeV2() {
   const priceDropsShow = useMemo(() => priceDropsToday, [priceDropsToday]);
 
   const priceDropsShowLimited = useMemo(
-    () => priceDropsShow.slice(0, CAROUSEL_LIMIT),
+    () => priceDropsShow,
     [priceDropsShow],
   );
 

@@ -679,6 +679,18 @@ const extractStandardPriceFromHtml = (
 
   const compactHtml = html.replace(/\s+/g, " ");
   const plainText = stripHtml(html);
+  const isRecommendationContext = (context: string) => {
+    const normalized = context.toLowerCase();
+    return (
+      normalized.includes("sua primeira compra") ||
+      normalized.includes("produto também comprou") ||
+      normalized.includes("patrocinado") ||
+      normalized.includes("mais vendidos") ||
+      normalized.includes("esportes e fitness") ||
+      normalized.includes("quem viu também") ||
+      normalized.includes("ofertas")
+    );
+  };
   const normalizedReference =
     typeof referencePrice === "number" && Number.isFinite(referencePrice) && referencePrice > 0
       ? referencePrice
@@ -697,6 +709,14 @@ const extractStandardPriceFromHtml = (
       if (!match[1]) continue;
       pushCandidate(match[1], 120);
     }
+  }
+
+  const fromPriceOptionsRegex = /opç(?:õ|o)es de compra[^\.]{0,140}?a partir de\s*r\$\s*([0-9][0-9\s\.,]{0,16})/gi;
+  fromPriceOptionsRegex.lastIndex = 0;
+  let optionsMatch: RegExpExecArray | null;
+  while ((optionsMatch = fromPriceOptionsRegex.exec(plainText))) {
+    if (!optionsMatch[1]) continue;
+    pushCandidate(optionsMatch[1], 130);
   }
 
   // Common HTML split for integer/cents in ML templates.
@@ -723,7 +743,7 @@ const extractStandardPriceFromHtml = (
         context.includes("parcela") ||
         context.includes("parcelado") ||
         /\b\d{1,2}\s*x\b/.test(context);
-      if (looksLikeOldListPrice || looksLikeInstallment) continue;
+      if (looksLikeOldListPrice || looksLikeInstallment || isRecommendationContext(context)) continue;
       const raw = `${match[1] ?? ""},${match[2] ?? ""}`;
       pushCandidate(raw, 110);
     }
@@ -744,11 +764,17 @@ const extractStandardPriceFromHtml = (
       context.includes("juros") ||
       context.includes("de r$") ||
       context.includes("economize") ||
+      context.includes("agora") ||
+      context.includes("off") ||
+      context.includes("mais vendido") ||
+      context.includes("reco") ||
+      context.includes("polycard") ||
       context.includes("cupom") ||
       context.includes("coupon")
     ) {
       continue;
     }
+    if (isRecommendationContext(context)) continue;
     pushCandidate(genericMatch[1], 90);
   }
 
@@ -769,7 +795,11 @@ const extractStandardPriceFromHtml = (
 
   const regex = /"price"\s*:\s*([0-9]+(?:\.[0-9]+)?)/gi;
   while ((match = regex.exec(html))) {
-    pushCandidate(match[1], 60);
+    const contextStart = Math.max(0, match.index - 120);
+    const contextEnd = Math.min(html.length, regex.lastIndex + 120);
+    const context = html.slice(contextStart, contextEnd);
+    if (isRecommendationContext(context)) continue;
+    pushCandidate(match[1], 125);
   }
 
   if (!candidates.length) return null;
@@ -943,16 +973,25 @@ const resolveScrapeUrl = (
   };
 
   const affiliateSec = isSecAffiliate(product?.affiliate_link) ? product?.affiliate_link : null;
-  const status = String(product?.status ?? "").trim().toLowerCase();
-  const preferValidatedAffiliate =
-    Boolean(affiliateSec) &&
-    (product?.affiliate_verified === true || product?.is_active === true || status === "active");
+
+  const isItemLevelUrl = (value?: string | null) => {
+    if (!value || typeof value !== "string") return false;
+    return /produto\.mercadolivre\.com\.br\/MLB-\d+/i.test(value) ||
+      /pdp_filters=.*item_id/i.test(value) ||
+      /\bwid=MLB\d+/i.test(value);
+  };
+
+  const canonicalOfferUrl = (product as any)?.canonical_offer_url ?? null;
+  const preferredCanonical = isItemLevelUrl(canonicalOfferUrl) ? canonicalOfferUrl : null;
+  const preferredSource = isItemLevelUrl(product?.source_url) ? product?.source_url ?? null : null;
+
   const candidates = [
-    preferValidatedAffiliate ? affiliateSec : null,
     itemBody?.permalink,
-    (product as any)?.canonical_offer_url ?? null,
+    preferredCanonical,
+    preferredSource,
+    canonicalOfferUrl,
     product?.source_url,
-    !preferValidatedAffiliate ? affiliateSec : null,
+    affiliateSec,
     product?.affiliate_link,
   ];
   for (const candidate of candidates) {
@@ -1812,7 +1851,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: product, error: productError } = await supabase
       .from("products")
-      .select("id, price, original_price, source_url, affiliate_link")
+      .select("id, price, original_price, previous_price, source_url, affiliate_link")
       .eq("id", productId)
       .single();
 
@@ -1879,6 +1918,44 @@ Deno.serve(async (req: Request) => {
     const currentPrice = typeof product.price === "number" ? product.price : null;
     const currentOriginal = typeof product.original_price === "number" ? product.original_price : null;
     const stabilizedPrice = stabilizeIncomingPriceForSource(price, currentPrice, "scraper");
+    const guardAnchors = [
+      currentPrice,
+      typeof (product as any)?.previous_price === "number" ? (product as any).previous_price : null,
+      currentOriginal,
+    ].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+    const guardAnchor = guardAnchors.length ? Math.max(...guardAnchors) : null;
+    const guardDropAbsolute =
+      typeof guardAnchor === "number" && guardAnchor > stabilizedPrice
+        ? guardAnchor - stabilizedPrice
+        : 0;
+    const guardDropPercent =
+      typeof guardAnchor === "number" && guardAnchor > 0 && guardAnchor > stabilizedPrice
+        ? (guardAnchor - stabilizedPrice) / guardAnchor
+        : 0;
+    const aggressiveScraperDropBlocked =
+      typeof guardAnchor === "number" &&
+      guardAnchor > 0 &&
+      guardAnchor > stabilizedPrice &&
+      (guardDropAbsolute >= PRICE_SYNC_UNTRUSTED_DROP_ABS_THRESHOLD ||
+        guardDropPercent >= PRICE_SYNC_UNTRUSTED_DROP_PERCENT_THRESHOLD);
+
+    if (aggressiveScraperDropBlocked) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "suspect_untrusted_drop",
+          guard_anchor: guardAnchor,
+          candidate_price: stabilizedPrice,
+          absolute_delta: guardDropAbsolute,
+          percent_delta: guardDropPercent,
+        }),
+        {
+          status: 409,
+          headers: JSON_HEADERS,
+        },
+      );
+    }
+
     const nextOriginal = resolveOriginalPrice({
       incomingOriginal: originalPrice,
       storedOriginal: currentOriginal,

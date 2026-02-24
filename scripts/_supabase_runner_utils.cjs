@@ -100,14 +100,59 @@ const extractHost = (urlValue) => {
   }
 };
 
+const isMercadoLivreHost = (host) => {
+  const normalized = String(host || "").toLowerCase();
+  return (
+    normalized === "mercadolivre.com" ||
+    normalized === "www.mercadolivre.com" ||
+    normalized === "mercadolivre.com.br" ||
+    normalized === "www.mercadolivre.com.br"
+  );
+};
+
+const isMercadoLivreShortAffiliateLink = (value) => {
+  const link = normalizeUrl(value);
+  if (!link) return false;
+  try {
+    const parsed = new URL(link);
+    const host = String(parsed.host || "").toLowerCase();
+    if (host !== "meli.la" && host !== "www.meli.la") return false;
+    const pathname = String(parsed.pathname || "").replace(/\/+$/g, "");
+    return pathname.length > 1;
+  } catch {
+    return false;
+  }
+};
+
+const isMercadoLivreSocialAffiliateLink = (value) => {
+  const link = normalizeUrl(value);
+  if (!link) return false;
+  try {
+    const parsed = new URL(link);
+    if (!isMercadoLivreHost(parsed.host)) return false;
+    const pathname = String(parsed.pathname || "");
+    if (!/^\/social\/pb[a-z0-9]+(?:\/|$)/i.test(pathname)) return false;
+    const mattTool = String(parsed.searchParams.get("matt_tool") || "").trim();
+    if (!mattTool) return false;
+    const mattWord = String(parsed.searchParams.get("matt_word") || "").trim();
+    const hasRef = String(parsed.searchParams.get("ref") || "").trim().length > 0;
+    return Boolean(mattWord || hasRef);
+  } catch {
+    return false;
+  }
+};
+
 const isMercadoLivreSecLink = (value) => {
   const link = normalizeUrl(value);
   if (!link) return false;
+  if (isMercadoLivreShortAffiliateLink(link)) return true;
   const host = extractHost(link);
-  if (host !== "mercadolivre.com" && host !== "www.mercadolivre.com") return false;
+  if (!isMercadoLivreHost(host)) return false;
   try {
-    const pathname = new URL(link).pathname || "";
-    return /^\/sec\/[a-z0-9]+/i.test(pathname);
+    const parsed = new URL(link);
+    const pathname = String(parsed.pathname || "");
+    if (/^\/sec\/[a-z0-9]+/i.test(pathname)) return true;
+    return isMercadoLivreSocialAffiliateLink(link);
   } catch {
     return false;
   }

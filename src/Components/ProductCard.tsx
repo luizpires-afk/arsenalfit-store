@@ -23,7 +23,7 @@ import { useCart } from "@/hooks/useCart";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
 import { resolvePricePresentation } from "@/lib/pricing.js";
 import {
-  buildOutProductPath,
+  buildOfferHref,
   getOfferUnavailableMessage,
   resolveOfferUrl,
 } from "@/lib/offer.js";
@@ -118,7 +118,8 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
   const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
   const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
   const offerResolution = resolveOfferUrl(product);
-  const canOpenOffer = Boolean(offerResolution.canRedirect && product.id);
+  const offerHref = buildOfferHref(product, offerResolution, "product_card");
+  const canOpenOffer = Boolean(offerHref);
   const offerUnavailableMessage = getOfferUnavailableMessage(
     offerResolution,
     product.marketplace,
@@ -265,23 +266,25 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
       ReactGA.event({
         category: "Conversion",
         action: "Click_Affiliate",
-        label: `${displayTitle} (${product.id})`,
+        label: `${displayTitle} (${product.id || "no_id"})`,
         value: Number(finalPrice),
       });
     } catch {
       // Nao bloquear redirect por falha de analytics.
     }
 
-    void Promise.resolve(
-      supabase.rpc("increment_product_clicks", { product_id: product.id })
-    ).catch(() => {});
-    void Promise.resolve(
-      supabase.rpc("enqueue_price_check_refresh", {
-        p_product_id: product.id,
-        p_force: false,
-        p_reason: "offer_click",
-      })
-    ).catch(() => {});
+    if (product.id) {
+      void Promise.resolve(
+        supabase.rpc("increment_product_clicks", { product_id: product.id })
+      ).catch(() => {});
+      void Promise.resolve(
+        supabase.rpc("enqueue_price_check_refresh", {
+          p_product_id: product.id,
+          p_force: false,
+          p_reason: "offer_click",
+        })
+      ).catch(() => {});
+    }
     trackLocalInterest();
   };
 
@@ -443,7 +446,7 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
               aria-label={`Ver oferta de ${displayTitle}`}
             >
               <a
-                href={canOpenOffer ? buildOutProductPath(product.id, "product_card") : "#"}
+                href={offerHref ?? "#"}
                 onClick={handleBuyNow}
               >
                 {canOpenOffer ? "Ver oferta" : "Aguardando validacao"} <ExternalLink size={16} strokeWidth={2.5} />

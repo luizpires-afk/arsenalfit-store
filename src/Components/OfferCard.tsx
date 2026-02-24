@@ -9,7 +9,7 @@ import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from '@/lib/cartFeedback';
 import { resolvePricePresentation } from '@/lib/pricing.js';
 import {
-  buildOutProductPath,
+  buildOfferHref,
   getOfferUnavailableMessage,
   resolveOfferUrl,
 } from '@/lib/offer.js';
@@ -85,8 +85,7 @@ export const OfferCard = ({ product }: OfferCardProps) => {
       return;
     }
     try {
-      const outPath = buildOutProductPath(product.id, 'offer_card');
-      window.location.assign(outPath);
+      window.location.assign(offerHref as string);
     } catch {
       toast.error('Falha ao abrir oferta. Tente novamente.');
     }
@@ -103,7 +102,8 @@ export const OfferCard = ({ product }: OfferCardProps) => {
   const secondaryPrice = pricing.displayPriceSecondary;
   const hasPixSecondary = secondaryPrice !== null && secondaryPrice > finalPrice;
   const offerResolution = resolveOfferUrl(product);
-  const canOpenOffer = Boolean(offerResolution.canRedirect && product.id);
+  const offerHref = buildOfferHref(product, offerResolution, 'offer_card');
+  const canOpenOffer = Boolean(offerHref);
   const offerUnavailableMessage = getOfferUnavailableMessage(
     offerResolution,
     product.marketplace,

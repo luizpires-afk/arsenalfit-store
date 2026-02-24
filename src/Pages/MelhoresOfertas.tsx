@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Zap, TrendingDown, Timer } from 'lucide-react';
 import { PriceDisclaimer } from '@/Components/PriceDisclaimer';
 import {
-  buildOutProductPath,
+  buildOfferHref,
   resolveOfferUrl,
 } from '@/lib/offer.js';
 import { resolvePricePresentation } from '@/lib/pricing.js';
@@ -76,7 +76,8 @@ export default function MelhoresOfertas() {
               const secondaryPrice = pricing.displayPriceSecondary;
               const discount = pricing.discountPercent ?? 0;
               const offerResolution = resolveOfferUrl(product);
-              const canOpen = Boolean(offerResolution.canRedirect && product.id);
+              const offerHref = buildOfferHref(product, offerResolution, 'melhores_ofertas');
+              const canOpen = Boolean(offerHref);
               const lastUpdated = product.updated_at
                 ? new Date(product.updated_at)
                 : product.ultima_verificacao
@@ -110,7 +111,7 @@ export default function MelhoresOfertas() {
                   )}
 
                   <a 
-                    href={canOpen ? buildOutProductPath(product.id, 'melhores_ofertas') : '#'}
+                    href={offerHref ?? '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`block w-full text-center py-5 rounded-2xl font-black uppercase italic transition-colors ${

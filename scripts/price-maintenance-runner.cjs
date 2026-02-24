@@ -4,6 +4,7 @@ const { spawnSync } = require("child_process");
 const {
   readRunnerEnv,
   createSupabaseRestClient,
+  isMercadoLivreSecLink,
 } = require("./_supabase_runner_utils.cjs");
 
 const args = process.argv.slice(2);
@@ -48,6 +49,21 @@ const criticalRecheckWaitMs = Math.max(
   0,
   toInt(getArg("--critical-recheck-wait-ms", "4000"), 4000),
 );
+const trustedStickyGuardPct = Math.max(
+  0,
+  Number(getArg("--trusted-sticky-guard-pct", "0.2")) || 0.2,
+);
+const trustedStickyGuardAbs = Math.max(
+  0,
+  Number(getArg("--trusted-sticky-guard-abs", "25")) || 25,
+);
+const blockedMlItemsArg = String(getArg("--blocked-ml-items", process.env.BLOCKED_ML_ITEMS || "") || "");
+const blockedMlItems = new Set(
+  blockedMlItemsArg
+    .split(",")
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter((value) => /^MLB\d{6,14}$/.test(value)),
+);
 const divergenceApplyLimit = Math.max(
   1,
   toInt(getArg("--divergence-apply-limit", "120"), 120),
@@ -55,6 +71,14 @@ const divergenceApplyLimit = Math.max(
 const disableSuspectStandby = hasArg("--disable-suspect-standby");
 const source = getArg("--source", "manual_price_maintenance");
 const skipSync = hasArg("--skip-sync");
+const STRICT_STALE_TRUSTED_SOURCES = new Set([
+  "manual",
+  "auth",
+  "public",
+  "api_base",
+  "api_pix",
+  "catalog_ingest",
+]);
 
 const env = readRunnerEnv(envFile);
 if (!env.SUPABASE_URL) {
@@ -151,6 +175,118 @@ const callRpcWithFallback = async (attempts) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const TRUSTED_STICKY_SOURCES = new Set([
+  "manual",
+  "auth",
+  "public",
+  "api_base",
+  "api_pix",
+  "api",
+  "api_auth",
+]);
+
+const protectTrustedStickyMismatchCases = async () => {
+  const openCases = await client.fetchPagedRows(
+    "/price_mismatch_cases?select=id,product_id,ml_price,site_price,delta_abs,delta_pct,source,status&status=eq.OPEN&order=updated_at.asc",
+    500,
+  );
+  if (!openCases.length) {
+    return {
+      enabled: true,
+      open_cases_seen: 0,
+      trusted_candidates: 0,
+      guarded: 0,
+      failed: 0,
+    };
+  }
+
+  const productIds = [...new Set(openCases.map((row) => row?.product_id).filter(Boolean))];
+  if (!productIds.length) {
+    return {
+      enabled: true,
+      threshold_pct: trustedStickyGuardPct,
+      threshold_abs: trustedStickyGuardAbs,
+      blocked_ml_items: blockedMlItems.size,
+      open_cases_seen: openCases.length,
+      trusted_candidates: 0,
+      guarded: 0,
+      failed: 0,
+    };
+  }
+  const products = await client.fetchPagedRows(
+    `/products?select=id,ml_item_id,price,last_price_source,is_active,status&id=in.(${productIds.join(",")})`,
+    500,
+  );
+  const productsById = new Map(products.map((row) => [row.id, row]));
+
+  let trustedCandidates = 0;
+  let guarded = 0;
+  let failed = 0;
+
+  for (const mismatch of openCases) {
+    const sourceKind = String(mismatch?.source || "").toLowerCase();
+    if (sourceKind !== "item") continue;
+
+    const product = productsById.get(mismatch.product_id);
+    if (!product) continue;
+
+    const mlItemId = String(product?.ml_item_id || "").trim().toUpperCase();
+    const isBlockedMlItem = mlItemId && blockedMlItems.has(mlItemId);
+
+    const lastPriceSource = String(product?.last_price_source || "").trim().toLowerCase();
+    const isTrustedStickySource = TRUSTED_STICKY_SOURCES.has(lastPriceSource);
+
+    const mlPrice = toFiniteNumber(mismatch?.ml_price);
+    const sitePrice = toFiniteNumber(mismatch?.site_price ?? product?.price);
+    if (!(mlPrice && mlPrice > 0 && sitePrice && sitePrice > 0)) continue;
+
+    const dropAbs = Math.abs(sitePrice - mlPrice);
+    const dropPct = sitePrice > 0 ? dropAbs / sitePrice : 0;
+    const isLargeMismatch = dropAbs >= trustedStickyGuardAbs || dropPct >= trustedStickyGuardPct;
+
+    if (!isBlockedMlItem && !(isTrustedStickySource && isLargeMismatch)) continue;
+    trustedCandidates += 1;
+
+    try {
+      const nowIso = new Date().toISOString();
+      const note = isBlockedMlItem
+        ? "guard_blocked_ml_item_no_auto_apply"
+        : "guard_trusted_sticky_source_no_auto_apply";
+      await client.patch(`/price_mismatch_cases?id=eq.${encodeURIComponent(mismatch.id)}`, {
+        status: "RESOLVED",
+        resolved_at: nowIso,
+        resolved_by: "service_role",
+        resolution_note: note,
+        updated_at: nowIso,
+      });
+      guarded += 1;
+    } catch (error) {
+      failed += 1;
+      console.warn(
+        "[price-maintenance] trusted_sticky_guard_failed",
+        JSON.stringify({
+          case_id: mismatch.id,
+          product_id: mismatch.product_id,
+          ml_item_id: mlItemId || null,
+          source: lastPriceSource || null,
+          error: error?.message || String(error),
+        }),
+      );
+    }
+  }
+
+  return {
+    enabled: true,
+    threshold_pct: trustedStickyGuardPct,
+    threshold_abs: trustedStickyGuardAbs,
+    blocked_ml_items: blockedMlItems.size,
+    open_cases_seen: openCases.length,
+    trusted_candidates: trustedCandidates,
+    guarded,
+    failed,
+  };
+};
+
 const runMismatchAudit = async () => {
   const auditResult = await callRpcWithFallback([
     {
@@ -181,6 +317,9 @@ const runMismatchAudit = async () => {
 };
 
 const runMismatchAutoFix = async () => {
+  const guard = await protectTrustedStickyMismatchCases();
+  console.log("[price-maintenance] trusted_sticky_guard", JSON.stringify(guard));
+
   const fixResult = await callRpcWithFallback([
     {
       name: "auto_fix_open_price_mismatch_cases_service",
@@ -209,15 +348,37 @@ const applyTrustedDivergenceCorrections = async ({ limit }) => {
     500,
   );
 
+  const productIds = [...new Set(openCases.map((row) => row?.product_id).filter(Boolean))];
+  const productsById = new Map();
+  if (productIds.length) {
+    const products = await client.fetchPagedRows(
+      `/products?select=id,ml_item_id,price,last_price_source&id=in.(${productIds.join(",")})`,
+      500,
+    );
+    for (const row of products) productsById.set(row.id, row);
+  }
+
   const trustedCases = [];
   for (const row of openCases) {
     if (trustedCases.length >= limit) break;
     const sourceKind = String(row?.source || "").toLowerCase();
     if (sourceKind !== "item") continue;
 
+    const product = productsById.get(row?.product_id);
+    const mlItemId = String(product?.ml_item_id || "").trim().toUpperCase();
+    if (mlItemId && blockedMlItems.has(mlItemId)) continue;
+
+    const productSource = String(product?.last_price_source || "").trim().toLowerCase();
+
     const mlPrice = toFiniteNumber(row?.ml_price);
-    const sitePrice = toFiniteNumber(row?.site_price);
+    const sitePrice = toFiniteNumber(row?.site_price ?? product?.price);
     if (!(mlPrice && mlPrice > 0 && sitePrice && sitePrice > 0)) continue;
+
+    if (TRUSTED_STICKY_SOURCES.has(productSource)) {
+      const dropAbs = Math.abs(sitePrice - mlPrice);
+      const dropPct = sitePrice > 0 ? dropAbs / sitePrice : 0;
+      if (dropAbs >= trustedStickyGuardAbs || dropPct >= trustedStickyGuardPct) continue;
+    }
 
     const reason = String(row?.reason || "").toLowerCase();
     if (reason.includes("catalog_fallback")) continue;
@@ -444,7 +605,7 @@ const applyStrictActiveEligibilityGuard = async ({ maxStaleHours }) => {
   const nowIso = now.toISOString();
   const maxStaleMs = Math.max(1, maxStaleHours) * 60 * 60 * 1000;
   const activeRows = await client.fetchPagedRows(
-    "/products?select=id,name,status,is_active,free_shipping,ml_item_id,last_price_verified_at,last_price_source,data_health_status&marketplace=eq.mercadolivre&removed_at=is.null&is_active=eq.true&status=eq.active",
+    "/products?select=id,name,status,is_active,free_shipping,ml_item_id,last_price_verified_at,last_price_source,data_health_status,affiliate_verified,affiliate_link&marketplace=eq.mercadolivre&removed_at=is.null&is_active=eq.true&status=eq.active",
     500,
   );
 
@@ -452,16 +613,34 @@ const applyStrictActiveEligibilityGuard = async ({ maxStaleHours }) => {
   let missingTrace = 0;
   let staleTrace = 0;
   let noFreeShipping = 0;
+  let staleTraceTrustedBypassed = 0;
 
   for (const row of activeRows) {
     const hasMlItem = Boolean(String(row?.ml_item_id || "").trim());
     const verifiedAtMs = toDateMs(row?.last_price_verified_at);
     const isStale = verifiedAtMs === null || now.getTime() - verifiedAtMs > maxStaleMs;
     const hasFreeShipping = row?.free_shipping === true;
+    const priceSource = String(row?.last_price_source || "").toLowerCase();
+    const affiliateVerified = row?.affiliate_verified === true;
+    const hasSecAffiliate = isMercadoLivreSecLink(String(row?.affiliate_link || ""));
+    const isHealthy = String(row?.data_health_status || "").toUpperCase() === "HEALTHY";
+    const trustedStaleBypass =
+      hasMlItem &&
+      isStale &&
+      hasFreeShipping &&
+      isHealthy &&
+      affiliateVerified &&
+      hasSecAffiliate &&
+      STRICT_STALE_TRUSTED_SOURCES.has(priceSource);
 
     if (!hasMlItem) missingTrace += 1;
     if (isStale) staleTrace += 1;
     if (!hasFreeShipping) noFreeShipping += 1;
+
+    if (trustedStaleBypass) {
+      staleTraceTrustedBypassed += 1;
+      continue;
+    }
 
     if (hasMlItem && !isStale && hasFreeShipping) continue;
 
@@ -490,6 +669,7 @@ const applyStrictActiveEligibilityGuard = async ({ maxStaleHours }) => {
     active_seen: activeRows.length,
     missing_trace_ml_item: missingTrace,
     stale_trace: staleTrace,
+    stale_trace_trusted_bypassed: staleTraceTrustedBypassed,
     no_free_shipping: noFreeShipping,
     moved_to_standby: moved,
   };

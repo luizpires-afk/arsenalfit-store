@@ -29,6 +29,8 @@
     "trace_offer_link": "node scripts/offer-link-trace-runner.cjs --env supabase/functions/.env.scheduler",
     "affiliate_batch_hygiene": "node scripts/affiliate-batch-hygiene-runner.cjs --env supabase/functions/.env.scheduler",
     "affiliate_reliability_monitor": "node scripts/affiliate-reliability-monitor-runner.cjs --env supabase/functions/.env.scheduler",
+    "operational_health_snapshot": "node scripts/operational-health-snapshot-runner.cjs --env supabase/functions/.env.scheduler --out-prefix logs/operational-health-snapshot",
+    "operational_health_snapshot_strict": "node scripts/operational-health-snapshot-runner.cjs --env supabase/functions/.env.scheduler --out-prefix logs/operational-health-snapshot --fail-on-cta-unresolved --fail-on-healthy-standby-with-link",
     "strict_standby_api_verify": "node scripts/strict-standby-api-verify-runner.cjs --env supabase/functions/.env.scheduler",
     "strict_case_operational_batch": "node scripts/strict-case-batch-and-coherence-runner.cjs --env supabase/functions/.env.scheduler --input docs/strict-case-fallback-report.json --out-prefix docs/strict-case-operational",
     "robo_agora_cauteloso": "node scripts/robo-agora-cauteloso-runner.cjs --env supabase/functions/.env.scheduler",

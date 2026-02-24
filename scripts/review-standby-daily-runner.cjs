@@ -1,4 +1,8 @@
-const { readRunnerEnv, createSupabaseRestClient } = require("./_supabase_runner_utils.cjs");
+const {
+  readRunnerEnv,
+  createSupabaseRestClient,
+  isMercadoLivreSecLink,
+} = require("./_supabase_runner_utils.cjs");
 
 const args = process.argv.slice(2);
 const getArg = (name, fallback = null) => {
@@ -10,12 +14,10 @@ const getArg = (name, fallback = null) => {
 const envFile = getArg("--env", "supabase/functions/.env.scheduler");
 const limit = Math.max(1, Math.min(50, Number(getArg("--limit", "15")) || 15));
 
-const isSecAffiliate = (url) => /^https?:\/\/(www\.)?mercadolivre\.com\/sec\//i.test(String(url || ""));
-
 const resolveManualReason = (row) => {
   if (!row?.ml_item_id) return "missing_ml_item";
   if (!row?.affiliate_link) return "missing_affiliate";
-  if (!isSecAffiliate(row.affiliate_link)) return "affiliate_not_sec";
+  if (!isMercadoLivreSecLink(row.affiliate_link)) return "affiliate_not_sec";
   return "ok";
 };
 

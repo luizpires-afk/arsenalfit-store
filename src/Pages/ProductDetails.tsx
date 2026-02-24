@@ -28,7 +28,7 @@ import { formatPrice } from "@/lib/validators";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
 import { resolvePricePresentation } from "@/lib/pricing.js";
 import {
-  buildOutProductPath,
+  buildOfferHref,
   getOfferUnavailableMessage,
   resolveOfferUrl,
 } from "@/lib/offer.js";
@@ -679,7 +679,11 @@ export default function ProductDetails() {
   const finalPrice = pricing?.displayPricePrimary ?? p?.price ?? 0;
   const secondaryPrice = pricing?.displayPriceSecondary ?? null;
   const offerResolution = useMemo(() => (p ? resolveOfferUrl(p) : null), [p]);
-  const canBuyNow = Boolean(p?.id && offerResolution?.canRedirect);
+  const offerHref = useMemo(
+    () => (p && offerResolution ? buildOfferHref(p, offerResolution, "product_details") : null),
+    [p, offerResolution],
+  );
+  const canBuyNow = Boolean(offerHref);
   const buyDisabledText = offerResolution
     ? getOfferUnavailableMessage(offerResolution, p?.marketplace ?? "")
     : null;
@@ -799,7 +803,7 @@ export default function ProductDetails() {
   };
 
   const handleBuyNow = () => {
-    if (!p?.id || !canBuyNow) {
+    if (!p?.id || !canBuyNow || !offerHref) {
       toast.error(buyDisabledText || "Oferta indisponivel no momento.");
       return;
     }
@@ -811,7 +815,7 @@ export default function ProductDetails() {
       })
     ).catch(() => {});
     setIsBuying(true);
-    window.location.assign(buildOutProductPath(p.id, "product_details"));
+    window.location.assign(offerHref);
     window.setTimeout(() => setIsBuying(false), 800);
   };
 

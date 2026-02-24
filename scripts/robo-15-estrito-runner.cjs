@@ -10,6 +10,7 @@ const getArg = (name, fallback = null) => {
 const envFile = getArg("--env", "supabase/functions/.env.scheduler");
 const source = getArg("--source", "robo_15_estrito");
 const timeout = getArg("--timeout", "240000");
+const blockedMlItems = getArg("--blocked-ml-items", process.env.BLOCKED_ML_ITEMS || "MLB6173287630");
 
 const quoteArg = (value) => {
   const raw = String(value ?? "");
@@ -79,6 +80,7 @@ runStep("Repair ativos (apply)", [
   "1",
   "--auto-fix-limit",
   "120",
+  ...(blockedMlItems ? ["--blocked-ml-items", blockedMlItems] : []),
 ]);
 
 runStep("Autopilot de coerencia", [

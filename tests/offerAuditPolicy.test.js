@@ -84,3 +84,13 @@ test("pricing guardrail: final price does not use previous/list as current", () 
   });
   assert.equal(pricing.finalPrice, 239.9);
 });
+
+test("pricing guardrail: mercado scraper suspicious drop reverts to anchor", () => {
+  const pricing = resolveFinalPriceInfo({
+    marketplace: "mercadolivre",
+    last_price_source: "scraper",
+    price: 49.99,
+    original_price: 112.9,
+  });
+  assert.equal(pricing.finalPrice, 112.9);
+});
