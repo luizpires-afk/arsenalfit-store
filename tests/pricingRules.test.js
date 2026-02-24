@@ -211,3 +211,40 @@ test("resolvePricePresentation keeps valid history compare even when last source
   assert.equal(pricing.displayStrikethrough, 113.5);
   assert.equal(pricing.discountPercent, 31);
 });
+
+test("resolvePricePresentation keeps low scraper price when Mercado trace is bound to same ml_item_id", () => {
+  const pricing = resolvePricePresentation({
+    ml_item_id: "MLB4179901653",
+    marketplace: "mercadolivre",
+    price: 39,
+    original_price: 151.1,
+    previous_price: 151.1,
+    previous_price_source: "HISTORY",
+    source_url:
+      "https://www.mercadolivre.com.br/opus-dei-pre-treino-pre-workout-300g-ftw-sabor-frutas-amarelas/p/MLB51534861?pdp_filters=item_id%3AMLB4179901653&matt_tool=38524122#origin=share&sid=share&wid=MLB4179901653",
+    affiliate_link: "https://mercadolivre.com/sec/172szSy",
+    canonical_offer_url: "https://produto.mercadolivre.com.br/mlb4179901653",
+    last_price_source: "scraper",
+    last_price_verified_at: new Date().toISOString(),
+  });
+
+  assert.equal(pricing.displayPricePrimary, 39);
+  assert.notEqual(pricing.displayPricePrimary, 151.1);
+});
+
+test("resolvePricePresentation keeps anti-drop guard for Mercado when trace is not bound", () => {
+  const pricing = resolvePricePresentation({
+    ml_item_id: "MLB4179901653",
+    marketplace: "mercadolivre",
+    price: 39,
+    original_price: 151.1,
+    source_url:
+      "https://www.mercadolivre.com.br/p/MLB51534861?pdp_filters=item_id%3AMLB0000000000",
+    affiliate_link: "https://mercadolivre.com/sec/172szSy",
+    canonical_offer_url: "https://produto.mercadolivre.com.br/mlb9999999999",
+    last_price_source: "scraper",
+    last_price_verified_at: new Date().toISOString(),
+  });
+
+  assert.equal(pricing.displayPricePrimary, 151.1);
+});
