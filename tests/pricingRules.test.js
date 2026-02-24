@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   parseBRLCurrency,
   resolveFinalPriceInfo,
+  resolvePromotionMetrics,
   resolvePricePresentation,
 } from "../src/lib/pricing.js";
 
@@ -247,4 +248,24 @@ test("resolvePricePresentation keeps anti-drop guard for Mercado when trace is n
   });
 
   assert.equal(pricing.displayPricePrimary, 151.1);
+});
+
+test("resolvePromotionMetrics keeps real discount signal even when scraper list is hidden", () => {
+  const promo = resolvePromotionMetrics({
+    ml_item_id: "MLB5159053928",
+    marketplace: "mercadolivre",
+    price: 33.25,
+    original_price: 67.98,
+    previous_price: 67.98,
+    last_price_source: "scraper",
+    source_url:
+      "https://www.mercadolivre.com.br/termogenico-thermocaps-200mg-60caps-ftw-diabo-verde/p/MLB12465919?pdp_filters=item_id%3AMLB5159053928#origin%3Dshare%26sid%3Dshare%26wid%3DMLB5159053928",
+    canonical_offer_url: "https://produto.mercadolivre.com.br/mlb5159053928",
+    affiliate_link: "https://mercadolivre.com/sec/2iS1Zvw",
+    last_price_verified_at: new Date().toISOString(),
+  });
+
+  assert.equal(promo.anchor, 67.98);
+  assert.equal(promo.discountPercent, 51);
+  assert.equal(promo.hasDiscount, true);
 });

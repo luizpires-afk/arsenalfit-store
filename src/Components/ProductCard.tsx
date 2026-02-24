@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { PriceDisclaimer } from "@/Components/PriceDisclaimer";
 import { useCart } from "@/hooks/useCart";
 import { bounceCartIcon, flyToCartAnimation, showAddToCartToast } from "@/lib/cartFeedback";
-import { resolvePricePresentation } from "@/lib/pricing.js";
+import { resolvePricePresentation, resolvePromotionMetrics } from "@/lib/pricing.js";
 import {
   buildOfferHref,
   getOfferUnavailableMessage,
@@ -109,12 +109,13 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
         : null;
 
   const pricing = resolvePricePresentation(product);
+  const promo = resolvePromotionMetrics(product);
   const finalPrice = pricing.displayPricePrimary;
   const listPrice = pricing.displayStrikethrough;
   const secondaryPrice = pricing.displayPriceSecondary;
   const hasPixSecondary = secondaryPrice !== null && secondaryPrice > finalPrice;
   const saving = pricing.savings;
-  const hasDrop = typeof product.previous_price === "number" && product.previous_price > finalPrice;
+  const hasDrop = promo.anchor !== null && promo.anchor > finalPrice;
   const detectedAt = product.detected_at ? new Date(product.detected_at) : null;
   const isRecentDrop = hasDrop && detectedAt ? Date.now() - detectedAt.getTime() <= 24 * 60 * 60 * 1000 : false;
   const offerResolution = resolveOfferUrl(product);
@@ -124,7 +125,7 @@ export const ProductCard = ({ product, variant = "default" }: ProductProps) => {
     offerResolution,
     product.marketplace,
   );
-  const discount = pricing.discountPercent ?? null;
+  const discount = promo.discountPercent > 0 ? promo.discountPercent : (pricing.discountPercent ?? null);
 
   const fixedBadge = product.free_shipping
     ? {

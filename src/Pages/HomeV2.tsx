@@ -28,7 +28,7 @@ import { openMonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog
 import {
   dedupeCatalogProducts,
 } from "@/lib/catalog";
-import { resolvePricePresentation } from "@/lib/pricing.js";
+import { resolvePricePresentation, resolvePromotionMetrics } from "@/lib/pricing.js";
 import { useAuth } from "@/hooks/useAuth";
 
 const BEST_DEAL_MIN_DISCOUNT = 20;
@@ -840,54 +840,20 @@ export default function HomeV2() {
       : reliablePool;
     if (pool.length === 0) return { items: [], primaryCount: 0, fallbackUsed };
 
-    const toNumber = (value: unknown) => {
-      if (typeof value === "number" && Number.isFinite(value)) return value;
-      if (typeof value === "string" && value.trim() !== "") {
-        const parsed = Number(value.replace(",", "."));
-        return Number.isFinite(parsed) ? parsed : null;
-      }
-      return null;
-    };
-
-    const MAX_BEST_DEAL_ANCHOR_RATIO = 4;
-    const canUseAsAnchor = (anchor: number | null, price: number) =>
-      anchor !== null && anchor > price && anchor <= price * MAX_BEST_DEAL_ANCHOR_RATIO;
-
-    const canUsePreviousPrice = (product: any) => {
-      const source = String(product?.previous_price_source || "").toLowerCase();
-      if (source === "none") return false;
-      const expiresAt = product?.previous_price_expires_at;
-      if (!expiresAt) return true;
-      const expiresMs = new Date(expiresAt).getTime();
-      return Number.isFinite(expiresMs) ? expiresMs > nowMs : true;
-    };
-
     const candidates = pool
       .map((product: any) => {
+        const promo = resolvePromotionMetrics(product);
         const pricing = resolvePricePresentation(product);
-        const price = toNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
-        const presentationAnchor = toNumber(pricing.displayStrikethrough);
-        const originalAnchor = toNumber(product?.original_price);
-        const previousAnchor = canUsePreviousPrice(product)
-          ? toNumber(product?.previous_price)
-          : null;
-        const anchorCandidates = [presentationAnchor, originalAnchor, previousAnchor].filter(
-          (anchor): anchor is number => canUseAsAnchor(anchor, price),
-        );
-        const bestAnchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
-        const discountValue = bestAnchor ? Math.max(bestAnchor - price, 0) : 0;
-        const discountPercent =
-          bestAnchor && bestAnchor > 0 ? (discountValue / bestAnchor) * 100 : 0;
         const usesPix = Boolean(pricing.pixPrice);
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
         return {
           product,
-          prev: bestAnchor,
+          prev: promo.anchor,
           usesPix,
-          discountValue,
-          discountPercent,
+          discountValue: promo.discountValue,
+          discountPercent: promo.discountPercent,
           lastUpdatedMs,
         };
       })
@@ -999,25 +965,15 @@ export default function HomeV2() {
     const primary = allDropsCandidates
       .filter((product: any) => {
         if (bestDealIds.has(product.id)) return false;
-        const pricing = resolvePricePresentation(product);
-        const price = Number(pricing.displayPricePrimary || 0);
-        const discountPercent = Number(pricing.discountPercent || 0);
-        const prev = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
-        const original = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
-        const hasDrop =
-          (prev !== null && prev > price) ||
-          (original !== null && original > price);
+        const promo = resolvePromotionMetrics(product);
+        const hasDrop = promo.anchor !== null && promo.anchor > promo.price;
+        const discountPercent = promo.discountPercent;
         return hasDrop && discountPercent > 0 && discountPercent < BEST_DEAL_MIN_DISCOUNT;
       })
       .map((product: any) => {
-        const pricing = resolvePricePresentation(product);
-        const price = Number(pricing.displayPricePrimary || 0);
-        const discountPercent = Number(pricing.discountPercent || 0);
-        const prev =
-          typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
-        const original = typeof pricing.displayStrikethrough === "number" ? pricing.displayStrikethrough : null;
-        const base = prev ?? original ?? price;
-        const dropValue = Math.max(base - price, 0);
+        const promo = resolvePromotionMetrics(product);
+        const discountPercent = promo.discountPercent;
+        const dropValue = promo.discountValue;
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
@@ -1039,8 +995,8 @@ export default function HomeV2() {
         if (bestDealIds.has(product.id)) {
           return { product: null, discountPercent: 0, lastUpdatedMs: 0 };
         }
-        const pricing = resolvePricePresentation(product);
-        const discountPercent = Number(pricing.discountPercent || 0);
+        const promo = resolvePromotionMetrics(product);
+        const discountPercent = promo.discountPercent;
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
@@ -1069,7 +1025,8 @@ export default function HomeV2() {
         }
         const pricing = resolvePricePresentation(product);
         const primaryPrice = Number(pricing.displayPricePrimary || pricing.finalPrice || 0);
-        const discountPercent = Number(pricing.discountPercent || 0);
+        const promo = resolvePromotionMetrics(product);
+        const discountPercent = promo.discountPercent;
         const lastUpdated =
           product.detected_at || product.last_sync || product.updated_at || null;
         const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;

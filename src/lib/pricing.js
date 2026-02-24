@@ -360,3 +360,46 @@ export const resolvePricePresentation = (product) => {
     finalPriceSource: pricing.finalPriceSource,
   };
 };
+
+const MAX_PROMO_ANCHOR_RATIO = 4;
+
+const canUseAnchor = (anchor, price) =>
+  Number.isFinite(anchor) && anchor > price && anchor <= price * MAX_PROMO_ANCHOR_RATIO;
+
+const canUseProductPreviousPrice = (product) => {
+  const source = String(product?.previous_price_source ?? "").trim().toLowerCase();
+  if (source === "none") return false;
+
+  const expiresAt = product?.previous_price_expires_at;
+  if (!expiresAt) return true;
+
+  const expiresMs = new Date(expiresAt).getTime();
+  return Number.isFinite(expiresMs) ? expiresMs > Date.now() : true;
+};
+
+export const resolvePromotionMetrics = (product) => {
+  const pricing = resolvePricePresentation(product);
+  const price = toFiniteNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
+
+  const presentationAnchor = toFiniteNumber(pricing.displayStrikethrough);
+  const originalAnchor = toFiniteNumber(product?.original_price);
+  const previousAnchor = canUseProductPreviousPrice(product)
+    ? toFiniteNumber(product?.previous_price)
+    : null;
+
+  const anchorCandidates = [presentationAnchor, originalAnchor, previousAnchor].filter((anchor) =>
+    canUseAnchor(anchor, price),
+  );
+  const anchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
+  const discountValue = anchor !== null ? Math.max(anchor - price, 0) : 0;
+  const discountPercent =
+    anchor !== null && anchor > 0 ? Math.round((discountValue / anchor) * 100) : 0;
+
+  return {
+    price,
+    anchor,
+    discountValue,
+    discountPercent,
+    hasDiscount: discountPercent > 0,
+  };
+};
