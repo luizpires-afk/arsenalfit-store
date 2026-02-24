@@ -25,6 +25,7 @@
     "sanity_price_promo": "node scripts/sanity-price-promo-runner.cjs --env supabase/functions/.env.scheduler",
     "sanity_price_live": "node scripts/sanity-price-promo-runner.cjs --env supabase/functions/.env.scheduler --live-check --live-check-limit 40",
     "validate_all_products_pricing": "node scripts/validate-all-products-pricing-runner.mjs --env supabase/functions/.env.scheduler",
+    "audit_promo_cards": "node scripts/validate-all-products-pricing-runner.mjs --env supabase/functions/.env.scheduler --top-limit 15",
     "audit_live_item_divergence": "node scripts/audit-live-item-price-divergence-runner.mjs --env supabase/functions/.env.scheduler",
     "trace_offer_link": "node scripts/offer-link-trace-runner.cjs --env supabase/functions/.env.scheduler",
     "affiliate_batch_hygiene": "node scripts/affiliate-batch-hygiene-runner.cjs --env supabase/functions/.env.scheduler",
