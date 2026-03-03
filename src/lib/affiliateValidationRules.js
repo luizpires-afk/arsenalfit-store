@@ -83,6 +83,30 @@ export const getUnvalidatedReasonCode = (product) => {
 
 export const isUnvalidatedAffiliateProduct = (product) => Boolean(getUnvalidatedReasonCode(product));
 
+export const resolveAffiliateBatchApplyMode = (batch) => {
+  const status = normalize(batch?.status).toUpperCase();
+  if (!status) {
+    return { ok: false, noop: true, reason: "batch_status_unknown" };
+  }
+  if (status !== "OPEN") {
+    return { ok: true, noop: true, reason: `batch_not_open:${status}` };
+  }
+  const expiresAt = batch?.expires_at ? Date.parse(String(batch.expires_at)) : NaN;
+  if (Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+    return { ok: false, noop: true, reason: "batch_expired" };
+  }
+  return { ok: true, noop: false, reason: null };
+};
+
+export const summarizeErrorReasons = (rows, errorField = "error_message") => {
+  const map = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const reason = normalize(row?.[errorField] ?? "") || "none";
+    map[reason] = (map[reason] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
+};
+
 export const validateAffiliateLinksForBatch = ({
   links,
   expectedCount,

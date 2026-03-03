@@ -61,17 +61,14 @@ const main = async () => {
 
   const rows = Array.isArray(data) ? data : [];
   if (!rows.length) {
+    const payload = { ok: true, batch_id: null, total: 0, source, limit, summary: { items: 0 }, error_summary: {}, rows: [], source_urls: [] };
     if (outPrefix) {
       fs.writeFileSync(`${outPrefix}.txt`, "", "utf8");
       fs.writeFileSync(`${outPrefix}.csv`, "", "utf8");
-      fs.writeFileSync(
-        `${outPrefix}.json`,
-        `${JSON.stringify({ ok: true, batch_id: null, total: 0, source, limit, rows: [], source_urls: [] }, null, 2)}\n`,
-        "utf8",
-      );
+      fs.writeFileSync(`${outPrefix}.json`, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     }
     if (asJson) {
-      console.log(JSON.stringify({ ok: true, batch_id: null, total: 0, source, limit, rows: [], source_urls: [] }, null, 2));
+      console.log(JSON.stringify(payload, null, 2));
     } else {
       console.log("Nenhum produto pendente elegivel para exportacao.");
     }
@@ -92,6 +89,10 @@ const main = async () => {
     total: ordered.length,
     source,
     limit,
+    summary: {
+      items: ordered.length,
+    },
+    error_summary: {},
     rows: ordered,
     source_urls: urls,
   };

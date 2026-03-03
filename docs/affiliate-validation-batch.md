@@ -65,4 +65,29 @@ npm run open_affiliate_batch -- --batch-id <UUID> --out-prefix logs/affiliate-ba
 - `apply_affiliate_batch --out-prefix ...`:
 	- `<prefix>.json`
 	- `<prefix>.csv`
+  - `<prefix>.txt`
 	- `<prefix>-integrity.csv`
+
+## Playbook de falha e recuperação
+
+1. **Erro de permissão (`admin_required`)**
+	- Confirme execução com `service_role` ou usuário admin.
+	- Reexecute o comando e valide no JSON se `ok=true`.
+
+2. **Lote não aberto (`batch_not_open:*`)**
+	- O runner entra em `noop` (idempotente), sem mutar dados.
+	- Gere novo lote com `export_standby_batch` e aplique novamente.
+
+3. **Erro de contagem/ordem de links**
+	- Ajuste arquivo de entrada para `N` links exatos do lote.
+	- Se operação parcial for intencional, use `--allow-partial`.
+	- Se houver excedentes intencionais, use `--allow-extra`.
+
+4. **Links inválidos/duplicados**
+	- Corrija as linhas indicadas pelo erro no JSON.
+	- Reenvie somente com links MLB `/sec/` válidos e únicos.
+
+5. **Integridade pós-aplicação falhou**
+	- Verifique `<prefix>-integrity.csv` para itens com `integrity_ok=false`.
+	- Reabrir lote com `open_affiliate_batch` para confirmar `error_message` por linha.
+	- Corrigir links e reaplicar em lote novo.

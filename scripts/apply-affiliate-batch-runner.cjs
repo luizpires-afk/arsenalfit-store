@@ -61,6 +61,8 @@ const main = async () => {
     isUuid,
     validateAffiliateLinksForBatch,
     isMercadoLivreSecLink,
+    resolveAffiliateBatchApplyMode,
+    summarizeErrorReasons,
   } = await import("../src/lib/affiliateValidationRules.js");
 
   if (!isUuid(batchId)) {
@@ -95,19 +97,31 @@ const main = async () => {
 
   const parsedInputLinks = parseAffiliateLinksInput(links);
 
-  if (String(batch.status || "").toUpperCase() !== "OPEN") {
+  const applyMode = resolveAffiliateBatchApplyMode(batch);
+  if (applyMode.noop) {
     const noopPayload = {
       ok: true,
       noop: true,
-      reason: `batch_not_open:${batch.status}`,
+      reason: applyMode.reason,
       batch,
       totals: summarizeItems(orderedItems),
+      error_summary: summarizeErrorReasons(orderedItems),
       rows: orderedItems,
     };
     if (outPrefix) {
       fs.mkdirSync(path.dirname(outPrefix), { recursive: true });
       fs.writeFileSync(`${outPrefix}.json`, `${JSON.stringify(noopPayload, null, 2)}\n`, "utf8");
       fs.writeFileSync(`${outPrefix}.csv`, `${toCsv(orderedItems)}\n`, "utf8");
+      const txtSummary = [
+        `ok=true`,
+        `noop=true`,
+        `reason=${noopPayload.reason}`,
+        `items=${noopPayload.totals.items}`,
+        `applied=${noopPayload.totals.applied}`,
+        `invalid=${noopPayload.totals.invalid}`,
+        `skipped=${noopPayload.totals.skipped}`,
+      ].join("\n");
+      fs.writeFileSync(`${outPrefix}.txt`, `${txtSummary}\n`, "utf8");
     }
     console.log(JSON.stringify(noopPayload, null, 2));
     return;
@@ -180,6 +194,7 @@ const main = async () => {
     },
     result: rpcResult,
     totals: summarizeItems(rowsAfter),
+    error_summary: summarizeErrorReasons(rowsAfter),
     final_integrity: {
       checked: finalIntegrity.length,
       failures: finalIntegrity.filter((row) => !row.integrity_ok).length,
@@ -193,6 +208,16 @@ const main = async () => {
     fs.writeFileSync(`${outPrefix}.json`, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     fs.writeFileSync(`${outPrefix}.csv`, `${toCsv(rowsAfter)}\n`, "utf8");
     fs.writeFileSync(`${outPrefix}-integrity.csv`, `${toCsv(finalIntegrity)}\n`, "utf8");
+    const txtSummary = [
+      `ok=true`,
+      `batch_id=${batchId}`,
+      `items=${payload.totals.items}`,
+      `applied=${payload.totals.applied}`,
+      `invalid=${payload.totals.invalid}`,
+      `skipped=${payload.totals.skipped}`,
+      `integrity_failures=${payload.final_integrity.failures}`,
+    ].join("\n");
+    fs.writeFileSync(`${outPrefix}.txt`, `${txtSummary}\n`, "utf8");
   }
 
   if (asJson) {
