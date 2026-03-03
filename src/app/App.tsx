@@ -56,8 +56,22 @@ const AppRoutes = () => {
     <>
       <Header />
       <Routes>
-        <Route path="/" element={<HomeV2 />} />
-        <Route path="/home" element={<HomeV2 />} />
+        <Route
+          path="/"
+          element={
+            <RouteErrorBoundary>
+              <HomeV2 />
+            </RouteErrorBoundary>
+          }
+        />
+        <Route
+          path="/home"
+          element={
+            <RouteErrorBoundary>
+              <HomeV2 />
+            </RouteErrorBoundary>
+          }
+        />
         <Route path="/auth" element={<Auth />} />
         <Route path="/auth/confirm" element={<AuthConfirmed />} />
         <Route path="/auth/sent" element={<AuthSent />} />
