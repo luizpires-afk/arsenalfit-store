@@ -1,3 +1,4 @@
+const fs = require("fs");
 const {
   readRunnerEnv,
   createSupabaseRestClient,
@@ -11,14 +12,46 @@ const getArg = (name, fallback = null) => {
   return fallback;
 };
 
-const envFile = getArg("--env", "supabase/functions/.env.scheduler");
-const limit = Math.max(10, Math.min(1500, Number(getArg("--limit", "500")) || 500));
-const fetchLimitRaw = Number(getArg("--fetch-limit", "150"));
+const parseEnvFile = (filePath) => {
+  if (!filePath || !fs.existsSync(filePath)) return {};
+  const out = {};
+  let text = fs.readFileSync(filePath, "utf8");
+  text = text.replace(/^\uFEFF/, "");
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx === -1) continue;
+    const key = trimmed.slice(0, idx).trim();
+    let value = trimmed.slice(idx + 1).trim();
+    value = value.replace(/^['"]|['"]$/g, "");
+    out[key] = value;
+  }
+  return out;
+};
+
+const envFile = getArg("--env", process.env.AUTO_RECOVER_ENV_FILE || "supabase/functions/.env.scheduler");
+const fileEnv = parseEnvFile(envFile);
+const getConfig = (argName, envName, fallback) => {
+  const argValue = getArg(argName, null);
+  if (argValue !== null) return argValue;
+  const processValue = process.env[envName];
+  if (processValue !== undefined && String(processValue).trim() !== "") return processValue;
+  const fileValue = fileEnv[envName];
+  if (fileValue !== undefined && String(fileValue).trim() !== "") return fileValue;
+  return fallback;
+};
+
+const limit = Math.max(10, Math.min(1500, Number(getConfig("--limit", "AUTO_RECOVER_LIMIT", "500")) || 500));
+const fetchLimitRaw = Number(getConfig("--fetch-limit", "AUTO_RECOVER_FETCH_LIMIT", "150"));
 const fetchLimit = Math.max(0, Math.min(500, Number.isFinite(fetchLimitRaw) ? fetchLimitRaw : 150));
-const recentHours = Math.max(1, Math.min(72, Number(getArg("--recent-hours", "24")) || 24));
-const requestTimeoutMs = Math.max(5000, Math.min(40000, Number(getArg("--request-timeout-ms", "15000")) || 15000));
-const suspiciousRetryAttempts = Math.max(0, Math.min(3, Number(getArg("--suspicious-retries", "2")) || 2));
-const blockedMlItemsArg = String(getArg("--blocked-ml-items", process.env.BLOCKED_ML_ITEMS || "") || "");
+const recentHours = Math.max(1, Math.min(72, Number(getConfig("--recent-hours", "AUTO_RECOVER_RECENT_HOURS", "24")) || 24));
+const requestTimeoutMs = Math.max(5000, Math.min(40000, Number(getConfig("--request-timeout-ms", "AUTO_RECOVER_REQUEST_TIMEOUT_MS", "15000")) || 15000));
+const suspiciousRetryAttempts = Math.max(0, Math.min(3, Number(getConfig("--suspicious-retries", "AUTO_RECOVER_SUSPICIOUS_RETRIES", "2")) || 2));
+const blockedMlItemsArg = String(
+  getConfig("--blocked-ml-items", "AUTO_RECOVER_BLOCKED_ML_ITEMS", process.env.BLOCKED_ML_ITEMS || "") || "",
+);
 const blockedMlItems = new Set(
   blockedMlItemsArg
     .split(",")

@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 const {
   readRunnerEnv,
   createSupabaseRestClient,
@@ -22,6 +23,12 @@ if (!batchId) {
 }
 
 const main = async () => {
+  const { isUuid } = await import("../src/lib/affiliateValidationRules.js");
+  const { summarizeErrorReasons } = await import("../src/lib/affiliateValidationRules.js");
+  if (!isUuid(batchId)) {
+    throw new Error("Parametro --batch-id invalido. Informe um UUID valido.");
+  }
+
   const env = readRunnerEnv(envFile);
   if (!env.SUPABASE_URL || !env.SERVICE_ROLE_KEY) {
     throw new Error("SUPABASE_URL/SERVICE_ROLE_KEY ausentes");
@@ -61,16 +68,35 @@ const main = async () => {
       invalid: rows.filter((row) => String(row?.apply_status || "").toUpperCase() === "INVALID").length,
       skipped: rows.filter((row) => String(row?.apply_status || "").toUpperCase() === "SKIPPED").length,
     },
+    error_summary: summarizeErrorReasons(rows),
+    errors: rows
+      .filter((row) => String(row?.apply_status || "").toUpperCase() === "INVALID")
+      .map((row) => ({
+        position: row.position,
+        product_id: row.product_id,
+        error: row.error_message || "unknown_error",
+      })),
   };
 
   if (outPrefix) {
+    fs.mkdirSync(path.dirname(outPrefix), { recursive: true });
     const txtPath = `${outPrefix}.txt`;
     const csvPath = `${outPrefix}.csv`;
     const jsonPath = `${outPrefix}.json`;
     fs.writeFileSync(txtPath, sourceUrls.join("\n") + (sourceUrls.length ? "\n" : ""), "utf8");
     fs.writeFileSync(csvPath, toCsv(rows), "utf8");
     fs.writeFileSync(jsonPath, JSON.stringify({ summary, rows }, null, 2), "utf8");
-    console.log(JSON.stringify({ summary, files: { txt: txtPath, csv: csvPath, json: jsonPath } }, null, 2));
+    const statusTxtPath = `${outPrefix}-summary.txt`;
+    const lines = [
+      `batch_id=${batch.id}`,
+      `status=${batch.status}`,
+      `items=${summary.totals.items}`,
+      `applied=${summary.totals.applied}`,
+      `invalid=${summary.totals.invalid}`,
+      `skipped=${summary.totals.skipped}`,
+    ];
+    fs.writeFileSync(statusTxtPath, `${lines.join("\n")}\n`, "utf8");
+    console.log(JSON.stringify({ summary, files: { txt: txtPath, summary_txt: statusTxtPath, csv: csvPath, json: jsonPath } }, null, 2));
     return;
   }
 

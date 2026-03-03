@@ -39,7 +39,7 @@ export class RouteErrorBoundary extends React.Component<
     return (
       <main className="min-h-[60vh] flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-xl font-semibold text-zinc-900">Não foi possível abrir este produto</h1>
+          <h1 className="text-xl font-semibold text-zinc-900">Não foi possível abrir esta página</h1>
           <p className="mt-2 text-sm text-zinc-600 break-words">{this.state.message}</p>
           <div className="mt-4 flex items-center justify-center gap-2">
             <Link

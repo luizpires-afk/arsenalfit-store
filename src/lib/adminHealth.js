@@ -31,7 +31,19 @@ export const isMercadoLivreSecLink = (value) => {
   try {
     const parsed = new URL(String(value));
     const host = parsed.host.toLowerCase();
-    return (host === "mercadolivre.com" || host === "www.mercadolivre.com") && parsed.pathname.startsWith("/sec/");
+    const pathname = String(parsed.pathname || "").toLowerCase();
+    if (host === "meli.la" || host === "www.meli.la") {
+      return pathname.length > 1;
+    }
+    const isMercadoHost =
+      host === "mercadolivre.com" ||
+      host === "www.mercadolivre.com" ||
+      host === "mercadolivre.com.br" ||
+      host === "www.mercadolivre.com.br";
+    if (!isMercadoHost) return false;
+    if (pathname.startsWith("/sec/")) return true;
+    if (/^\/social\/pb[a-z0-9]+(?:\/|$)/i.test(pathname)) return true;
+    return false;
   } catch {
     return false;
   }

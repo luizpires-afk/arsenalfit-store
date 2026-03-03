@@ -192,6 +192,14 @@ const canUseScraperPromoFallback = (product, source, originalPrice, finalPrice) 
   return originalPrice <= finalPrice * maxRatio;
 };
 
+const resolveDeclaredDiscount = (product) => {
+  const declared = toFiniteNumber(product?.discount_percentage);
+  if (!(declared !== null && declared >= 1 && declared <= 95)) return null;
+  if (product?.is_on_sale !== true) return null;
+  if (!isListPriceFresh(product, product?.last_price_source ?? null)) return null;
+  return Math.round(declared);
+};
+
 const isListPriceFresh = (product, source) => {
   const reference =
     product?.last_price_verified_at ??
@@ -348,6 +356,7 @@ export const resolvePricePresentation = (product) => {
     savings !== null && displayStrikethrough !== null && displayStrikethrough > 0
       ? Math.round((savings / displayStrikethrough) * 100)
       : null;
+  const fallbackDiscountPercent = resolveDeclaredDiscount(product);
 
   return {
     finalPrice: pricing.finalPrice,
@@ -357,7 +366,7 @@ export const resolvePricePresentation = (product) => {
     displayPriceSecondary,
     displayStrikethrough,
     savings,
-    discountPercent,
+    discountPercent: discountPercent ?? fallbackDiscountPercent,
     showPixBadge: Boolean(pixPrice !== null),
     finalPriceSource: pricing.finalPriceSource,
   };
@@ -374,18 +383,33 @@ export const resolvePromotionMetrics = (product) => {
 
   const presentationAnchor = toFiniteNumber(pricing.displayStrikethrough);
   const anchorCandidates = [presentationAnchor].filter((anchor) => canUseAnchor(anchor, price));
-  const anchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
+  const declaredDiscount = resolveDeclaredDiscount(product);
+  let anchorSource = null;
+  let anchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
+
+  if (anchor !== null) {
+    anchorSource = "presentation";
+  } else if (declaredDiscount !== null && declaredDiscount > 0 && declaredDiscount < 95 && price > 0) {
+    const syntheticAnchor = price / (1 - declaredDiscount / 100);
+    if (canUseAnchor(syntheticAnchor, price)) {
+      anchor = syntheticAnchor;
+      anchorSource = "declared_discount";
+    }
+  }
+
   const discountValue = anchor !== null ? Math.max(anchor - price, 0) : 0;
   const discountPercent =
-    anchor !== null && anchor > 0 ? Math.round((discountValue / anchor) * 100) : 0;
+    anchor !== null && anchor > 0
+      ? Math.round((discountValue / anchor) * 100)
+      : declaredDiscount ?? 0;
 
   return {
     price,
     anchor,
-    anchorSource: anchor !== null ? "presentation" : null,
+    anchorSource,
     discountValue,
     discountPercent,
-    isReliable: anchor !== null,
+    isReliable: anchorSource === "presentation",
     hasDiscount: discountPercent > 0,
   };
 };

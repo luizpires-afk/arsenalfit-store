@@ -1,10 +1,6 @@
 export const MAX_AFFILIATE_BATCH_SIZE = 30;
 
-export const parseAffiliateLinksInput = (value) =>
-  String(value ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+export { parseAffiliateLinksInput } from "./affiliateValidationRules.js";
 
 export const buildOrderedBatchAssignments = ({
   orderedProductIds,

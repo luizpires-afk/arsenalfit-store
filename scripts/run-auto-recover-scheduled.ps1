@@ -12,7 +12,7 @@ $logFile = Join-Path $logDir "auto-recover-scheduled.log"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 "[$timestamp] Starting auto_recover_mercado_products" | Tee-Object -FilePath $logFile -Append
 
-npm run auto_recover_mercado_products -- --env supabase/functions/.env.scheduler --limit 500 --fetch-limit 500 --recent-hours 24 2>&1 | Tee-Object -FilePath $logFile -Append
+npm run auto_recover_mercado_products 2>&1 | Tee-Object -FilePath $logFile -Append
 
 $exitCode = $LASTEXITCODE
 $endTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"

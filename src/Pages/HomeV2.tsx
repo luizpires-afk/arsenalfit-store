@@ -28,7 +28,13 @@ import { openMonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog
 import {
   dedupeCatalogProducts,
 } from "@/lib/catalog";
-import { resolvePricePresentation, resolvePromotionMetrics } from "@/lib/pricing.js";
+import { resolvePricePresentation } from "@/lib/pricing.js";
+import {
+  selectBestDeals,
+  selectEliteProducts,
+  selectLatestDiversifiedProducts,
+  selectPriceDropsToday,
+} from "@/lib/homeCollections.js";
 import { useAuth } from "@/hooks/useAuth";
 
 const BEST_DEAL_MIN_DISCOUNT = 20;
@@ -56,6 +62,7 @@ const CAROUSEL_BUTTON_CLASS =
 const VISIBLE_PRODUCTS_FILTER =
   "and(is_active.eq.true,status.eq.active,data_health_status.eq.HEALTHY,auto_disabled_reason.is.null),and(is_active.eq.true,status.eq.active,data_health_status.eq.HEALTHY,auto_disabled_reason.neq.blocked)";
 const CAROUSEL_LIMIT = 16;
+const ALL_PRODUCTS_LIMIT = 12;
 const CATEGORY_PRIORITY = ["suplement", "equip", "acessor", "roupa"];
 
 const PRODUCT_SELECT_BASE =
@@ -840,83 +847,11 @@ export default function HomeV2() {
       : reliablePool;
     if (pool.length === 0) return { items: [], primaryCount: 0, fallbackUsed };
 
-    const candidates = pool
-      .map((product: any) => {
-        const promo = resolvePromotionMetrics(product);
-        const pricing = resolvePricePresentation(product);
-        const usesPix = Boolean(pricing.pixPrice);
-        const lastUpdated =
-          product.detected_at || product.last_sync || product.updated_at || null;
-        const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
-        return {
-          product,
-          prev: promo.anchor,
-          usesPix,
-          discountValue: promo.discountValue,
-          discountPercent: promo.discountPercent,
-          lastUpdatedMs,
-        };
-      })
-      .filter((item) => item.discountPercent > 0);
-
-    const rankingSource = candidates.filter(
-      (item) => item.discountPercent >= BEST_DEAL_MIN_DISCOUNT,
-    );
-
-    if (rankingSource.length === 0) {
-      const fallbackProducts = [...pool]
-        .map((product: any) => {
-          const pricing = resolvePricePresentation(product);
-          const primaryPrice = toNumber(pricing.displayPricePrimary ?? pricing.finalPrice) ?? 0;
-          return {
-            product,
-            primaryPrice,
-            featured: product?.is_featured === true ? 1 : 0,
-            clicks: Number(product?.clicks_count ?? 0) || 0,
-            lastUpdatedMs: getLastUpdatedMs(product),
-          };
-        })
-        .filter((item) => item.primaryPrice > 0)
-        .sort((a, b) => {
-          if (b.featured !== a.featured) return b.featured - a.featured;
-          if (b.clicks !== a.clicks) return b.clicks - a.clicks;
-          return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
-        })
-        .map((item) => item.product);
-
-      return {
-        items: fallbackProducts,
-        primaryCount: fallbackProducts.length,
-        fallbackUsed: true,
-      };
-    }
-
-    rankingSource.sort((a, b) => {
-      const pixA = a.usesPix ? 1 : 0;
-      const pixB = b.usesPix ? 1 : 0;
-      if (pixA !== pixB) return pixB - pixA;
-      if (b.discountPercent !== a.discountPercent)
-        return b.discountPercent - a.discountPercent;
-      return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
+    const primaryProducts = selectBestDeals({
+      products: pool,
+      minDiscountPercent: BEST_DEAL_MIN_DISCOUNT,
+      limit: CAROUSEL_LIMIT,
     });
-
-    const usedCategories = new Set<string>();
-    const diversified: typeof rankingSource = [];
-    const fallback: typeof rankingSource = [];
-
-    for (const item of rankingSource) {
-      const categoryId = item.product.category_id || "sem-categoria";
-      if (!usedCategories.has(categoryId)) {
-        usedCategories.add(categoryId);
-        diversified.push(item);
-      } else {
-        fallback.push(item);
-      }
-    }
-
-    const primaryProducts = [...diversified, ...fallback].map(
-      (item) => item.product,
-    );
 
     return {
       items: primaryProducts,
@@ -959,95 +894,15 @@ export default function HomeV2() {
   });
 
   const priceDropsToday = useMemo(() => {
-    const allDropsCandidates = dedupeByCatalog(dropsData || []);
     const bestDealIds = new Set((bestDeals || []).map((product: any) => product.id));
-
-    const primary = allDropsCandidates
-      .filter((product: any) => {
-        if (bestDealIds.has(product.id)) return false;
-        const promo = resolvePromotionMetrics(product);
-        const hasDrop = promo.anchor !== null && promo.anchor > promo.price;
-        const discountPercent = promo.discountPercent;
-        return hasDrop && discountPercent > 0 && discountPercent < BEST_DEAL_MIN_DISCOUNT;
-      })
-      .map((product: any) => {
-        const promo = resolvePromotionMetrics(product);
-        const discountPercent = promo.discountPercent;
-        const dropValue = promo.discountValue;
-        const lastUpdated =
-          product.detected_at || product.last_sync || product.updated_at || null;
-        const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
-        return { product, discountPercent, dropValue, lastUpdatedMs };
-      })
-      .sort((a, b) => {
-        if (b.discountPercent !== a.discountPercent)
-          return b.discountPercent - a.discountPercent;
-        if (b.lastUpdatedMs !== a.lastUpdatedMs)
-          return b.lastUpdatedMs - a.lastUpdatedMs;
-        return b.dropValue - a.dropValue;
-      })
-      .map((item) => item.product);
-
-    if (primary.length > 0) return primary;
-
-    const fallbackPromos = allDropsCandidates
-      .map((product: any) => {
-        if (bestDealIds.has(product.id)) {
-          return { product: null, discountPercent: 0, lastUpdatedMs: 0 };
-        }
-        const promo = resolvePromotionMetrics(product);
-        const discountPercent = promo.discountPercent;
-        const lastUpdated =
-          product.detected_at || product.last_sync || product.updated_at || null;
-        const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
-        return { product, discountPercent, lastUpdatedMs };
-      })
-      .filter((item) => item.product && item.discountPercent > 0 && item.discountPercent < BEST_DEAL_MIN_DISCOUNT)
-      .sort((a, b) => {
-        if (b.discountPercent !== a.discountPercent)
-          return b.discountPercent - a.discountPercent;
-        return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
-      })
-      .map((item) => item.product);
-
-    if (fallbackPromos.length > 0) return fallbackPromos;
-
-    const fallbackRecent = allDropsCandidates
-      .map((product: any) => {
-        if (bestDealIds.has(product.id)) {
-          return {
-            product: null,
-            primaryPrice: 0,
-            featured: 0,
-            clicks: 0,
-            lastUpdatedMs: 0,
-          };
-        }
-        const pricing = resolvePricePresentation(product);
-        const primaryPrice = Number(pricing.displayPricePrimary || pricing.finalPrice || 0);
-        const promo = resolvePromotionMetrics(product);
-        const discountPercent = promo.discountPercent;
-        const lastUpdated =
-          product.detected_at || product.last_sync || product.updated_at || null;
-        const lastUpdatedMs = lastUpdated ? new Date(lastUpdated).getTime() : 0;
-        return {
-          product,
-          primaryPrice,
-          discountPercent,
-          featured: product?.is_featured === true ? 1 : 0,
-          clicks: Number(product?.clicks_count ?? 0) || 0,
-          lastUpdatedMs,
-        };
-      })
-      .filter((item) => item.product && item.primaryPrice > 0 && item.discountPercent < BEST_DEAL_MIN_DISCOUNT)
-      .sort((a, b) => {
-        if (b.featured !== a.featured) return b.featured - a.featured;
-        if (b.clicks !== a.clicks) return b.clicks - a.clicks;
-        return (b.lastUpdatedMs ?? 0) - (a.lastUpdatedMs ?? 0);
-      })
-      .map((item) => item.product);
-
-    return fallbackRecent;
+    return selectPriceDropsToday({
+      products: dedupeByCatalog(dropsData || []),
+      bestDealIds,
+      minDiscountExclusive: BEST_DEAL_MIN_DISCOUNT,
+      limit: CAROUSEL_LIMIT,
+      now: new Date(),
+      timeZone: "America/Sao_Paulo",
+    });
   }, [dropsData, bestDeals]);
 
   const { data: eliteData = [], isLoading: eliteLoading } = useQuery({
@@ -1083,66 +938,17 @@ export default function HomeV2() {
     });
 
   const eliteProducts = useMemo(() => {
-    const pool = dedupeByCatalog(
-      mergeUnique(eliteData, eliteFallbackData, bestDealsData, previewData).filter(
-        (product: any) => product?.is_active !== false,
-      ),
-    );
-
-    const getUpdatedMs = (product: any) => {
-      const ref = product?.detected_at || product?.last_sync || product?.updated_at || null;
-      const ms = ref ? new Date(ref).getTime() : 0;
-      return Number.isFinite(ms) ? ms : 0;
-    };
-
-    const sorted = [...pool].sort((a: any, b: any) => {
-      const aPricing = resolvePricePresentation(a);
-      const bPricing = resolvePricePresentation(b);
-
-      const aPrice = Number(aPricing.displayPricePrimary || a.price || 0);
-      const bPrice = Number(bPricing.displayPricePrimary || b.price || 0);
-      if (bPrice !== aPrice) return bPrice - aPrice;
-
-      const aList =
-        typeof aPricing.displayStrikethrough === "number" ? aPricing.displayStrikethrough : null;
-      const bList =
-        typeof bPricing.displayStrikethrough === "number" ? bPricing.displayStrikethrough : null;
-      const aDiscount = aList && aList > 0 ? ((aList - aPrice) / aList) * 100 : 0;
-      const bDiscount = bList && bList > 0 ? ((bList - bPrice) / bList) * 100 : 0;
-      if (bDiscount !== aDiscount) return bDiscount - aDiscount;
-
-      return getUpdatedMs(b) - getUpdatedMs(a);
+    return selectEliteProducts({
+      products: dedupeByCatalog(mergeUnique(eliteData, eliteFallbackData, bestDealsData, previewData)),
+      limit: CAROUSEL_LIMIT,
     });
-
-    const usedCategories = new Set<string>();
-    const diversified: any[] = [];
-    const overflow: any[] = [];
-
-    for (const product of sorted) {
-      const categoryId = product?.category_id || "sem-categoria";
-      if (!usedCategories.has(categoryId)) {
-        usedCategories.add(categoryId);
-        diversified.push(product);
-      } else {
-        overflow.push(product);
-      }
-    }
-
-    return [...diversified, ...overflow].slice(0, CAROUSEL_LIMIT);
   }, [eliteData, eliteFallbackData, bestDealsData, previewData]);
 
   const previewProducts = useMemo(() => {
-    const merged = dedupeByCatalog(
-      mergeUnique(previewData, bestDealsData, eliteData, lowPriceData).filter(
-        (product: any) => product?.is_active !== false,
-      ),
-    );
-    const sorted = [...merged].sort((a: any, b: any) => {
-      const aMs = new Date(a?.updated_at || a?.last_sync || a?.detected_at || 0).getTime();
-      const bMs = new Date(b?.updated_at || b?.last_sync || b?.detected_at || 0).getTime();
-      return (Number.isFinite(bMs) ? bMs : 0) - (Number.isFinite(aMs) ? aMs : 0);
+    return selectLatestDiversifiedProducts({
+      products: dedupeByCatalog(mergeUnique(previewData, bestDealsData, eliteData, lowPriceData)),
+      limit: ALL_PRODUCTS_LIMIT,
     });
-    return sorted.slice(0, CAROUSEL_LIMIT);
   }, [previewData, bestDealsData, eliteData, lowPriceData]);
 
   const previewProductsLimited = useMemo(

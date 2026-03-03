@@ -53,11 +53,25 @@ const queryClient = new QueryClient({
 
 const AppRoutes = () => {
   return (
-    <>
+    <RouteErrorBoundary>
       <Header />
       <Routes>
-        <Route path="/" element={<HomeV2 />} />
-        <Route path="/home" element={<HomeV2 />} />
+        <Route
+          path="/"
+          element={
+            <RouteErrorBoundary>
+              <HomeV2 />
+            </RouteErrorBoundary>
+          }
+        />
+        <Route
+          path="/home"
+          element={
+            <RouteErrorBoundary>
+              <HomeV2 />
+            </RouteErrorBoundary>
+          }
+        />
         <Route path="/auth" element={<Auth />} />
         <Route path="/auth/confirm" element={<AuthConfirmed />} />
         <Route path="/auth/sent" element={<AuthSent />} />
@@ -98,7 +112,7 @@ const AppRoutes = () => {
         <Route path="*" element={<NotFound />} />
       </Routes>
       <SiteFooter />
-    </>
+    </RouteErrorBoundary>
   );
 };
 

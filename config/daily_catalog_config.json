@@ -2,15 +2,15 @@
   "timezone": "America/Sao_Paulo",
   "dailyRunLocalTime": "08:30",
   "dailyQuotas": {
-    "suplementos": { "min": 5, "max": 5 },
-    "acessorios": { "min": 4, "max": 4 },
-    "roupas_masc": { "min": 2, "max": 2 },
-    "roupas_fem": { "min": 2, "max": 2 },
-    "equipamentos": { "min": 2, "max": 2 }
+    "suplementos": { "min": 20, "max": 20 },
+    "acessorios": { "min": 20, "max": 20 },
+    "roupas_masc": { "min": 20, "max": 20 },
+    "roupas_fem": { "min": 20, "max": 20 },
+    "equipamentos": { "min": 20, "max": 20 }
   },
   "maxRuntimeMs": 120000,
-  "maxBrandPerDay": 2,
-  "candidatePoolSize": 60,
+  "maxBrandPerDay": 6,
+  "candidatePoolSize": 240,
   "priceCheck": {
     "ttlByPriorityMinutes": {
       "HIGH": 120,

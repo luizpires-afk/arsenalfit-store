@@ -98,7 +98,7 @@ const DUPLICATE_LINK_MESSAGE = "Este link já foi utilizado";
 const REPORTS_PREVIEW_COUNT = 10;
 const MAX_BULK_AFFILIATE_LINKS = MAX_AFFILIATE_BATCH_SIZE;
 const AFFILIATE_BATCH_ERROR_LABELS: Record<string, string> = {
-  invalid_sec_link: "Link invalido: use apenas link curto /sec/ do Mercado Livre.",
+  invalid_sec_link: "Link invalido: use link Mercado Livre valido (/sec/, /social/pb... ou meli.la).",
   affiliate_link_already_used: "Este link /sec/ ja esta vinculado a outro produto ativo.",
   affiliate_url_not_permitted: "URL nao permitido pelo Programa de Afiliados.",
   product_not_found: "Produto nao encontrado para aplicar este link.",
