@@ -53,7 +53,7 @@ const queryClient = new QueryClient({
 
 const AppRoutes = () => {
   return (
-    <>
+    <RouteErrorBoundary>
       <Header />
       <Routes>
         <Route
@@ -112,7 +112,7 @@ const AppRoutes = () => {
         <Route path="*" element={<NotFound />} />
       </Routes>
       <SiteFooter />
-    </>
+    </RouteErrorBoundary>
   );
 };
 
