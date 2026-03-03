@@ -3,7 +3,21 @@ import ReactDOM from "react-dom/client"
 import App from "@/app/App"
 import "./index.css"
 
+declare global {
+  var toNumber: ((value: unknown) => unknown) | undefined
+}
+
 const rootElement = document.getElementById("root")
+
+if (typeof globalThis.toNumber !== "function") {
+  globalThis.toNumber = (value: unknown) => {
+    if (typeof value === "string") {
+      const parsed = Number.parseFloat(value)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    return value
+  }
+}
 
 const renderFatalFallback = (title: string, message: string) => {
   if (!rootElement) return
