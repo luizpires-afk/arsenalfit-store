@@ -35,6 +35,22 @@ test("standby removal policy: active validated product cannot be removed", () =>
     }),
     false,
   );
+  assert.equal(
+    canSoftRemoveStandbyProduct({
+      status: "active",
+      isActive: true,
+      affiliateLink: "https://www.mercadolivre.com.br/social/pb20251228145054?ref=ABC",
+    }),
+    false,
+  );
+  assert.equal(
+    canSoftRemoveStandbyProduct({
+      status: "active",
+      isActive: true,
+      affiliateLink: "https://meli.la/2abcDEF",
+    }),
+    false,
+  );
 });
 
 test("standby removal policy: standby product can be removed", () => {
