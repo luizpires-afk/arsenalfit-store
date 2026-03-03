@@ -18,3 +18,9 @@ supabase/functions/**/serve*.log
 # Local temp artifacts and operational logs
 .tmp-*
 logs/*.log
+logs/
+links*.txt
+links-*.txt
+docs/active-affiliate-links-ordered.md
+docs/compliant-links-latest80.md
+docs/round1-new-products-for-validation.md

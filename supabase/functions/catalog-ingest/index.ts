@@ -37,10 +37,16 @@ const DEFAULT_MAX_RUNTIME_MS = Number(Deno?.env?.get?.("CATALOG_INGEST_MAX_RUNTI
 const SEARCH_PAGE_LIMIT = 50;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 500;
-const rawMaxItemsHardCap = Number(Deno?.env?.get?.("CATALOG_INGEST_MAX_ITEMS_HARD_CAP") ?? "60");
+const rawMaxItemsHardCap = Number(Deno?.env?.get?.("CATALOG_INGEST_MAX_ITEMS_HARD_CAP") ?? "180");
 const MAX_ITEMS_HARD_CAP = Number.isFinite(rawMaxItemsHardCap)
   ? Math.max(10, Math.floor(rawMaxItemsHardCap))
-  : 60;
+  : 180;
+const CATALOG_INGEST_CIRCUIT_ERROR_THRESHOLD = Number(
+  Deno?.env?.get?.("CATALOG_INGEST_CIRCUIT_ERROR_THRESHOLD") ?? "8",
+);
+const CATALOG_INGEST_CIRCUIT_OPEN_SECONDS = Number(
+  Deno?.env?.get?.("CATALOG_INGEST_CIRCUIT_OPEN_SECONDS") ?? "120",
+);
 
 const LOCK_KEY = Deno?.env?.get?.("CATALOG_INGEST_LOCK_KEY") ?? "catalog_ingest_edge";
 const DEFAULT_LOCK_TTL_SECONDS = Number(
@@ -887,6 +893,22 @@ const resolveSiteCategoryFromAlias = (value: unknown): string | null => {
     return SITE_CATEGORIES.ROUPAS_FEM;
   }
   return null;
+};
+
+const FREE_SHIPPING_REQUIRED_SITE_CATEGORIES = new Set<string>(
+  String(
+    Deno?.env?.get?.("CATALOG_INGEST_FREE_SHIPPING_REQUIRED_SITE_CATEGORIES") ??
+      "suplementos,equipamentos",
+  )
+    .split(",")
+    .map((raw) => resolveSiteCategoryFromAlias(raw) ?? normalizeSiteCategory(raw))
+    .filter((value): value is string => Boolean(value)),
+);
+
+const shouldRequireFreeShipping = (siteCategory: string | null | undefined) => {
+  const normalized = normalizeSiteCategory(siteCategory);
+  if (!normalized) return true;
+  return FREE_SHIPPING_REQUIRED_SITE_CATEGORIES.has(normalized);
 };
 
 const parseSiteCategoryList = (value: unknown): string[] => {
@@ -2069,17 +2091,59 @@ const fetchWithTimeout = async (url: string, timeoutMs: number, init?: RequestIn
   }
 };
 
+const ingestCircuitState = {
+  consecutiveErrors: 0,
+  openUntilMs: 0,
+};
+
+const isCircuitOpen = () => Date.now() < ingestCircuitState.openUntilMs;
+
+const shouldCountTowardsCircuit = (message: string | null) => {
+  if (!message) return false;
+  const normalized = String(message).toLowerCase();
+  return (
+    normalized.includes("timeout") ||
+    normalized.includes("http_429") ||
+    normalized.includes("http_500") ||
+    normalized.includes("http_502") ||
+    normalized.includes("http_503") ||
+    normalized.includes("http_504")
+  );
+};
+
+const registerCircuitSuccess = () => {
+  ingestCircuitState.consecutiveErrors = 0;
+  ingestCircuitState.openUntilMs = 0;
+};
+
+const registerCircuitError = (message: string | null) => {
+  if (!shouldCountTowardsCircuit(message)) return;
+  ingestCircuitState.consecutiveErrors += 1;
+  if (ingestCircuitState.consecutiveErrors >= Math.max(2, CATALOG_INGEST_CIRCUIT_ERROR_THRESHOLD)) {
+    ingestCircuitState.openUntilMs =
+      Date.now() + Math.max(15, CATALOG_INGEST_CIRCUIT_OPEN_SECONDS) * 1000;
+  }
+};
+
 const fetchJsonWithRetry = async (
   url: string,
   fetchJsonOnce: (targetUrl: string) => Promise<Record<string, unknown>>,
 ) => {
+  if (isCircuitOpen()) {
+    const retryInMs = Math.max(0, ingestCircuitState.openUntilMs - Date.now());
+    throw new Error(`catalog_ingest_circuit_open:${Math.ceil(retryInMs / 1000)}s`);
+  }
+
   let lastError: string | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     try {
-      return await fetchJsonOnce(url);
+      const payload = await fetchJsonOnce(url);
+      registerCircuitSuccess();
+      return payload;
     } catch (error) {
       lastError = (error as Error)?.message ?? String(error);
+      registerCircuitError(lastError);
       if (attempt < MAX_RETRIES - 1) {
         await sleep(BACKOFF_BASE_MS * (attempt + 1));
         continue;
@@ -2750,7 +2814,7 @@ const collectCategoryHighlightsCandidates = async (
         Math.max(1, (productRef.rank - 1) * 50 + idx + 1),
       );
       if (!candidate) continue;
-      if (!candidate.freeShipping) {
+      if (!candidate.freeShipping && shouldRequireFreeShipping(candidate.siteCategory)) {
         options.stats.discarded_no_free_shipping += 1;
         continue;
       }
@@ -2970,6 +3034,9 @@ const buildExistingCanonicalKey = (existing: ExistingProductRow) => {
   if (externalId) return `external:${externalId}`;
   return `id:${existing.id}`;
 };
+
+const isWeakCanonicalKey = (canonicalKey: string | null | undefined) =>
+  String(canonicalKey ?? "").startsWith("fingerprint:");
 
 const getExistingCanonicalPriority = (existing: ExistingProductRow) => {
   let priority = 0;
@@ -3216,7 +3283,7 @@ const collectMappingCandidates = async (
             candidate.sellerId = sellerId;
           }
 
-          if (!candidate.freeShipping) {
+          if (!candidate.freeShipping && shouldRequireFreeShipping(candidate.siteCategory)) {
             options.stats.discarded_no_free_shipping += 1;
             continue;
           }
@@ -4730,8 +4797,16 @@ Deno.serve(async (req) => {
       let newAcceptedInCategory = 0;
 
       for (const candidate of activeCandidates) {
-        const current = existingByExternal.get(candidate.externalId) ?? null;
+        const candidateCanonicalKey = buildCandidateCanonicalKey(candidate);
+        const existingByCanonical = !isWeakCanonicalKey(candidateCanonicalKey)
+          ? (existingProductsByCanonicalKey.get(candidateCanonicalKey) ?? null)
+          : null;
+        const current = existingByExternal.get(candidate.externalId) ?? existingByCanonical ?? null;
         const alreadyActive = Boolean(current && current.is_active === true);
+        if (quotaImportMode && current) {
+          stats.discarded_not_new += 1;
+          continue;
+        }
         if (alreadyActive) {
           acceptedCandidates.push(candidate);
           continue;
@@ -4876,9 +4951,17 @@ Deno.serve(async (req) => {
 
       for (const candidate of standbyPool) {
         if (curatedExternalIds.has(candidate.externalId)) continue;
-        const existing = state.existingByExternal.get(candidate.externalId) ?? null;
+        const candidateCanonicalKey = buildCandidateCanonicalKey(candidate);
+        const existingByCanonical = !isWeakCanonicalKey(candidateCanonicalKey)
+          ? (existingProductsByCanonicalKey.get(candidateCanonicalKey) ?? null)
+          : null;
+        const existing = state.existingByExternal.get(candidate.externalId) ?? existingByCanonical ?? null;
         const isExistingRow = Boolean(existing);
         const isExistingStandby = Boolean(existing && existing.is_active !== true);
+        if (quotaImportMode && isExistingRow) {
+          stats.discarded_not_new += 1;
+          continue;
+        }
         if (!canAcceptNewForSiteCategory(candidate.siteCategory, candidate.externalId, isExistingRow)) {
           continue;
         }
@@ -5003,7 +5086,10 @@ Deno.serve(async (req) => {
     for (const candidate of persistedCandidates) {
       const candidateCanonicalKey = buildCandidateCanonicalKey(candidate);
       const existingByExternal = existingProductsByExternalId.get(candidate.externalId) ?? null;
-      const existingByCanonical = existingProductsByCanonicalKey.get(candidateCanonicalKey) ?? null;
+      const allowCanonicalFallback = !isWeakCanonicalKey(candidateCanonicalKey);
+      const existingByCanonical = allowCanonicalFallback
+        ? (existingProductsByCanonicalKey.get(candidateCanonicalKey) ?? null)
+        : null;
       const existing = existingByExternal ?? existingByCanonical;
       const previousExternalId = normalizeExternalId(existing?.external_id ?? null);
       const bindingFallbackByCanonical = !existingByExternal && Boolean(existingByCanonical);

@@ -36,3 +36,14 @@ Arquivo: `supabase/schema.sql`
 ### Segurança
 - Este ZIP inclui `.env` para facilitar testes locais.
 - **Em produção (Vercel), configure as envs no painel** e não commite `.env`.
+
+### Auditoria preventiva (views com security_invoker)
+Arquivo: `sql/audit_security_invoker_views.sql`
+- Execute no SQL Editor do Supabase para listar views expostas sem `security_invoker = true`.
+- A segunda consulta gera os comandos `ALTER VIEW ... SET (security_invoker = true)` para revisão e aplicação manual.
+- Sempre revise a lista antes de aplicar em produção.
+
+### Dry-run antes do deploy (sem alterar objetos)
+Arquivo: `sql/dry_run_set_security_invoker_public_views.sql`
+- Mostra as views do schema `public` que ainda não têm `security_invoker = true`.
+- Emite os `ALTER VIEW` planejados via `RAISE NOTICE`, sem executar alterações.

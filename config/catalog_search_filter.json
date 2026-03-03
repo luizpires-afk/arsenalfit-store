@@ -33,7 +33,6 @@
         "gourmet",
         "escritorio",
         "home office",
-        "garrafa termica",
         "copo termico",
         "stanley",
         "quick flip",
@@ -72,11 +71,10 @@
           "requires_one_of": ["squeeze", "shaker", "coqueteleira", "academia", "fitness", "treino"]
         }
       ],
-      "min_relevance_score": { "allow": 70, "standby": 50 }
+      "min_relevance_score": { "allow": 65, "standby": 45 }
     },
     "equipamentos": {
       "blocklist_terms": [
-        "profissional",
         "estacao de musculacao",
         "esteira profissional",
         "aparelho",
@@ -85,15 +83,15 @@
         "seminovo",
         "semi novo"
       ],
-      "min_relevance_score": { "allow": 70, "standby": 50 }
+      "min_relevance_score": { "allow": 60, "standby": 42 }
     },
     "roupas_masc": {
       "blocklist_terms": ["social", "jeans", "vestido", "blazer", "terno", "salto"],
-      "min_relevance_score": { "allow": 70, "standby": 50 }
+      "min_relevance_score": { "allow": 62, "standby": 45 }
     },
     "roupas_fem": {
       "blocklist_terms": ["social", "jeans", "vestido", "blazer", "terno", "salto"],
-      "min_relevance_score": { "allow": 70, "standby": 50 }
+      "min_relevance_score": { "allow": 62, "standby": 45 }
     },
     "suplementos": {
       "blocklist_terms": ["tarja", "controlado", "medicamento", "anabolizante", "esteroide", "homeopatia", "paçoca", "pacoca"],

@@ -11,6 +11,7 @@ import {
   updateDomainCircuitState,
   isCircuitOpen,
 } from "./price_check_policy.js";
+import { resolveLifecycleState } from "./lifecycle_policy.js";
 
 const Deno = (globalThis as unknown as {
   Deno: {
@@ -1118,6 +1119,21 @@ const pickMin = (values: Array<number | null>) => {
   return filtered.length ? Math.min(...filtered) : null;
 };
 
+const normalizeOriginalCandidate = (
+  candidate: number | null,
+  referencePrice: number | null,
+) => {
+  if (!(typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0)) return null;
+  if (!(typeof referencePrice === "number" && Number.isFinite(referencePrice) && referencePrice > 0)) {
+    return candidate;
+  }
+  if (candidate <= referencePrice) return null;
+  const discountRatio = (candidate - referencePrice) / candidate;
+  if (discountRatio < 0.005 || discountRatio > 0.95) return null;
+  if (candidate > referencePrice * 5) return null;
+  return candidate;
+};
+
 const extractPriceSignals = (data: any) => {
   const entries = extractPricesArray(data);
   const salePrice = data && typeof data === "object" && (data as any).sale_price
@@ -1127,6 +1143,8 @@ const extractPriceSignals = (data: any) => {
   const allEntries = [...salePrice, ...entries];
   const pixCandidates: Array<number | null> = [];
   const standardEntries: any[] = [];
+  const amountCandidates: number[] = [];
+  const originalCandidates: number[] = [];
 
   for (const entry of allEntries) {
     const amount =
@@ -1136,6 +1154,18 @@ const extractPriceSignals = (data: any) => {
       toNumber(entry?.regular_amount);
 
     if (amount === null) continue;
+    amountCandidates.push(amount);
+
+    const entryOriginal =
+      toNumber(entry?.original_price) ??
+      toNumber(entry?.regular_amount) ??
+      toNumber(entry?.compare_at_price) ??
+      toNumber(entry?.crossed_out_price) ??
+      toNumber(entry?.crossed_out_amount);
+    if (typeof entryOriginal === "number" && Number.isFinite(entryOriginal) && entryOriginal > 0) {
+      originalCandidates.push(entryOriginal);
+    }
+
     if (isPixEntry(entry)) {
       pixCandidates.push(amount);
       continue;
@@ -1164,9 +1194,30 @@ const extractPriceSignals = (data: any) => {
     ),
   );
 
+  const topLevelOriginal =
+    toNumber((data as any)?.original_price) ??
+    toNumber((data as any)?.regular_amount) ??
+    toNumber((data as any)?.compare_at_price);
+  if (typeof topLevelOriginal === "number" && Number.isFinite(topLevelOriginal) && topLevelOriginal > 0) {
+    originalCandidates.push(topLevelOriginal);
+  }
+
+  const referencePrice =
+    (typeof standard === "number" && Number.isFinite(standard) && standard > 0
+      ? standard
+      : null) ??
+    pickMin(amountCandidates) ??
+    toNumber((data as any)?.price);
+
+  const originalFiltered = originalCandidates
+    .map((value) => normalizeOriginalCandidate(value, referencePrice))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const original = originalFiltered.length ? Math.max(...originalFiltered) : null;
+
   return {
     pix: pickBestPixCandidate(pixCandidates, standard),
     standard,
+    original,
   };
 };
 
@@ -1729,8 +1780,8 @@ Deno.serve(async (req: Request) => {
       clearTimeout(timer);
     }
 
-    let priceSignalsFromItem = { pix: null as number | null, standard: null as number | null };
-    let priceSignalsFromPrices = { pix: null as number | null, standard: null as number | null };
+    let priceSignalsFromItem = { pix: null as number | null, standard: null as number | null, original: null as number | null };
+    let priceSignalsFromPrices = { pix: null as number | null, standard: null as number | null, original: null as number | null };
 
     if (itemResp.status === 200 && ENABLE_PIX_PRICE) {
       priceSignalsFromItem = extractPriceSignals(itemResp.body);
@@ -1740,7 +1791,7 @@ Deno.serve(async (req: Request) => {
 
       const shouldFetchPrices =
         Boolean(priceItemId) &&
-        (!priceSignalsFromItem.pix || !priceSignalsFromItem.standard);
+        (!priceSignalsFromItem.pix || !priceSignalsFromItem.standard || !priceSignalsFromItem.original);
 
       if (shouldFetchPrices) {
         const pricesResp = await meliFetch(
@@ -1776,6 +1827,11 @@ Deno.serve(async (req: Request) => {
         ok: true,
         product_id: product.id,
         price: resolvedPrice,
+        original_price:
+          toNumber((itemResp.body as any)?.original_price) ??
+          priceSignalsFromItem.original ??
+          priceSignalsFromPrices.original ??
+          null,
         pix_price: resolvedPix,
         pix_source: pixSource,
         api_status: itemResp.status,
@@ -3019,8 +3075,8 @@ Deno.serve(async (req: Request) => {
           detected_at: now.toISOString(),
         });
       }
-      let priceSignalsFromItem = { pix: null as number | null, standard: null as number | null };
-      let priceSignalsFromPrices = { pix: null as number | null, standard: null as number | null };
+      let priceSignalsFromItem = { pix: null as number | null, standard: null as number | null, original: null as number | null };
+      let priceSignalsFromPrices = { pix: null as number | null, standard: null as number | null, original: null as number | null };
 
       if (itemResp.status === 200 && catalogId && !usedProductFallback && !enforceSameOffer) {
         const itemHasPrice = typeof toNumber((itemResp.body as any)?.price) === "number";
@@ -3086,7 +3142,7 @@ Deno.serve(async (req: Request) => {
 
         const shouldFetchPrices =
           Boolean(priceItemId) &&
-          (!priceSignalsFromItem.pix || !priceSignalsFromItem.standard);
+          (!priceSignalsFromItem.pix || !priceSignalsFromItem.standard || !priceSignalsFromItem.original);
 
         if (shouldFetchPrices) {
           const pricesResp = await meliFetch(
@@ -3235,7 +3291,10 @@ Deno.serve(async (req: Request) => {
         finalSource = finalPriceInfo.source;
         usedScraperFallback = finalPriceInfo.source === PRICE_SOURCE.SCRAPER;
         rawScrapedPrice = usedScraperFallback ? scrapedFallback?.price ?? null : null;
-        const originalFromApi = toNumber((itemResp.body as any)?.original_price);
+        const originalFromApi =
+          toNumber((itemResp.body as any)?.original_price) ??
+          priceSignalsFromItem.original ??
+          priceSignalsFromPrices.original;
         const originalFromScraper = scrapedFallback?.original_price ?? null;
         const originalFromCatalog = catalogFallbackOriginal;
         const resolvedOriginalPrice =
@@ -3332,6 +3391,18 @@ Deno.serve(async (req: Request) => {
     let stateSuspectPrice: number | null = null;
     let stateSuspectReason: string | null = null;
     let stateSuspectDetectedAt: string | null = null;
+    let lifecycleSnapshot: {
+      previous_status: string | null;
+      next_status: string | null;
+      previous_is_active: boolean | null;
+      next_is_active: boolean | null;
+      previous_auto_disabled_reason: string | null;
+      next_auto_disabled_reason: string | null;
+      policy_reason: string | null;
+      source: string | null;
+      changed: boolean;
+      at: string;
+    } | null = null;
     let queueCompletionStatus: "done" | "retry" | "failed" = "done";
     let queueRetrySeconds: number | null = null;
     let eventStatus: "updated" | "not_modified" | "backoff" | "error" | "suspect" = "updated";
@@ -3381,10 +3452,6 @@ Deno.serve(async (req: Request) => {
     } else if (result?.statusCode === 200 && typeof result?.price === "number") {
       nextCheckAt = computeNextCheckAt({ now, ttlMinutes: priorityPlan.ttlMinutes });
       const mappedStatus = result?.status ?? product?.status ?? "active";
-      const resolvedStatus =
-        product?.status === "paused" || product?.status === "standby"
-          ? product.status
-          : mappedStatus;
       const wasAutoBlocked = product?.auto_disabled_reason === "blocked";
       const availableQty =
         typeof result?.available_quantity === "number" ? result.available_quantity : null;
@@ -3728,10 +3795,18 @@ Deno.serve(async (req: Request) => {
         Number.isFinite(product.price) &&
         product.price > stabilizedPrice;
       const isOnSale = discountPercentage > 0;
-      const isReliableSource = source === "auth" || source === "public";
-      const shouldReactivate =
-        wasAutoBlocked && resolvedStatus !== "paused" && resolvedStatus !== "standby" && isReliableSource;
-      const isActive = shouldReactivate ? true : product?.is_active ?? true;
+      const isReliableSource =
+        source === "auth" || source === "public" || source === "catalog";
+      const lifecycle = resolveLifecycleState({
+        existingStatus: product?.status ?? null,
+        existingIsActive: product?.is_active ?? null,
+        mappedStatus,
+        autoDisabledReason: product?.auto_disabled_reason ?? null,
+        isReliableSource,
+      });
+      const resolvedStatus = lifecycle.resolvedStatus;
+      const shouldReactivate = lifecycle.shouldReactivate;
+      const isActive = lifecycle.isActive;
 
       if (wasAutoBlocked && !isReliableSource) {
         nextCheckAt = addMs(now, HOURS_2_MS).toISOString();
@@ -3915,6 +3990,25 @@ Deno.serve(async (req: Request) => {
         status: resolvedStatus,
         last_sync: now.toISOString(),
         next_check_at: nextCheckAt,
+      };
+      lifecycleSnapshot = {
+        previous_status: product?.status ?? null,
+        next_status: resolvedStatus ?? null,
+        previous_is_active: product?.is_active ?? null,
+        next_is_active: isActive ?? null,
+        previous_auto_disabled_reason: product?.auto_disabled_reason ?? null,
+        next_auto_disabled_reason: shouldReactivate
+          ? null
+          : (product?.auto_disabled_reason ?? null),
+        policy_reason: lifecycle.reason,
+        source,
+        changed:
+          (product?.status ?? null) !== (resolvedStatus ?? null) ||
+          (product?.is_active ?? null) !== (isActive ?? null) ||
+          Boolean(product?.auto_disabled_reason) !== Boolean(
+            shouldReactivate ? null : product?.auto_disabled_reason,
+          ),
+        at: now.toISOString(),
       };
       eventStatus = "updated";
       stateFinalPrice = stabilizedPrice;
@@ -4137,6 +4231,7 @@ Deno.serve(async (req: Request) => {
             : PRICE_SOURCE.API_BASE),
         etag_before: etagBefore,
         etag_after: etagAfter,
+        lifecycle: lifecycleSnapshot,
         error: updateError?.message || errorMessage || result?.error || null,
       }),
     );
