@@ -1,4 +1,9 @@
 const fs = require("fs");
+const {
+  readRunnerEnv,
+  createSupabaseRestClient,
+  toCsv,
+} = require("./_supabase_runner_utils.cjs");
 
 const args = process.argv.slice(2);
 
@@ -10,92 +15,63 @@ const getArg = (name, fallback = null) => {
 
 const hasArg = (name) => args.includes(name);
 
-const parseEnvFile = (filePath) => {
-  if (!filePath || !fs.existsSync(filePath)) return {};
-  let text = fs.readFileSync(filePath, "utf8");
-  text = text.replace(/^\uFEFF/, "");
-  const out = {};
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const idx = trimmed.indexOf("=");
-    if (idx <= 0) continue;
-    const key = trimmed.slice(0, idx).trim();
-    let value = trimmed.slice(idx + 1).trim();
-    value = value.replace(/^['"]|['"]$/g, "");
-    out[key] = value;
-  }
-  return out;
-};
-
 const envFile = getArg("--env", "supabase/functions/.env.scheduler");
 const limit = Math.max(1, Math.min(30, Number(getArg("--limit", "30")) || 30));
 const source = getArg("--source", "cli_export_standby_batch");
 const asJson = hasArg("--json");
-
-const envFromFile = parseEnvFile(envFile);
-const envFromSupabase = parseEnvFile("supabase/.env");
-const envFromRoot = parseEnvFile(".env");
-
-const SUPABASE_URL =
-  process.env.SUPABASE_URL ||
-  envFromFile.SUPABASE_URL ||
-  envFromSupabase.SUPABASE_URL ||
-  envFromRoot.SUPABASE_URL ||
-  envFromRoot.VITE_SUPABASE_URL;
-
-const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  envFromFile.SUPABASE_SERVICE_ROLE_KEY ||
-  envFromFile.SUPABASE_SERVICE_KEY ||
-  envFromSupabase.SUPABASE_SERVICE_ROLE_KEY ||
-  envFromSupabase.SUPABASE_SERVICE_KEY ||
-  envFromRoot.SUPABASE_SERVICE_ROLE_KEY ||
-  envFromRoot.SUPABASE_SERVICE_KEY;
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error(
-    "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente. Configure no ambiente/.env.",
-  );
-  process.exit(1);
-}
+const outPrefix = getArg("--out-prefix", null);
 
 const main = async () => {
-  const { createClient } = await import("@supabase/supabase-js");
-  const client = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  const env = readRunnerEnv(envFile);
+  if (!env.SUPABASE_URL || !env.SERVICE_ROLE_KEY) {
+    throw new Error("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY ausentes no ambiente.");
+  }
+
+  if (!source.trim()) {
+    throw new Error("Parametro --source invalido. Informe um source nao vazio.");
+  }
+
+  const client = createSupabaseRestClient({
+    supabaseUrl: env.SUPABASE_URL,
+    serviceRoleKey: env.SERVICE_ROLE_KEY,
   });
 
   let data = null;
   let error = null;
 
-  const serviceCall = await client.rpc("export_standby_affiliate_batch_service", {
-    p_limit: limit,
-    p_source: source,
-  });
-
-  if (serviceCall.error) {
-    const fallbackCall = await client.rpc("export_standby_affiliate_batch", {
+  try {
+    data = await client.rpc("export_standby_affiliate_batch_service", {
       p_limit: limit,
       p_source: source,
     });
-    data = fallbackCall.data;
-    error = fallbackCall.error;
-  } else {
-    data = serviceCall.data;
-    error = serviceCall.error;
+  } catch (serviceError) {
+    try {
+      data = await client.rpc("export_standby_affiliate_batch", {
+        p_limit: limit,
+        p_source: source,
+      });
+    } catch (fallbackError) {
+      error = fallbackError?.message || fallbackError || serviceError;
+    }
   }
 
   if (error) {
-    console.error("Erro ao exportar batch:", error.message || error);
-    process.exit(1);
+    throw new Error(`Erro ao exportar lote. Verifique permissao admin/service_role e tente novamente. Detalhe: ${error}`);
   }
 
   const rows = Array.isArray(data) ? data : [];
   if (!rows.length) {
+    if (outPrefix) {
+      fs.writeFileSync(`${outPrefix}.txt`, "", "utf8");
+      fs.writeFileSync(`${outPrefix}.csv`, "", "utf8");
+      fs.writeFileSync(
+        `${outPrefix}.json`,
+        `${JSON.stringify({ ok: true, batch_id: null, total: 0, source, limit, rows: [], source_urls: [] }, null, 2)}\n`,
+        "utf8",
+      );
+    }
     if (asJson) {
-      console.log(JSON.stringify({ batch_id: null, total: 0, rows: [] }, null, 2));
+      console.log(JSON.stringify({ ok: true, batch_id: null, total: 0, source, limit, rows: [], source_urls: [] }, null, 2));
     } else {
       console.log("Nenhum produto pendente elegivel para exportacao.");
     }
@@ -110,19 +86,29 @@ const main = async () => {
     .map((row) => String(row.source_url ?? "").trim())
     .filter(Boolean);
 
+  const payload = {
+    ok: true,
+    batch_id: batchId,
+    total: ordered.length,
+    source,
+    limit,
+    rows: ordered,
+    source_urls: urls,
+  };
+
+  if (outPrefix) {
+    const txtPath = `${outPrefix}.txt`;
+    const csvPath = `${outPrefix}.csv`;
+    const jsonPath = `${outPrefix}.json`;
+    fs.writeFileSync(txtPath, `${urls.join("\n")}${urls.length ? "\n" : ""}`, "utf8");
+    fs.writeFileSync(csvPath, `${toCsv(ordered)}\n`, "utf8");
+    fs.writeFileSync(jsonPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    console.log(JSON.stringify({ ...payload, outputs: { txt: txtPath, csv: csvPath, json: jsonPath } }, null, 2));
+    return;
+  }
+
   if (asJson) {
-    console.log(
-      JSON.stringify(
-        {
-          batch_id: batchId,
-          total: ordered.length,
-          rows: ordered,
-          source_urls: urls,
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(payload, null, 2));
     return;
   }
 

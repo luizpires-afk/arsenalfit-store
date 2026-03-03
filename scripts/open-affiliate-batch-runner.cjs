@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 const {
   readRunnerEnv,
   createSupabaseRestClient,
@@ -22,6 +23,11 @@ if (!batchId) {
 }
 
 const main = async () => {
+  const { isUuid } = await import("../src/lib/affiliateValidationRules.js");
+  if (!isUuid(batchId)) {
+    throw new Error("Parametro --batch-id invalido. Informe um UUID valido.");
+  }
+
   const env = readRunnerEnv(envFile);
   if (!env.SUPABASE_URL || !env.SERVICE_ROLE_KEY) {
     throw new Error("SUPABASE_URL/SERVICE_ROLE_KEY ausentes");
@@ -61,9 +67,17 @@ const main = async () => {
       invalid: rows.filter((row) => String(row?.apply_status || "").toUpperCase() === "INVALID").length,
       skipped: rows.filter((row) => String(row?.apply_status || "").toUpperCase() === "SKIPPED").length,
     },
+    errors: rows
+      .filter((row) => String(row?.apply_status || "").toUpperCase() === "INVALID")
+      .map((row) => ({
+        position: row.position,
+        product_id: row.product_id,
+        error: row.error_message || "unknown_error",
+      })),
   };
 
   if (outPrefix) {
+    fs.mkdirSync(path.dirname(outPrefix), { recursive: true });
     const txtPath = `${outPrefix}.txt`;
     const csvPath = `${outPrefix}.csv`;
     const jsonPath = `${outPrefix}.json`;
