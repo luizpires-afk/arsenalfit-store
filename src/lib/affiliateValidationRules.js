@@ -54,6 +54,21 @@ export const isMercadoLivreSecLink = (value) => {
   }
 };
 
+export const normalizeAffiliateInputLine = (value) => {
+  const raw = normalize(value);
+  if (!raw) return "";
+  if (isMercadoLivreSecLink(raw)) return raw;
+  const cleaned = raw.replace(/^https?:\/\/(www\.)?mercadolivre\.com(\.br)?\/sec\//i, "").trim();
+  const code = cleaned.replace(/^\/+|\/+$/g, "");
+  if (/^[A-Za-z0-9_-]{4,32}$/.test(code)) {
+    return `https://mercadolivre.com/sec/${code}`;
+  }
+  return raw;
+};
+
+export const normalizeAffiliateInputLines = (lines) =>
+  (Array.isArray(lines) ? lines : []).map((line) => normalizeAffiliateInputLine(line)).filter(Boolean);
+
 export const getUnvalidatedReasonCode = (product) => {
   if (!product || !isMercadoLivreMarketplace(product.marketplace)) return null;
   if (product.removed_at) return null;

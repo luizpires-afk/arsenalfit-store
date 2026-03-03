@@ -32,6 +32,34 @@ npm run apply_affiliate_batch -- --batch-id <UUID> --links-file links-sec.txt --
 
 ```bash
 npm run open_affiliate_batch -- --batch-id <UUID> --out-prefix logs/affiliate-batch-final
+
+Observação: o apply aceita tanto URL completa quanto somente código (`2RvQEG4`) e normaliza para `https://mercadolivre.com/sec/<codigo>` automaticamente.
+
+## Comandos prontos (operação diária)
+
+1. Listar pendentes por categoria (suplementos/acessórios/demais):
+
+```bash
+npm run -s pending_affiliate_links -- --limit 800
+```
+
+2. Abrir lote ordenado:
+
+```bash
+npm run -s export_standby_batch -- --limit 30 --source ops_affiliate --out-prefix logs/affiliate-batch-export
+```
+
+3. Aplicar lote com códigos/links:
+
+```bash
+npm run -s affiliate_validation_apply_batch -- --batch-id <UUID> --links-file links.txt --json --out-prefix logs/affiliate-validation-apply
+```
+
+4. Validar resultado do lote:
+
+```bash
+npm run -s affiliate_validation_open_batch -- --batch-id <UUID> --out-prefix logs/affiliate-validation-open
+```
 ```
 
 ## Regras e validações de entrada

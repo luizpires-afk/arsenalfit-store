@@ -58,6 +58,7 @@ const summarizeItems = (rows) => ({
 const main = async () => {
   const {
     parseAffiliateLinksInput,
+    normalizeAffiliateInputLines,
     isUuid,
     validateAffiliateLinksForBatch,
     isMercadoLivreSecLink,
@@ -95,7 +96,7 @@ const main = async () => {
   const orderedItems = Array.isArray(itemsBefore) ? itemsBefore : [];
   const expectedCount = orderedItems.length;
 
-  const parsedInputLinks = parseAffiliateLinksInput(links);
+  const parsedInputLinks = normalizeAffiliateInputLines(parseAffiliateLinksInput(links));
 
   const applyMode = resolveAffiliateBatchApplyMode(batch);
   if (applyMode.noop) {
