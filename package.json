@@ -62,6 +62,8 @@
     "robot_dedup_audit": "node scripts/robot-dedup-audit-runner.cjs --env supabase/functions/.env.scheduler",
     "home_rules_audit": "node scripts/home-rules-audit-runner.cjs --env supabase/functions/.env.scheduler",
     "export_standby_batch": "node scripts/export-standby-batch-runner.cjs",
+    "cycle_affiliate_fallback_daily": "node scripts/cycle-affiliate-fallback-daily-runner.cjs --env supabase/functions/.env.scheduler",
+    "cycle_affiliate_fallback_daily_team": "node scripts/cycle-affiliate-fallback-daily-runner.cjs --env supabase/functions/.env.scheduler --links-file links-sec-daily.txt --auto-repair-links-file links-sec-repair.txt --category suplementos --limit 30 --max-items 30 --rotate-links true --auto-repair-on-invalid true --force-correction true --require-correction true",
     "review_standby_daily": "node scripts/review-standby-daily-runner.cjs --env supabase/functions/.env.scheduler --limit 15",
     "apply_affiliate_batch": "node scripts/apply-affiliate-batch-runner.cjs",
     "local_preview": "node scripts/serve-dist-runner.cjs"

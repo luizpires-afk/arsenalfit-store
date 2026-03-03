@@ -32,10 +32,95 @@ npm run apply_affiliate_batch -- --batch-id <UUID> --links-file links-sec.txt --
 
 ```bash
 npm run open_affiliate_batch -- --batch-id <UUID> --out-prefix logs/affiliate-batch-final
+```
 
 Observação: o apply aceita tanto URL completa quanto somente código (`2RvQEG4`) e normaliza para `https://mercadolivre.com/sec/<codigo>` automaticamente.
 
+## Fluxo normal vs fallback (gate vazio)
+
+### Fluxo normal
+
+```bash
+npm run -s export_standby_batch -- --limit 30 --source ops_affiliate_daily --out-prefix logs/affiliate-batch-export --json
+```
+
+### Fluxo fallback quando export vier vazio
+
+Quando `total=0`, habilite o fallback automático a partir de `pending-affiliate-links`:
+
+```bash
+npm run -s export_standby_batch -- \
+	--limit 30 \
+	--source ops_affiliate_daily \
+	--fallback-from-pending true \
+	--category suplementos \
+	--max-items 30 \
+	--out-prefix logs/affiliate-batch-export \
+	--json
+```
+
+- `--fallback-from-pending true`: cria/reusa lote manual rastreável quando o export vier vazio.
+- `--category suplementos|acessorios|demais|all`: define o bloco de pendentes a consumir.
+- `--max-items 30`: define o limite estável de seleção no fallback.
+
+Artefatos esperados do fallback:
+
+- `logs/affiliate-batch-export-fallback.json`
+- `logs/affiliate-batch-export-fallback.csv`
+- `logs/affiliate-batch-export-fallback.txt`
+
 ## Comandos prontos (operação diária)
+
+### Ciclo diário em um comando (pending → export fallback → apply → open)
+
+Comando padrão da equipe (já com autocorreção e arquivo reserva):
+
+```bash
+npm run -s cycle_affiliate_fallback_daily_team -- --run-id daily-$(date +%F-%H%M) --json
+```
+
+```bash
+npm run -s cycle_affiliate_fallback_daily -- \
+	--links-file links-sec-fresh.txt \
+	--category suplementos \
+	--limit 30 \
+	--max-items 30 \
+	--rotate-links true \
+	--json
+```
+
+O runner executa em sequência:
+
+1. `pending_affiliate_links`
+2. `export_standby_batch --fallback-from-pending true`
+3. `affiliate_validation_apply_batch`
+4. `affiliate_validation_open_batch`
+
+Artefatos de resumo automático:
+
+- `logs/affiliate-fallback-daily-summary.json`
+- `logs/affiliate-fallback-daily-summary.txt`
+- `logs/affiliate-fallback-daily-summary-<run-id>.json`
+- `logs/affiliate-fallback-daily-summary-<run-id>.txt`
+
+Rotação automática de links:
+
+- `--rotate-links true` (padrão): move para o final do arquivo as `N` linhas consumidas no apply.
+- Se `N` for igual ao total de linhas do arquivo, a rotação vira `noop` (arquivo permanece igual) e isso é registrado no resumo.
+- `--strict-count false` (padrão): permite execução parcial quando há menos links do que itens no lote.
+- `--allow-partial true` (padrão): mantém posições sem link como `missing_input_line`.
+- `--auto-repair-on-invalid true` (padrão): se houver `invalid` por `affiliate_link_already_used`, executa automaticamente uma segunda rodada (`export → apply → open`) para correção.
+- `--auto-repair-links-file <arquivo>` (opcional): usa um pool separado de links na rodada automática de correção.
+- `--force-correction true`: força tentativa de correção para qualquer `invalid` (não só duplicidade de link já usado).
+- `--require-correction true`: falha o comando se houver `invalid` inicial e a correção não zerar inválidos.
+
+Boas práticas operacionais:
+
+- Use `--run-id` explícito (ex.: data/hora) para facilitar auditoria dos artefatos da rodada.
+- Mantenha um arquivo de links com mais linhas do que o consumo diário para garantir rotação efetiva.
+- Para máxima taxa de correção, configure um `--auto-repair-links-file` com códigos não utilizados.
+- Consulte no resumo os campos `auto_repair_attempted`, `auto_repair_corrected` e `auto_repair_batch_id` para confirmar a autocorreção.
+- O comando `cycle_affiliate_fallback_daily_team` já roda em modo estrito (força + exige correção).
 
 1. Listar pendentes por categoria (suplementos/acessórios/demais):
 
@@ -59,7 +144,6 @@ npm run -s affiliate_validation_apply_batch -- --batch-id <UUID> --links-file li
 
 ```bash
 npm run -s affiliate_validation_open_batch -- --batch-id <UUID> --out-prefix logs/affiliate-validation-open
-```
 ```
 
 ## Regras e validações de entrada

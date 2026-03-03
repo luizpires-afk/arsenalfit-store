@@ -55,6 +55,59 @@ const summarizeItems = (rows) => ({
   skipped: rows.filter((row) => String(row?.apply_status || "").toUpperCase() === "SKIPPED").length,
 });
 
+const getProjectRef = () => {
+  if (process.env.SUPABASE_PROJECT_REF) return String(process.env.SUPABASE_PROJECT_REF).trim();
+  const projectRefFile = "supabase/.temp/project-ref";
+  if (fs.existsSync(projectRefFile)) return String(fs.readFileSync(projectRefFile, "utf8")).trim();
+  return "";
+};
+
+const sqlEscape = (value) => String(value ?? "").replace(/'/g, "''");
+
+const runAdminSqlApplyFallback = async ({ batchIdValue, normalizedLinks }) => {
+  const projectRef = getProjectRef();
+  const accessToken = String(process.env.SUPABASE_ACCESS_TOKEN || "").trim();
+  if (!projectRef || !accessToken) {
+    throw new Error(
+      "admin_required and fallback_unavailable: set SUPABASE_ACCESS_TOKEN (and project ref if needed) to use SQL admin API fallback",
+    );
+  }
+
+  const safeBatchId = sqlEscape(batchIdValue);
+  const sqlLinksArray = (Array.isArray(normalizedLinks) ? normalizedLinks : [])
+    .map((url) => `'${sqlEscape(url)}'`)
+    .join(",");
+  const query = [
+    "select set_config('request.jwt.claim.role','service_role', true);",
+    `select public.apply_affiliate_validation_batch('${safeBatchId}'::uuid, ARRAY[${sqlLinksArray}]::text[]) as result;`,
+  ].join(" ");
+
+  const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query }),
+  });
+
+  const text = await response.text();
+  let parsed = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+  }
+  if (!response.ok) {
+    throw new Error(
+      `admin_sql_fallback_failed: ${response.status} ${response.statusText} ${typeof parsed === "string" ? parsed : JSON.stringify(parsed || {})}`,
+    );
+  }
+  return parsed;
+};
+
 const main = async () => {
   const {
     parseAffiliateLinksInput,
@@ -140,10 +193,24 @@ const main = async () => {
     throw new Error(`Falha de validacao de entrada:\n- ${validation.errors.join("\n- ")}`);
   }
 
-  const rpcResult = await client.rpc("apply_affiliate_validation_batch", {
-    p_batch_id: batchId,
-    p_affiliate_urls: validation.normalizedLinks,
-  });
+  let rpcResult = null;
+  let executionMode = "rpc";
+  try {
+    rpcResult = await client.rpc("apply_affiliate_validation_batch", {
+      p_batch_id: batchId,
+      p_affiliate_urls: validation.normalizedLinks,
+    });
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (!/admin_required/i.test(message)) {
+      throw error;
+    }
+    rpcResult = await runAdminSqlApplyFallback({
+      batchIdValue: batchId,
+      normalizedLinks: validation.normalizedLinks,
+    });
+    executionMode = "admin_sql_api";
+  }
 
   const itemsAfter = await client.request(
     `/affiliate_validation_batch_items?select=id,position,product_id,source_url,external_id,affiliate_url,apply_status,error_message,applied_at,old_status,new_status,old_is_active,new_is_active&batch_id=eq.${encodeURIComponent(batchId)}&order=position.asc`,
@@ -194,6 +261,7 @@ const main = async () => {
       warnings: validation.warnings,
     },
     result: rpcResult,
+    execution_mode: executionMode,
     totals: summarizeItems(rowsAfter),
     error_summary: summarizeErrorReasons(rowsAfter),
     final_integrity: {
@@ -230,6 +298,22 @@ const main = async () => {
 };
 
 main().catch((err) => {
-  console.error(err?.message || err);
+  const message = err?.message || String(err);
+  if (outPrefix) {
+    try {
+      fs.mkdirSync(path.dirname(outPrefix), { recursive: true });
+      const payload = {
+        ok: false,
+        batch_id: batchId || null,
+        error: message,
+      };
+      fs.writeFileSync(`${outPrefix}.json`, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      fs.writeFileSync(`${outPrefix}.csv`, `${toCsv([payload])}\n`, "utf8");
+      fs.writeFileSync(`${outPrefix}.txt`, `ok=false\nerror=${message}\n`, "utf8");
+    } catch {
+      // ignore artifact write errors on failure path
+    }
+  }
+  console.error(message);
   process.exit(1);
 });
