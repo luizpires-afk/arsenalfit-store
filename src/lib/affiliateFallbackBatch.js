@@ -23,7 +23,7 @@ export const pickFallbackRows = ({
   const normalizedCategory = normalizeCategoryFilter(category);
   const filtered = (Array.isArray(pendingRows) ? pendingRows : [])
     .filter((row) => {
-      if (!normalizedCategory) return true;
+      if (!normalizedCategory || normalizedCategory === "all") return true;
       const block = classifyCategoryBlock(row?.categoria || row?.category || row?.category_name || "");
       return block === normalizedCategory;
     })
@@ -35,7 +35,19 @@ export const pickFallbackRows = ({
       return String(left?.product_id || left?.id || "").localeCompare(String(right?.product_id || right?.id || ""));
     });
 
-  return filtered.slice(0, Math.max(1, Math.min(30, Number(maxItems) || 30)));
+  const seenKeys = new Set();
+  const deduped = [];
+  for (const row of filtered) {
+    const sourceUrl = normalize(row?.source_url);
+    const productKey = normalize(row?.product_id || row?.id);
+    const dedupeKey = sourceUrl || productKey;
+    if (!dedupeKey) continue;
+    if (seenKeys.has(dedupeKey)) continue;
+    seenKeys.add(dedupeKey);
+    deduped.push(row);
+  }
+
+  return deduped.slice(0, Math.max(1, Math.min(30, Number(maxItems) || 30)));
 };
 
 export const buildFallbackBatchSource = ({ baseSource, category }) => {
