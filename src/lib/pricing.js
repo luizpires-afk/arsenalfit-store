@@ -383,25 +383,18 @@ export const resolvePromotionMetrics = (product) => {
 
   const presentationAnchor = toFiniteNumber(pricing.displayStrikethrough);
   const anchorCandidates = [presentationAnchor].filter((anchor) => canUseAnchor(anchor, price));
-  const declaredDiscount = resolveDeclaredDiscount(product);
   let anchorSource = null;
   let anchor = anchorCandidates.length > 0 ? Math.max(...anchorCandidates) : null;
 
   if (anchor !== null) {
     anchorSource = "presentation";
-  } else if (declaredDiscount !== null && declaredDiscount > 0 && declaredDiscount < 95 && price > 0) {
-    const syntheticAnchor = price / (1 - declaredDiscount / 100);
-    if (canUseAnchor(syntheticAnchor, price)) {
-      anchor = syntheticAnchor;
-      anchorSource = "declared_discount";
-    }
   }
 
   const discountValue = anchor !== null ? Math.max(anchor - price, 0) : 0;
   const discountPercent =
     anchor !== null && anchor > 0
       ? Math.round((discountValue / anchor) * 100)
-      : declaredDiscount ?? 0;
+      : 0;
 
   return {
     price,
