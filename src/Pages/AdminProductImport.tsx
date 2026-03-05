@@ -28,6 +28,9 @@ const extractMlItemId = (value: string) => {
 
 type ImportSummary = {
   imported: number;
+  parsed: number;
+  validated: number;
+  activated: number;
   invalid: number;
   pipelineTriggered: boolean;
 };
@@ -74,7 +77,14 @@ export default function AdminProductImport() {
     }
 
     if (!validPairs.length) {
-      setSummary({ imported: 0, invalid: invalidLinks, pipelineTriggered: false });
+      setSummary({
+        imported: 0,
+        parsed: 0,
+        validated: 0,
+        activated: 0,
+        invalid: invalidLinks,
+        pipelineTriggered: false,
+      });
       toast.error("Nenhum link valido encontrado para importacao.");
       return;
     }
@@ -127,11 +137,35 @@ export default function AdminProductImport() {
         if (catalogError) throw catalogError;
       }
 
-      const { error: triggerError } = await supabase.rpc("trigger_catalog_ingest_auto");
-      const pipelineTriggered = !triggerError;
+      const insertedIds = (inserted || []).map((row) => row.id).filter(Boolean);
+      let pipelineTriggered = false;
+      let parsed = 0;
+      let validated = 0;
+      let activated = 0;
+
+      try {
+        const resp = await fetch("/.netlify/functions/admin-import-pipeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productIds: insertedIds }),
+        });
+        if (resp.ok) {
+          const body = await resp.json();
+          pipelineTriggered = Boolean(body?.ok ?? true);
+          parsed = Number(body?.summary?.products_parsed || 0) || 0;
+          validated = Number(body?.summary?.products_validated || 0) || 0;
+          activated = Number(body?.summary?.products_activated || 0) || 0;
+        }
+      } catch {
+        const { error: triggerError } = await supabase.rpc("trigger_catalog_ingest_auto");
+        pipelineTriggered = !triggerError;
+      }
 
       setSummary({
         imported: inserted?.length || 0,
+        parsed,
+        validated,
+        activated,
         invalid: invalidLinks,
         pipelineTriggered,
       });
@@ -193,6 +227,9 @@ export default function AdminProductImport() {
           {summary ? (
             <div className="rounded-md border p-4 text-sm space-y-1">
               <p>Products Imported: {summary.imported}</p>
+              <p>Products Parsed: {summary.parsed}</p>
+              <p>Products Validated: {summary.validated}</p>
+              <p>Products Activated: {summary.activated}</p>
               <p>Invalid Links: {summary.invalid}</p>
               <p>Pipeline Triggered: {summary.pipelineTriggered ? "YES" : "NO"}</p>
             </div>

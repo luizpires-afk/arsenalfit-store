@@ -14,16 +14,31 @@ cd "$PROJECT_ROOT"
 echo "[$RUN_TS] [ml_30m_sync_cycle] START" >> "$RUN_LOG"
 
 FAILED_STEPS=0
+MAX_RETRIES=2
 
 run_step() {
 	local step="$1"
+	local attempt=1
+	local max_attempts=$((MAX_RETRIES + 1))
 	echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_start=${step}" >> "$RUN_LOG"
-	if npm run "$step" >> "$RUN_LOG" 2>&1; then
-		echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_ok=${step}" >> "$RUN_LOG"
-	else
-		FAILED_STEPS=$((FAILED_STEPS + 1))
-		echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_failed=${step}" >> "$RUN_LOG"
-	fi
+
+	while [ "$attempt" -le "$max_attempts" ]; do
+		echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_attempt=${step} attempt=${attempt}/${max_attempts}" >> "$RUN_LOG"
+		if npm run "$step" >> "$RUN_LOG" 2>&1; then
+			echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_ok=${step} attempt=${attempt}" >> "$RUN_LOG"
+			return 0
+		fi
+
+		if [ "$attempt" -lt "$max_attempts" ]; then
+			echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_retry=${step} next_attempt=$((attempt + 1))" >> "$RUN_LOG"
+			sleep 2
+		fi
+
+		attempt=$((attempt + 1))
+	done
+
+	FAILED_STEPS=$((FAILED_STEPS + 1))
+	echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] step_failed=${step} attempts=${max_attempts}" >> "$RUN_LOG"
 }
 
 run_step "ai_trend_predictor"
@@ -37,6 +52,7 @@ run_step "undervalued_product_detector"
 run_step "recalculate_product_scores_auto"
 run_step "ai_profit_predictor"
 run_step "conversion_optimizer"
+run_step "auto_activate_high_quality"
 run_step "ai_dynamic_pricing"
 run_step "ai_ads_optimizer"
 run_step "ai_product_description_generator"

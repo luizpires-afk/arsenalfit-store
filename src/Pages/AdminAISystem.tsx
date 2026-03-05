@@ -35,38 +35,61 @@ export default function AdminAISystem() {
     queryFn: async () => {
       const [
         productsTotal,
+        activeProducts,
+        pendingValidation,
+        highConversionProducts,
         seoPagesTotal,
-        seoKeywordsTotal,
-        adsCampaignsTotal,
+        trendSignalsDetected,
+        predictedTrends,
+        adsCampaignsActive,
         avgConversionScore,
         avgProfitScore,
       ] = await Promise.all([
         safeCount("products"),
+        safeCount("products", (q) => q.eq("is_active", true)),
+        safeCount("products", (q) => q.eq("affiliate_validation_status", "PENDING")),
+        safeCount("products", (q) => q.gt("conversion_score", 0.6)),
         safeCount("seo_pages"),
-        safeCount("seo_keyword_universe"),
-        safeCount("ad_campaigns"),
+        safeCount("trend_signals"),
+        safeCount("predicted_trends"),
+        safeCount("ad_campaigns", (q) => q.eq("status", "active")),
         safeAvg("product_conversion_metrics", "conversion_score"),
         safeAvg("products", "profit_score"),
       ]);
 
-      const [pricing24hCount, rankedCount, visibleCount] = await Promise.all([
-        safeCount("product_price_intelligence", (q) =>
-          q.gte("updated_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
-        ),
-        safeCount("products", (q) => q.gt("rank_score", 0)),
-        safeCount("products", (q) => q.eq("visible", true)),
-      ]);
+      let pipelineMeta = {
+        pipeline_status: "FAILED",
+        last_pipeline_run_time: null as string | null,
+        duration_seconds: 0,
+      };
+      try {
+        const resp = await fetch("/.netlify/functions/pipeline-status");
+        if (resp.ok) {
+          const payload = await resp.json();
+          pipelineMeta = {
+            pipeline_status: String(payload?.pipeline_status || "FAILED"),
+            last_pipeline_run_time: payload?.last_pipeline_run_time || null,
+            duration_seconds: Number(payload?.duration_seconds || 0) || 0,
+          };
+        }
+      } catch {
+        // Ignore and keep fallback values.
+      }
 
       return {
         products_total: productsTotal,
-        products_ranked: rankedCount,
-        products_visible: visibleCount,
+        products_active: activeProducts,
+        pending_validation: pendingValidation,
+        high_conversion_products: highConversionProducts,
         seo_pages_total: seoPagesTotal,
-        seo_keywords_total: seoKeywordsTotal,
-        ads_campaigns_total: adsCampaignsTotal,
+        trend_signals_detected: trendSignalsDetected,
+        predicted_trends: predictedTrends,
+        ads_campaigns_active: adsCampaignsActive,
         avg_conversion_score: avgConversionScore,
         avg_profit_score: avgProfitScore,
-        pricing_updates_last_24h: pricing24hCount || 0,
+        pipeline_status: pipelineMeta.pipeline_status,
+        last_pipeline_run_time: pipelineMeta.last_pipeline_run_time,
+        pipeline_duration_seconds: pipelineMeta.duration_seconds,
       };
     },
     refetchInterval: 30000,
@@ -79,14 +102,18 @@ export default function AdminAISystem() {
 
   const items = [
     ["products_total", metrics.products_total],
-    ["products_ranked", metrics.products_ranked],
-    ["products_visible", metrics.products_visible],
+    ["products_active", metrics.products_active],
+    ["pending_validation", metrics.pending_validation],
+    ["high_conversion_products", metrics.high_conversion_products],
     ["seo_pages_total", metrics.seo_pages_total],
-    ["seo_keywords_total", metrics.seo_keywords_total],
-    ["ads_campaigns_total", metrics.ads_campaigns_total],
+    ["trend_signals_detected", metrics.trend_signals_detected],
+    ["predicted_trends", metrics.predicted_trends],
+    ["ads_campaigns_active", metrics.ads_campaigns_active],
     ["avg_conversion_score", metrics.avg_conversion_score],
     ["avg_profit_score", metrics.avg_profit_score],
-    ["pricing_updates_last_24h", metrics.pricing_updates_last_24h],
+    ["pipeline_status", metrics.pipeline_status],
+    ["last_pipeline_run_time", metrics.last_pipeline_run_time || "-"],
+    ["pipeline_duration_seconds", metrics.pipeline_duration_seconds],
   ];
 
   return (
