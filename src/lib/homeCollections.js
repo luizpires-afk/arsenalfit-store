@@ -24,7 +24,7 @@ const getDayKey = (value, timeZone = DEFAULT_TZ) => {
 };
 
 const isActiveProduct = (product) => product?.is_active !== false;
-const isVerifiedProduct = (product) => product?.affiliate_verified === true;
+const isVerifiedProduct = (product) => product?.affiliate_verified !== false;
 
 const getProductScore = (product) => {
   const direct = Number(product?.product_score ?? 0);
