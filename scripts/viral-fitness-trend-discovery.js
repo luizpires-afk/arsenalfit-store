@@ -9,6 +9,7 @@ import {
   chunk,
   writeJson,
 } from "./_affiliate_catalog_common.js";
+import { normalizeProductNameToQueries, normalizeProductNameTokens } from "./product-name-normalizer.js";
 
 const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "logs/viral-fitness-trend-discovery.json");
@@ -78,6 +79,48 @@ const estimatePriceMargin = (avgPrice) => {
 const calcTrendScore = ({ searchGrowth, socialMentions, salesVelocity, priceMargin }) =>
   Number(((searchGrowth * 0.3) + (socialMentions * 0.3) + (salesVelocity * 0.2) + (priceMargin * 0.2)).toFixed(3));
 
+const applySourceBoost = (score, sourcePlatform) => {
+  if (String(sourcePlatform || "").toLowerCase() === "tiktok") {
+    return Number((score * 1.2).toFixed(3));
+  }
+  return Number(score.toFixed(3));
+};
+
+const toNum = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const clamp01 = (value) => Math.max(0, Math.min(1, value));
+
+const textSimilarity = (a, b) => {
+  const aTokens = new Set(normalizeProductNameTokens(a));
+  const bTokens = new Set(normalizeProductNameTokens(b));
+  if (!aTokens.size || !bTokens.size) return 0;
+  let inter = 0;
+  for (const token of aTokens) {
+    if (bTokens.has(token)) inter += 1;
+  }
+  const union = new Set([...aTokens, ...bTokens]).size;
+  return union > 0 ? inter / union : 0;
+};
+
+const computeMatchConfidence = ({ trendName, listingTitle, sellerRating, reviews, price }) => {
+  const sim = clamp01(textSimilarity(trendName, listingTitle));
+  const sellerScore = clamp01(toNum(sellerRating) / 5);
+  const reviewScore = clamp01(Math.log1p(toNum(reviews)) / Math.log1p(1500));
+  const priceCompetitiveness = clamp01(1 - (toNum(price) / 3000));
+
+  return Number(
+    (
+      (sim * 0.5) +
+      (sellerScore * 0.2) +
+      (reviewScore * 0.2) +
+      (priceCompetitiveness * 0.1)
+    ).toFixed(4),
+  );
+};
+
 const collectSignalsBySource = async ({ token, sourcePlatform, terms }) => {
   const discovered = [];
 
@@ -111,7 +154,7 @@ const collectSignalsBySource = async ({ token, sourcePlatform, terms }) => {
       discovered.push({
         product_name: term,
         source_platform: sourcePlatform,
-        trend_score: trendScore,
+        trend_score: applySourceBoost(trendScore, sourcePlatform),
         signal: {
           search_growth: Number(searchGrowth.toFixed(3)),
           social_mentions: Number(socialMentions.toFixed(3)),
@@ -127,12 +170,15 @@ const collectSignalsBySource = async ({ token, sourcePlatform, terms }) => {
       discovered.push({
         product_name: term,
         source_platform: sourcePlatform,
-        trend_score: calcTrendScore({
-          searchGrowth: synthetic.searchGrowth,
-          socialMentions: synthetic.socialMentions,
-          salesVelocity: synthetic.salesVelocity,
-          priceMargin: synthetic.priceMargin,
-        }),
+        trend_score: applySourceBoost(
+          calcTrendScore({
+            searchGrowth: synthetic.searchGrowth,
+            socialMentions: synthetic.socialMentions,
+            salesVelocity: synthetic.salesVelocity,
+            priceMargin: synthetic.priceMargin,
+          }),
+          sourcePlatform,
+        ),
         signal: {
           search_growth: Number(synthetic.searchGrowth.toFixed(3)),
           social_mentions: Number(synthetic.socialMentions.toFixed(3)),
@@ -161,14 +207,41 @@ const fetchSellerRatingAndReviews = async (token, mlItemId) => {
   }
 };
 
-const matchBestMercadoLivreListing = async ({ token, productName }) => {
-  const search = await fetchMl(
-    `/sites/MLB/search?q=${encodeURIComponent(productName)}&limit=25`,
-    token,
-  );
-  const rows = Array.isArray(search?.results) ? search.results : [];
+const searchMlByQueries = async ({ token, queries, limit = 25 }) => {
+  const byItem = new Map();
 
-  const candidates = [];
+  for (const query of queries.slice(0, 5)) {
+    try {
+      const search = await fetchMl(
+        `/sites/MLB/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+        token,
+      );
+      const rows = Array.isArray(search?.results) ? search.results : [];
+      for (const row of rows) {
+        const mlItemId = normalizeMlItemId(row?.id || row?.permalink);
+        if (!mlItemId) continue;
+        if (!byItem.has(mlItemId)) byItem.set(mlItemId, row);
+      }
+    } catch {
+      // ignore single query failure
+    }
+  }
+
+  return Array.from(byItem.values());
+};
+
+const classifyCandidate = ({ sellerRating, reviewsCount, stock, fastShipping }) => {
+  const isStrict = sellerRating > 4.5 && reviewsCount > 100 && stock > 20 && fastShipping;
+  const isNear = sellerRating > 4.2 && reviewsCount > 50 && stock > 10;
+  return { isStrict, isNear };
+};
+
+const matchMercadoLivreListings = async ({ token, productName }) => {
+  const queries = normalizeProductNameToQueries(productName, 5);
+  const rows = await searchMlByQueries({ token, queries, limit: 25 });
+
+  const strictCandidates = [];
+  const nearCandidates = [];
 
   for (const row of rows) {
     const mlItemId = normalizeMlItemId(row?.id || row?.permalink);
@@ -187,25 +260,51 @@ const matchBestMercadoLivreListing = async ({ token, productName }) => {
     const fastShipping =
       item?.shipping?.free_shipping === true ||
       ["fulfillment", "cross_docking"].includes(String(item?.shipping?.logistic_type || "").toLowerCase());
+    const listingTitle = String(item?.title || row?.title || "").trim();
+    const price = Number(item?.price || row?.price || 0) || 0;
+    const confidence = computeMatchConfidence({
+      trendName: productName,
+      listingTitle,
+      sellerRating,
+      reviews: reviewsCount,
+      price,
+    });
 
-    if (!(sellerRating > 4.5 && reviewsCount > 100 && stock > 20 && fastShipping)) continue;
-
-    const score = (sellerRating * 2) + Math.min(5, reviewsCount / 250) + Math.min(5, stock / 100) + (fastShipping ? 2 : 0);
-
-    candidates.push({
-      score,
+    const base = {
+      score: (sellerRating * 2) + Math.min(5, reviewsCount / 250) + Math.min(5, stock / 100) + (fastShipping ? 2 : 0),
       ml_item_id: mlItemId,
       mercadolivre_product_url: String(item?.permalink || row?.permalink || "").trim(),
-      price: Number(item?.price || row?.price || 0) || 0,
+      title: listingTitle,
+      price,
       seller_rating: sellerRating,
       reviews: reviewsCount,
       stock,
       fast_shipping: fastShipping,
+      match_confidence: confidence,
+    };
+
+    const { isStrict, isNear } = classifyCandidate({
+      sellerRating,
+      reviewsCount,
+      stock,
+      fastShipping,
     });
+
+    if (isStrict) {
+      strictCandidates.push(base);
+      continue;
+    }
+    if (isNear) nearCandidates.push(base);
   }
 
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0] || null;
+  strictCandidates.sort((a, b) => (b.score + b.match_confidence) - (a.score + a.match_confidence));
+  nearCandidates.sort((a, b) => (b.match_confidence + (b.score / 20)) - (a.match_confidence + (a.score / 20)));
+
+  return {
+    queries,
+    strict: strictCandidates,
+    near: nearCandidates,
+  };
 };
 
 const matchFromLocalCatalog = async ({ client, productName }) => {
@@ -240,7 +339,7 @@ const matchFromLocalCatalog = async ({ client, productName }) => {
 };
 
 const main = async () => {
-  const { client } = parseEnvAndClient(envFile);
+  const { env, client } = parseEnvAndClient(envFile);
   const token = getMlToken(process.env);
 
   const allSignals = [];
@@ -252,28 +351,51 @@ const main = async () => {
   const trending = allSignals.filter((row) => Number(row.trend_score || 0) > threshold);
 
   const matched = [];
+  const nearMatches = [];
   for (const trend of trending) {
     try {
-      let listing = await matchBestMercadoLivreListing({ token, productName: trend.product_name });
-      if (!listing) {
-        listing = await matchFromLocalCatalog({ client, productName: trend.product_name });
-      }
-      if (!listing || !listing.mercadolivre_product_url) continue;
+      const result = await matchMercadoLivreListings({ token, productName: trend.product_name });
+      let listing = result.strict[0] || null;
+      const near = result.near[0] || null;
 
-      matched.push({
-        product_name: trend.product_name,
-        source_platform: trend.source_platform,
-        trend_score: trend.trend_score,
-        mercadolivre_product_url: listing.mercadolivre_product_url,
-        price: listing.price,
-        seller_rating: listing.seller_rating,
-        reviews: listing.reviews,
-        status: "pending_review",
-        ml_item_id: listing.ml_item_id,
-        stock: listing.stock,
-        fast_shipping: listing.fast_shipping,
-        raw_signal: trend.signal,
-      });
+      if (!listing) {
+        const localStrict = await matchFromLocalCatalog({ client, productName: trend.product_name });
+        listing = localStrict;
+      }
+
+      if (listing && listing.mercadolivre_product_url) {
+        matched.push({
+          product_name: trend.product_name,
+          source_platform: trend.source_platform,
+          trend_score: trend.trend_score,
+          mercadolivre_product_url: listing.mercadolivre_product_url,
+          price: listing.price,
+          seller_rating: listing.seller_rating,
+          reviews: listing.reviews,
+          status: "pending_review",
+          ml_item_id: listing.ml_item_id,
+          stock: listing.stock,
+          fast_shipping: listing.fast_shipping,
+          raw_signal: {
+            ...trend.signal,
+            ml_queries: result.queries,
+            match_confidence: listing.match_confidence ?? null,
+          },
+        });
+      }
+
+      if (near && near.mercadolivre_product_url) {
+        nearMatches.push({
+          product_name: trend.product_name,
+          source_platform: trend.source_platform,
+          trend_score: trend.trend_score,
+          mercadolivre_product_url: near.mercadolivre_product_url,
+          price: near.price,
+          seller_rating: near.seller_rating,
+          reviews: near.reviews,
+          match_confidence: near.match_confidence,
+        });
+      }
     } catch {
       // Ignore failed match attempts.
     }
@@ -291,17 +413,53 @@ const main = async () => {
     upserted += Array.isArray(result) ? result.length : part.length;
   }
 
+  let nearUpserted = 0;
+  for (const part of chunk(nearMatches, 50)) {
+    const result = await client.request(`/trend_near_matches`, {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=representation",
+      },
+      body: JSON.stringify(part),
+    });
+    nearUpserted += Array.isArray(result) ? result.length : part.length;
+  }
+
+  let approvedProducts = 0;
+  try {
+    const headers = { apikey: env.SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SERVICE_ROLE_KEY}`, Prefer: "count=exact" };
+    const resp = await fetch(`${env.SUPABASE_URL}/rest/v1/trend_discovered_products?select=id&status=eq.approved`, {
+      method: "HEAD",
+      headers,
+    });
+    const cr = resp.headers.get("content-range") || "*/0";
+    approvedProducts = Number(String(cr).split("/")[1] || 0) || 0;
+  } catch {
+    approvedProducts = 0;
+  }
+
   const report = {
     generated_at: new Date().toISOString(),
     ok: true,
     threshold,
+    signals_found: allSignals.length,
+    above_threshold: trending.length,
+    ml_candidates: matched.length,
+    near_matches: nearMatches.length,
+    approved_products: approvedProducts,
     totals: {
-      discovered_signals: allSignals.length,
+      signals_found: allSignals.length,
       above_threshold: trending.length,
-      mercadolivre_candidates: matched.length,
+      ml_candidates: matched.length,
+      near_matches: nearMatches.length,
+      approved_products: approvedProducts,
       upserted,
+      near_upserted: nearUpserted,
     },
-    samples: matched.slice(0, 20),
+    samples: {
+      strict: matched.slice(0, 20),
+      near: nearMatches.slice(0, 20),
+    },
   };
 
   writeJson(outFile, report);
