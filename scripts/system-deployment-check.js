@@ -47,9 +47,23 @@ const checkTable = async (url, key, table) => {
         Authorization: `Bearer ${key}`,
       },
     });
-    return resp.ok;
+    if (resp.ok) return { ok: true, status: "ok" };
+
+    const text = await resp.text().catch(() => "");
+    const msg = String(text || "").toLowerCase();
+    if (
+      resp.status === 404 ||
+      msg.includes("does not exist") ||
+      msg.includes("could not find the table")
+    ) {
+      return { ok: false, status: "table_missing" };
+    }
+    if (resp.status === 401 || resp.status === 403 || msg.includes("permission")) {
+      return { ok: false, status: "permission_error" };
+    }
+    return { ok: false, status: "connection_error" };
   } catch {
-    return false;
+    return { ok: false, status: "connection_error" };
   }
 };
 
@@ -64,7 +78,26 @@ const checkAdminRoutes = () => {
   }
 
   const content = String(fs.readFileSync(appPath, "utf8"));
-  const detected = REQUIRED_ADMIN_ROUTES.filter((route) => content.includes(`path=\"${route}\"`));
+  const adminBlocks = [
+    ...content.matchAll(/<Route\b[^>]*path\s*=\s*["']\/admin(?:\/\*)?["'][^>]*>([\s\S]*?)<\/Route>/g),
+  ].map((match) => String(match[1] || ""));
+
+  const hasLegacyRoute = (route) => {
+    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`path\\s*=\\s*["']${escaped}["']`).test(content);
+  };
+
+  const hasNestedChildRoute = (route) => {
+    const childPath = route.replace(/^\/admin\//, "");
+    if (!childPath || childPath === route) return false;
+    const escaped = childPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const childRegex = new RegExp(`path\\s*=\\s*["']${escaped}["']`);
+    return adminBlocks.some((block) => childRegex.test(block));
+  };
+
+  const detected = REQUIRED_ADMIN_ROUTES.filter(
+    (route) => hasLegacyRoute(route) || hasNestedChildRoute(route),
+  );
   const missing = REQUIRED_ADMIN_ROUTES.filter((route) => !detected.includes(route));
 
   return {
@@ -134,17 +167,24 @@ const main = async () => {
       },
     });
     databaseConnected = pingResp.ok;
+    if (!pingResp.ok) {
+      databaseError = `connection_error_http_${pingResp.status}`;
+    }
 
     tableChecks = await Promise.all(
-      REQUIRED_TABLES.map(async (table) => ({
-        table,
-        ok: await checkTable(env.SUPABASE_URL, env.SERVICE_ROLE_KEY, table),
-      })),
+      REQUIRED_TABLES.map(async (table) => {
+        const result = await checkTable(env.SUPABASE_URL, env.SERVICE_ROLE_KEY, table);
+        return {
+          table,
+          ok: result.ok,
+          status: result.status,
+        };
+      }),
     );
   } catch (error) {
     databaseError = String(error?.message || error);
     databaseConnected = false;
-    tableChecks = REQUIRED_TABLES.map((table) => ({ table, ok: false }));
+    tableChecks = REQUIRED_TABLES.map((table) => ({ table, ok: false, status: "connection_error" }));
   }
 
   const routes = checkAdminRoutes();
