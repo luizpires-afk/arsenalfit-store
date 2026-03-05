@@ -36,9 +36,14 @@ run_step "deal_detector_30m"
 run_step "undervalued_product_detector"
 run_step "recalculate_product_scores_auto"
 run_step "ai_profit_predictor"
+run_step "conversion_optimizer"
+run_step "ai_dynamic_pricing"
+run_step "ai_ads_optimizer"
+run_step "ai_product_description_generator"
 run_step "curate_store_products"
 run_step "seo_page_generator"
 run_step "programmatic_seo_engine"
+run_step "seo_keyword_expander"
 
 echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] [ml_30m_sync_cycle] END" >> "$RUN_LOG"
 
@@ -59,9 +64,9 @@ function readJson(path) {
 const trend = readJson('logs/ai-trend-predictor.json') || {};
 const totals = trend.totals || {};
 
-const status = trend.ok === true
-	? (trend.skipped ? 'ok_skipped' : 'ok')
-	: 'error';
+const status = trend.ok === true && trend.skipped !== true
+	? 'active'
+	: 'inactive';
 
 const out = {
 	trend_predictor_status: status,
