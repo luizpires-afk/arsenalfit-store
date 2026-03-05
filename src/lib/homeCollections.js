@@ -1,4 +1,5 @@
 import { resolvePricePresentation, resolvePromotionMetrics } from "./pricing.js";
+import { ROOT_COMMERCE_RULES } from "./rootCommerceRules.js";
 
 const DEFAULT_TZ = "America/Sao_Paulo";
 
@@ -23,6 +24,18 @@ const getDayKey = (value, timeZone = DEFAULT_TZ) => {
 };
 
 const isActiveProduct = (product) => product?.is_active !== false;
+const isVerifiedProduct = (product) => product?.affiliate_verified === true;
+
+const getProductScore = (product) => {
+  const direct = Number(product?.product_score ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+
+  const relation = Array.isArray(product?.product_scores)
+    ? product.product_scores[0]
+    : product?.product_scores || null;
+  const related = Number(relation?.product_score ?? relation?.score_custo_beneficio ?? 0);
+  return Number.isFinite(related) ? related : 0;
+};
 
 const diversifyByCategory = (items, pickProduct, limit) => {
   const usedCategories = new Set();
@@ -45,22 +58,28 @@ const diversifyByCategory = (items, pickProduct, limit) => {
 
 export const selectBestDeals = ({
   products,
-  minDiscountPercent = 20,
-  limit = 16,
+  minDiscountPercent = ROOT_COMMERCE_RULES.bestDeals.minDiscountPercent,
+  limit = ROOT_COMMERCE_RULES.bestDeals.limit,
 }) => {
   const ranked = (products || [])
     .filter(isActiveProduct)
+    .filter(isVerifiedProduct)
     .map((product) => {
       const promo = resolvePromotionMetrics(product);
+      const discountPercent = Number(
+        product?.discount_percentage ?? promo.discountPercent ?? 0,
+      );
       return {
         product,
-        discountPercent: Number(promo.discountPercent || 0),
+        discountPercent,
+        productScore: getProductScore(product),
         refMs: getProductRefMs(product),
       };
     })
     .filter((item) => item.discountPercent >= minDiscountPercent)
     .sort((a, b) => {
       if (b.discountPercent !== a.discountPercent) return b.discountPercent - a.discountPercent;
+      if (b.productScore !== a.productScore) return b.productScore - a.productScore;
       return b.refMs - a.refMs;
     });
 
@@ -70,16 +89,17 @@ export const selectBestDeals = ({
 export const selectPriceDropsToday = ({
   products,
   bestDealIds = new Set(),
-  minDiscountExclusive = 20,
-  timeZone = DEFAULT_TZ,
+  minDiscountExclusive = ROOT_COMMERCE_RULES.priceDropsToday.maxDiscountExclusivePercent,
+  timeZone = ROOT_COMMERCE_RULES.priceDropsToday.timeZone || DEFAULT_TZ,
   now = new Date(),
-  limit = 16,
+  limit = ROOT_COMMERCE_RULES.priceDropsToday.limit,
 }) => {
   const todayKey = getDayKey(now, timeZone);
   if (!todayKey) return [];
 
   const ranked = (products || [])
     .filter(isActiveProduct)
+    .filter(isVerifiedProduct)
     .filter((product) => !bestDealIds.has(product.id))
     .map((product) => {
       const promo = resolvePromotionMetrics(product);
@@ -90,8 +110,10 @@ export const selectPriceDropsToday = ({
         product,
         refMs,
         dropValue: Number(promo.discountValue || 0),
-        discountPercent: Number(promo.discountPercent || 0),
-        hasDrop: promo.anchor !== null && promo.anchor > promo.price,
+        discountPercent: Number(product?.discount_percentage ?? promo.discountPercent ?? 0),
+        hasDrop:
+          product?.price_drop_last_24h === true ||
+          (promo.anchor !== null && promo.anchor > promo.price),
         dayKey,
       };
     })

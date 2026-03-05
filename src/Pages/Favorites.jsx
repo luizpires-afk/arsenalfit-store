@@ -22,7 +22,9 @@ export default function Favorites() {
           const userData = await base44.auth.me();
           setUser(userData);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn("favorites_auth_check_failed", e);
+      }
       setIsCheckingAuth(false);
     };
     checkAuth();

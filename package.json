@@ -100,6 +100,8 @@
     "ai_product_description_generator": "node scripts/ai-product-description-generator.js --env supabase/functions/.env.scheduler --out-file logs/ai-product-description-generator.json --limit 50000",
     "seo_keyword_expander": "node scripts/seo-keyword-expander.js --env supabase/functions/.env.scheduler --out-file logs/seo-keyword-expander.json --max-keywords 100000 --products-per-page 20",
     "ai_system_health_report": "node scripts/ai-system-health-report.js --env supabase/functions/.env.scheduler --out-file reports/system-health.json",
+    "go_live_audit": "node scripts/go-live-audit.js --env supabase/functions/.env.scheduler --out-file reports/go-live-report.json",
+    "pipeline_monitor": "node scripts/pipeline-monitor.js --env supabase/functions/.env.scheduler --out-file reports/pipeline-health.json",
     "curate_store_products": "node scripts/curate-store-products.js --env supabase/functions/.env.scheduler --out-file logs/curate-store-products.json --limit 1000",
     "seo_page_generator": "node scripts/seo-page-generator.js --env supabase/functions/.env.scheduler --base-url https://arsenalfit.store --sitemap-out public/sitemap-products.xml --out-file logs/seo-page-generator.json",
     "programmatic_seo_engine": "node scripts/programmatic-seo-engine.js --env supabase/functions/.env.scheduler --out-file logs/programmatic-seo-engine.json --page-limit 10000 --products-per-page 20",

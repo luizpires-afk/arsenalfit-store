@@ -1,0 +1,23 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "node": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "rules": {
+    "no-useless-escape": "off",
+    "no-unused-vars": "off",
+    "no-constant-condition": "off",
+    "no-extra-boolean-cast": "off"
+  },
+  "ignorePatterns": ["dist/", "coverage/", "node_modules/"]
+}

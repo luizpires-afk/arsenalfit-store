@@ -17,6 +17,7 @@ import Cadastro from "@/Pages/Cadastro";
 import Admin from "@/Pages/Admin";
 import ProductDetail from "@/Pages/ProductDetails";
 import CategoryPage from "@/Pages/Category";
+import FitnessCategorySEO from "@/Pages/FitnessCategorySEO";
 import Categories from "@/Pages/Categories";
 import Products from "@/Pages/Products";
 import ArsenalCollection from "@/Pages/ArsenalCollection";
@@ -34,6 +35,8 @@ import AuthConfirmed from "@/Pages/AuthConfirmed";
 import NotFound from "@/Pages/NotFound";
 import PriceAdjustments from "@/Pages/PriceAdjustments";
 import PriceSyncReport from "@/Pages/PriceSyncReport";
+import AdminProductImport from "@/Pages/AdminProductImport";
+import AdminAISystem from "@/Pages/AdminAISystem";
 import Terms from "@/Pages/Terms";
 import Privacy from "@/Pages/Privacy";
 import Affiliates from "@/Pages/Affiliates";
@@ -41,6 +44,7 @@ import Verify from "@/Pages/Verify";
 import ResetPassword from "@/Pages/ResetPassword";
 import OutProduct from "@/Pages/OutProduct";
 import ComoMonitorar from "@/Pages/ComoMonitorar";
+import { AdminRoute } from "@/Components/auth/AdminRoute";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,9 +83,46 @@ const AppRoutes = () => {
         <Route path="/cadastro" element={<Cadastro />} />
         <Route path="/register" element={<Register />} />
         <Route path="/update-password" element={<UpdatePassword />} />
-        <Route path="/admin" element={<Admin />} />
-        <Route path="/admin/price-adjustments" element={<PriceAdjustments />} />
-        <Route path="/admin/price-sync" element={<PriceSyncReport />} />
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <Admin />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/price-adjustments"
+          element={
+            <AdminRoute>
+              <PriceAdjustments />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/price-sync"
+          element={
+            <AdminRoute>
+              <PriceSyncReport />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/product-import"
+          element={
+            <AdminRoute>
+              <AdminProductImport />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/ai-system"
+          element={
+            <AdminRoute>
+              <AdminAISystem />
+            </AdminRoute>
+          }
+        />
         <Route
           path="/produto/:slug"
           element={
@@ -91,6 +132,7 @@ const AppRoutes = () => {
           }
         />
         <Route path="/categoria/:slug" element={<CategoryPage />} />
+        <Route path="/fitness/:slug" element={<FitnessCategorySEO />} />
         <Route path="/categorias" element={<Categories />} />
         <Route path="/arsenal/:collection" element={<ArsenalCollection />} />
         <Route path="/produtos" element={<Products />} />
