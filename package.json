@@ -88,6 +88,8 @@
     "shopee_trend_collector": "node scripts/ai-trend-predictor.js --env supabase/functions/.env.scheduler --out-file logs/ai-trend-predictor-shopee.json --threshold 0.75 --min-run-interval-hours 0",
     "fitness_trend_discovery": "node scripts/fitness-trend-discovery.js --env supabase/functions/.env.scheduler --out-file logs/fitness-trend-discovery.json",
     "catalog_ingest_auto": "node scripts/catalog-ingest.js --env supabase/functions/.env.scheduler --input-file logs/fitness-trend-discovery.json --out-file logs/catalog-ingest-auto.json",
+    "mercadolivre_product_parser": "node scripts/mercadolivre-product-parser.js --env supabase/functions/.env.scheduler --out-file logs/mercadolivre-product-parser.json --limit 200",
+    "admin_import_feed": "npm run mercadolivre_product_parser && npm run catalog_ingest_auto",
     "product_validator_auto": "node scripts/product-validator.js --env supabase/functions/.env.scheduler --out-file logs/product-validator-auto.json",
     "competitor_spy_engine": "node scripts/competitor-spy-engine.js --env supabase/functions/.env.scheduler --out-file logs/competitor-spy-engine.json --sellers-limit 80 --items-per-seller 30",
     "price_history_update": "node scripts/price-history-update.js --env supabase/functions/.env.scheduler --out-file logs/price-history-update.json --limit 50000 --min-minutes 30",

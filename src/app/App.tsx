@@ -116,6 +116,14 @@ const AppRoutes = () => {
           }
         />
         <Route
+          path="/admin/import-products"
+          element={
+            <AdminRoute>
+              <AdminProductImport />
+            </AdminRoute>
+          }
+        />
+        <Route
           path="/admin/ai-system"
           element={
             <AdminRoute>
