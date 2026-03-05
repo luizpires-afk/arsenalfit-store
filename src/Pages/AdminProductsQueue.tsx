@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Com
 import { Button } from "@/Components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { AdminQuickNav } from "@/Components/admin/AdminQuickNav";
 
 type QueueProduct = {
   id: string;
@@ -82,6 +83,7 @@ export default function AdminProductsQueue() {
 
   return (
     <div className="container py-8 space-y-6">
+      <AdminQuickNav />
       <Card>
         <CardHeader>
           <CardTitle>Products Queue</CardTitle>

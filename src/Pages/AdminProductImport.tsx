@@ -5,6 +5,7 @@ import { Button } from "@/Components/ui/button";
 import { Label } from "@/Components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { AdminQuickNav } from "@/Components/admin/AdminQuickNav";
 
 const parseLines = (input: string) =>
   input
@@ -31,6 +32,7 @@ type ImportSummary = {
   parsed: number;
   validated: number;
   activated: number;
+  rejected: number;
   invalid: number;
   pipelineTriggered: boolean;
 };
@@ -82,6 +84,7 @@ export default function AdminProductImport() {
         parsed: 0,
         validated: 0,
         activated: 0,
+        rejected: 0,
         invalid: invalidLinks,
         pipelineTriggered: false,
       });
@@ -142,6 +145,7 @@ export default function AdminProductImport() {
       let parsed = 0;
       let validated = 0;
       let activated = 0;
+      let rejected = 0;
 
       try {
         const resp = await fetch("/.netlify/functions/admin-import-pipeline", {
@@ -155,6 +159,7 @@ export default function AdminProductImport() {
           parsed = Number(body?.summary?.products_parsed || 0) || 0;
           validated = Number(body?.summary?.products_validated || 0) || 0;
           activated = Number(body?.summary?.products_activated || 0) || 0;
+          rejected = Number(body?.summary?.products_rejected || 0) || 0;
         }
       } catch {
         const { error: triggerError } = await supabase.rpc("trigger_catalog_ingest_auto");
@@ -166,6 +171,7 @@ export default function AdminProductImport() {
         parsed,
         validated,
         activated,
+        rejected,
         invalid: invalidLinks,
         pipelineTriggered,
       });
@@ -182,6 +188,7 @@ export default function AdminProductImport() {
 
   return (
     <div className="container py-8 space-y-6">
+      <AdminQuickNav />
       <Card>
         <CardHeader>
           <CardTitle>Admin Product Import</CardTitle>
@@ -230,6 +237,7 @@ export default function AdminProductImport() {
               <p>Products Parsed: {summary.parsed}</p>
               <p>Products Validated: {summary.validated}</p>
               <p>Products Activated: {summary.activated}</p>
+              <p>Products Rejected: {summary.rejected}</p>
               <p>Invalid Links: {summary.invalid}</p>
               <p>Pipeline Triggered: {summary.pipelineTriggered ? "YES" : "NO"}</p>
             </div>

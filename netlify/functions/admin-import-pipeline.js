@@ -59,6 +59,23 @@ const countParsed = async (supabase, productIds) => {
   return count || 0;
 };
 
+const computeRejected = async (supabase, productIds) => {
+  if (!Array.isArray(productIds) || productIds.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, affiliate_validation_status, status, is_active")
+    .in("id", productIds);
+  if (error || !Array.isArray(data)) return 0;
+
+  return data.filter((row) => {
+    const av = String(row?.affiliate_validation_status || "").toUpperCase();
+    const st = String(row?.status || "").toLowerCase();
+    if (av.startsWith("INVALID") || av.startsWith("ERROR")) return true;
+    if (st === "rejected" || st === "blocked") return true;
+    return false;
+  }).length;
+};
+
 export const handler = async (event) => {
   try {
     const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -90,12 +107,13 @@ export const handler = async (event) => {
     const stepResults = steps.map((step) => runStepWithRetry(step, 2));
     const failed = stepResults.filter((r) => !r.ok);
 
-    const [parsed, validated, activated] = await Promise.all([
+    const [parsed, validated, activated, rejected] = await Promise.all([
       countParsed(supabase, productIds),
       countByProductIds(supabase, "products", productIds, (q) =>
         q.in("affiliate_validation_status", ["VALIDATED", "PENDING"]),
       ),
       countByProductIds(supabase, "products", productIds, (q) => q.eq("is_active", true)),
+      computeRejected(supabase, productIds),
     ]);
 
     return jsonResponse(200, {
@@ -106,6 +124,7 @@ export const handler = async (event) => {
         products_parsed: parsed,
         products_validated: validated,
         products_activated: activated,
+        products_rejected: rejected,
       },
     });
   } catch (error) {

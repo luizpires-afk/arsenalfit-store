@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Components/ui/card";
 import { Button } from "@/Components/ui/button";
 import { toast } from "sonner";
+import { AdminQuickNav } from "@/Components/admin/AdminQuickNav";
 
 type TrendProduct = {
   id: string;
@@ -194,6 +195,7 @@ export default function AdminTrendProducts() {
 
   return (
     <div className="container py-8 space-y-6">
+      <AdminQuickNav />
       <Card>
         <CardHeader>
           <CardTitle>Trend Products</CardTitle>

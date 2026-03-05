@@ -10,7 +10,7 @@ const jsonResponse = (statusCode, body) => ({
   body: JSON.stringify(body),
 });
 
-const parseLastCycle = (content) => {
+const parseCycles = (content) => {
   const lines = content.split(/\r?\n/).filter(Boolean);
   let current = null;
   const cycles = [];
@@ -25,6 +25,7 @@ const parseLastCycle = (content) => {
         duration_seconds: 0,
         steps_ok: [],
         steps_failed: [],
+        steps_retried: [],
         pipeline_status: "FAILED",
       };
       continue;
@@ -36,6 +37,9 @@ const parseLastCycle = (content) => {
 
     const fail = line.match(/step_failed=([a-z0-9_\-]+)/i);
     if (fail) current.steps_failed.push(fail[1]);
+
+    const retry = line.match(/step_retry=([a-z0-9_\-]+)/i);
+    if (retry) current.steps_retried.push(retry[1]);
 
     const health = line.match(/pipeline_duration=(\d+)s/i);
     if (health) current.duration_seconds = Number(health[1] || 0) || 0;
@@ -58,7 +62,7 @@ const parseLastCycle = (content) => {
   }
 
   if (current) cycles.push(current);
-  return cycles.length ? cycles[cycles.length - 1] : null;
+  return cycles;
 };
 
 export const handler = async () => {
@@ -76,7 +80,8 @@ export const handler = async () => {
     }
 
     const content = String(fs.readFileSync(logPath, "utf8"));
-    const lastCycle = parseLastCycle(content);
+    const cycles = parseCycles(content);
+    const lastCycle = cycles.length ? cycles[cycles.length - 1] : null;
     if (!lastCycle) {
       return jsonResponse(200, {
         pipeline_status: "FAILED",
@@ -87,12 +92,36 @@ export const handler = async () => {
       });
     }
 
+    const successful = [...cycles].reverse().find((c) => c.pipeline_status === "OK") || null;
+    const failed = [...cycles].reverse().find((c) => c.pipeline_status !== "OK") || null;
+    const avgDuration = cycles.length
+      ? Number((cycles.reduce((acc, c) => acc + (Number(c.duration_seconds || 0) || 0), 0) / cycles.length).toFixed(2))
+      : 0;
+
     return jsonResponse(200, {
       pipeline_status: lastCycle.pipeline_status,
       last_pipeline_run_time: lastCycle.ended_at || lastCycle.started_at || null,
       duration_seconds: lastCycle.duration_seconds || 0,
       steps_ok: lastCycle.steps_ok,
       steps_failed: lastCycle.steps_failed,
+      steps_retried: lastCycle.steps_retried,
+      last_successful_cycle: successful
+        ? {
+            started_at: successful.started_at,
+            ended_at: successful.ended_at,
+            duration_seconds: successful.duration_seconds || 0,
+          }
+        : null,
+      last_failed_cycle: failed
+        ? {
+            started_at: failed.started_at,
+            ended_at: failed.ended_at,
+            duration_seconds: failed.duration_seconds || 0,
+            steps_failed: failed.steps_failed,
+          }
+        : null,
+      average_cycle_duration: avgDuration,
+      total_cycles_detected: cycles.length,
     });
   } catch (error) {
     return jsonResponse(500, {

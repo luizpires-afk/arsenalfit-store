@@ -236,8 +236,21 @@ const classifyCandidate = ({ sellerRating, reviewsCount, stock, fastShipping }) 
   return { isStrict, isNear };
 };
 
+const buildKeywordVariations = (productName, maxQueries = 5) => {
+  const base = normalizeProductNameToQueries(productName, maxQueries);
+  const tokens = normalizeProductNameTokens(productName);
+
+  const tokenQueries = [];
+  if (tokens.length > 0) tokenQueries.push(tokens.slice(0, 2).join(" "));
+  if (tokens.length > 1) tokenQueries.push(tokens.slice(0, 3).join(" "));
+  if (tokens.length > 2) tokenQueries.push(`${tokens[0]} ${tokens[2]} academia`);
+
+  const merged = [...new Set([...base, ...tokenQueries].map((q) => String(q || "").trim()).filter(Boolean))];
+  return merged.slice(0, Math.max(3, maxQueries));
+};
+
 const matchMercadoLivreListings = async ({ token, productName }) => {
-  const queries = normalizeProductNameToQueries(productName, 5);
+  const queries = buildKeywordVariations(productName, 5);
   const rows = await searchMlByQueries({ token, queries, limit: 25 });
 
   const strictCandidates = [];

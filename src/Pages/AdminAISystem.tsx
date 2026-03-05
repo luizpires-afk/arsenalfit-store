@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/Components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
+import { AdminQuickNav } from "@/Components/admin/AdminQuickNav";
 
 const num = (value: any) => Number(value || 0);
 
@@ -42,6 +43,11 @@ export default function AdminAISystem() {
         trendSignalsDetected,
         predictedTrends,
         adsCampaignsActive,
+        viralProductsDiscovered,
+        pendingTrendApprovals,
+        nearMatchTrends,
+        productsAutoActivated,
+        dynamicPricingUpdates,
         avgConversionScore,
         avgProfitScore,
       ] = await Promise.all([
@@ -53,6 +59,11 @@ export default function AdminAISystem() {
         safeCount("trend_signals"),
         safeCount("predicted_trends"),
         safeCount("ad_campaigns", (q) => q.eq("status", "active")),
+        safeCount("trend_discovered_products"),
+        safeCount("trend_discovered_products", (q) => q.eq("status", "pending_review")),
+        safeCount("trend_near_matches"),
+        safeCount("products", (q) => q.eq("is_active", true).gt("profit_score", 0.6).gt("trend_score", 0.5).gt("conversion_score", 0.4)),
+        safeCount("product_price_intelligence", (q) => q.gte("updated_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())),
         safeAvg("product_conversion_metrics", "conversion_score"),
         safeAvg("products", "profit_score"),
       ]);
@@ -85,6 +96,11 @@ export default function AdminAISystem() {
         trend_signals_detected: trendSignalsDetected,
         predicted_trends: predictedTrends,
         ads_campaigns_active: adsCampaignsActive,
+        viral_products_discovered: viralProductsDiscovered,
+        pending_trend_approvals: pendingTrendApprovals,
+        near_match_trends: nearMatchTrends,
+        products_auto_activated: productsAutoActivated,
+        dynamic_pricing_updates: dynamicPricingUpdates,
         avg_conversion_score: avgConversionScore,
         avg_profit_score: avgProfitScore,
         pipeline_status: pipelineMeta.pipeline_status,
@@ -109,6 +125,11 @@ export default function AdminAISystem() {
     ["trend_signals_detected", metrics.trend_signals_detected],
     ["predicted_trends", metrics.predicted_trends],
     ["ads_campaigns_active", metrics.ads_campaigns_active],
+    ["viral_products_discovered", metrics.viral_products_discovered],
+    ["pending_trend_approvals", metrics.pending_trend_approvals],
+    ["near_match_trends", metrics.near_match_trends],
+    ["products_auto_activated", metrics.products_auto_activated],
+    ["dynamic_pricing_updates", metrics.dynamic_pricing_updates],
     ["avg_conversion_score", metrics.avg_conversion_score],
     ["avg_profit_score", metrics.avg_profit_score],
     ["pipeline_status", metrics.pipeline_status],
@@ -118,6 +139,7 @@ export default function AdminAISystem() {
 
   return (
     <div className="container py-8 space-y-6">
+      <AdminQuickNav />
       <h1 className="text-2xl font-bold">AI System Dashboard</h1>
       <div className="grid gap-4 md:grid-cols-3">
         {items.map(([label, value]) => (
