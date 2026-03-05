@@ -106,15 +106,27 @@ export const selectPriceDropsToday = ({
       const refMs = getProductRefMs(product);
       const refDate = refMs > 0 ? new Date(refMs) : null;
       const dayKey = refDate ? getDayKey(refDate, timeZone) : null;
+      const price = Number(product?.price ?? 0);
+      const originalPrice = Number(product?.original_price ?? 0);
+      const computedDiscountPercent =
+        Number.isFinite(price) &&
+        Number.isFinite(originalPrice) &&
+        originalPrice > 0 &&
+        originalPrice > price
+          ? Math.round(((originalPrice - price) / originalPrice) * 100)
+          : null;
       return {
         product,
         refMs,
         dropValue: Number(promo.discountValue || 0),
         // For intraday drops, prioritize computed discount from current anchor/price.
         // Declared discount can be stale and incorrectly exclude valid drops.
-        discountPercent: Number(promo.discountPercent ?? product?.discount_percentage ?? 0),
+        discountPercent: Number(
+          computedDiscountPercent ?? promo.discountPercent ?? product?.discount_percentage ?? 0,
+        ),
         hasDrop:
           product?.price_drop_last_24h === true ||
+          (Number.isFinite(originalPrice) && Number.isFinite(price) && originalPrice > price) ||
           (promo.anchor !== null && promo.anchor > promo.price),
         dayKey,
       };
