@@ -14,7 +14,6 @@ import { RouteErrorBoundary } from "@/Components/RouteErrorBoundary";
 import HomeV2 from "@/Pages/HomeV2";
 import Login from "@/Pages/Login";
 import Cadastro from "@/Pages/Cadastro";
-import Admin from "@/Pages/Admin";
 import ProductDetail from "@/Pages/ProductDetails";
 import CategoryPage from "@/Pages/Category";
 import FitnessCategorySEO from "@/Pages/FitnessCategorySEO";
@@ -33,12 +32,6 @@ import MelhoresOfertas from "@/Pages/MelhoresOfertas";
 import AuthSent from "@/Pages/AuthSent";
 import AuthConfirmed from "@/Pages/AuthConfirmed";
 import NotFound from "@/Pages/NotFound";
-import PriceAdjustments from "@/Pages/PriceAdjustments";
-import PriceSyncReport from "@/Pages/PriceSyncReport";
-import AdminProductImport from "@/Pages/AdminProductImport";
-import AdminAISystem from "@/Pages/AdminAISystem";
-import AdminTrendProducts from "@/Pages/AdminTrendProducts";
-import AdminProductsQueue from "@/Pages/AdminProductsQueue";
 import Terms from "@/Pages/Terms";
 import Privacy from "@/Pages/Privacy";
 import Affiliates from "@/Pages/Affiliates";
@@ -47,6 +40,23 @@ import ResetPassword from "@/Pages/ResetPassword";
 import OutProduct from "@/Pages/OutProduct";
 import ComoMonitorar from "@/Pages/ComoMonitorar";
 import { AdminRoute } from "@/Components/auth/AdminRoute";
+import AdminDashboard from "@/admin/dashboard/AdminDashboard";
+import SeoPages from "@/admin/seo/SeoPages";
+import SeoClusters from "@/admin/seo/SeoClusters";
+import SeoHealth from "@/admin/seo/SeoHealth";
+import ProductsTable from "@/admin/products/ProductsTable";
+import LegacyProductsConsole from "@/admin/products/LegacyProductsConsole";
+import ProductsQueue from "@/admin/products/ProductsQueue";
+import ImportProducts from "@/admin/products/ImportProducts";
+import TrendProducts from "@/admin/discovery/TrendProducts";
+import ViralProducts from "@/admin/discovery/ViralProducts";
+import DiscoveryQueue from "@/admin/discovery/DiscoveryQueue";
+import PriceSync from "@/admin/pricing/PriceSync";
+import AdminPriceAdjustments from "@/admin/pricing/PriceAdjustments";
+import AiSystemDashboard from "@/admin/ai/AiSystemDashboard";
+import SystemExplorer from "@/admin/system/SystemExplorer";
+import PipelineHealth from "@/admin/system/PipelineHealth";
+import AdminShell from "@/admin/layout/AdminShell";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,66 +99,29 @@ const AppRoutes = () => {
           path="/admin"
           element={
             <AdminRoute>
-              <Admin />
+              <AdminShell />
             </AdminRoute>
           }
-        />
-        <Route
-          path="/admin/price-adjustments"
-          element={
-            <AdminRoute>
-              <PriceAdjustments />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/price-sync"
-          element={
-            <AdminRoute>
-              <PriceSyncReport />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/product-import"
-          element={
-            <AdminRoute>
-              <AdminProductImport />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/import-products"
-          element={
-            <AdminRoute>
-              <AdminProductImport />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/ai-system"
-          element={
-            <AdminRoute>
-              <AdminAISystem />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/trend-products"
-          element={
-            <AdminRoute>
-              <AdminTrendProducts />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/products-queue"
-          element={
-            <AdminRoute>
-              <AdminProductsQueue />
-            </AdminRoute>
-          }
-        />
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="seo-pages" element={<SeoPages />} />
+          <Route path="seo-clusters" element={<SeoClusters />} />
+          <Route path="seo-health" element={<SeoHealth />} />
+          <Route path="products" element={<ProductsTable />} />
+          <Route path="products-legacy" element={<LegacyProductsConsole />} />
+          <Route path="products-queue" element={<ProductsQueue />} />
+          <Route path="import-products" element={<ImportProducts />} />
+          <Route path="product-import" element={<Navigate to="/admin/import-products" replace />} />
+          <Route path="trend-products" element={<TrendProducts />} />
+          <Route path="viral-products" element={<ViralProducts />} />
+          <Route path="discovery" element={<DiscoveryQueue />} />
+          <Route path="price-sync" element={<PriceSync />} />
+          <Route path="price-adjustments" element={<AdminPriceAdjustments />} />
+          <Route path="ai-system" element={<AiSystemDashboard />} />
+          <Route path="system-explorer" element={<SystemExplorer />} />
+          <Route path="pipeline-health" element={<PipelineHealth />} />
+          <Route path="control-center" element={<Navigate to="/admin" replace />} />
+        </Route>
         <Route
           path="/produto/:slug"
           element={
