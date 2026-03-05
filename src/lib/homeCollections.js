@@ -110,7 +110,9 @@ export const selectPriceDropsToday = ({
         product,
         refMs,
         dropValue: Number(promo.discountValue || 0),
-        discountPercent: Number(product?.discount_percentage ?? promo.discountPercent ?? 0),
+        // For intraday drops, prioritize computed discount from current anchor/price.
+        // Declared discount can be stale and incorrectly exclude valid drops.
+        discountPercent: Number(promo.discountPercent ?? product?.discount_percentage ?? 0),
         hasDrop:
           product?.price_drop_last_24h === true ||
           (promo.anchor !== null && promo.anchor > promo.price),
