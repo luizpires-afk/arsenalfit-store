@@ -37,6 +37,7 @@ import PriceAdjustments from "@/Pages/PriceAdjustments";
 import PriceSyncReport from "@/Pages/PriceSyncReport";
 import AdminProductImport from "@/Pages/AdminProductImport";
 import AdminAISystem from "@/Pages/AdminAISystem";
+import AdminTrendProducts from "@/Pages/AdminTrendProducts";
 import Terms from "@/Pages/Terms";
 import Privacy from "@/Pages/Privacy";
 import Affiliates from "@/Pages/Affiliates";
@@ -128,6 +129,14 @@ const AppRoutes = () => {
           element={
             <AdminRoute>
               <AdminAISystem />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/trend-products"
+          element={
+            <AdminRoute>
+              <AdminTrendProducts />
             </AdminRoute>
           }
         />
