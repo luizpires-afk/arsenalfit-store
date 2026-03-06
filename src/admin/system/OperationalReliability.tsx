@@ -15,13 +15,24 @@ export default function OperationalReliability() {
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["admin-operational-reliability"],
     queryFn: async () => {
-      const [discoveryBacklog, seoDrafts, seoReleasedToday, p1FromDiscovery, p2FromDiscovery, p3FromDiscovery] = await Promise.all([
+      const now = Date.now();
+      const iso24h = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      const iso72h = new Date(now - 72 * 60 * 60 * 1000).toISOString();
+
+      const [discoveryBacklog, seoDrafts, seoReleasedToday, p1FromDiscovery, p2FromDiscovery, p3FromDiscovery, decisions24h, decisions72h, alertsRecent] = await Promise.all([
         safeCount("discovery_candidates", (q) => q.in("status", ["new", "reviewing"])),
         safeCount("seo_pages", (q) => q.eq("release_status", "draft")),
         safeCount("seo_pages", (q) => q.eq("release_status", "released").gte("released_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString())),
         safeCount("discovery_alerts", (q) => q.eq("severity", "critical").in("status", ["new", "acknowledged"])),
         safeCount("discovery_alerts", (q) => q.eq("severity", "warning").in("status", ["new", "acknowledged"])),
         safeCount("discovery_alerts", (q) => q.eq("severity", "info").in("status", ["new", "acknowledged"])),
+        safeCount("discovery_candidate_events", (q) => q.in("event_type", ["approved", "rejected", "saved"]).gte("created_at", iso24h)),
+        safeCount("discovery_candidate_events", (q) => q.in("event_type", ["approved", "rejected", "saved"]).gte("created_at", iso72h)),
+        supabase
+          .from("discovery_alerts" as any)
+          .select("id,alert_type,severity,status,message,created_at")
+          .order("created_at", { ascending: false })
+          .limit(40),
       ]);
 
       let pipeline = {
@@ -61,6 +72,13 @@ export default function OperationalReliability() {
         seoReleasedToday,
         pipeline,
         incidents: { p1, p2, p3 },
+        trends: {
+          decisions24h,
+          decisions72h,
+          decisionsPerHour24h: Number((Number(decisions24h || 0) / 24).toFixed(2)),
+          decisionsPerHour72h: Number((Number(decisions72h || 0) / 72).toFixed(2)),
+        },
+        recentAlerts: alertsRecent.data || [],
       };
     },
     refetchInterval: 30000,
@@ -88,6 +106,13 @@ export default function OperationalReliability() {
         <Card><CardHeader><CardTitle className="text-sm">Pipeline Status</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{String(data?.pipeline?.status || "UNKNOWN")}</p></CardContent></Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Card><CardHeader><CardTitle className="text-sm">Decisions 24h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.trends?.decisions24h ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Decisions 72h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.trends?.decisions72h ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Rate 24h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.trends?.decisionsPerHour24h ?? 0}/h</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Rate 72h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.trends?.decisionsPerHour72h ?? 0}/h</p></CardContent></Card>
+      </div>
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
@@ -110,6 +135,42 @@ export default function OperationalReliability() {
                 <code className="ml-1">docs/operational-runbook.md</code>
               </p>
             </>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Incident Feed</CardTitle>
+          <CardDescription>Alertas recentes para triagem rapida de operacao.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!data?.recentAlerts?.length ? <p className="text-sm text-muted-foreground">Sem incidentes recentes.</p> : null}
+          {data?.recentAlerts?.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="py-2 pr-3">created_at</th>
+                    <th className="py-2 pr-3">severity</th>
+                    <th className="py-2 pr-3">type</th>
+                    <th className="py-2 pr-3">status</th>
+                    <th className="py-2 pr-3">message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.recentAlerts || []).slice(0, 25).map((alert: any) => (
+                    <tr key={String(alert.id)} className="border-b align-top">
+                      <td className="py-2 pr-3">{new Date(alert.created_at).toLocaleString()}</td>
+                      <td className="py-2 pr-3">{String(alert.severity || "-")}</td>
+                      <td className="py-2 pr-3">{String(alert.alert_type || "-")}</td>
+                      <td className="py-2 pr-3">{String(alert.status || "-")}</td>
+                      <td className="py-2 pr-3">{String(alert.message || "-")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </CardContent>
       </Card>

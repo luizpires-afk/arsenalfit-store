@@ -8,6 +8,34 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - P2: Major degradation with business impact.
 - P3: Partial degradation, workaround available.
 
+## Severity Matrix
+- P1 when any of the following is true:
+  - `pipeline_status != OK` in production cycle.
+  - Deploy active SHA differs from `origin/main` for required release.
+  - Critical discovery alert is open and intake baseline is below threshold.
+- P2 when any of the following is true:
+  - Backlog over SLA threshold without complete outage.
+  - SEO DLQ ratio above configured governance limit.
+  - Repeated retry exhaustion in release scheduler.
+- P3 when any of the following is true:
+  - Partial metric degradation with workaround available.
+  - Non-critical alert accumulation requiring scheduled triage.
+
+## Command Map (Fast Triage)
+- Deploy and sync:
+  - `git rev-parse HEAD`
+  - `git ls-remote --heads origin main`
+  - `npm run system_deployment_check`
+- Pipeline health:
+  - `npm run pipeline_final_health`
+  - `npm run discovery_risk_report`
+- Discovery operations:
+  - `npm run discovery_intelligence_run`
+  - Admin: `/admin/ops` and `/admin/discovery`
+- SEO operations:
+  - `npm run seo_release_scheduler`
+  - Admin: `/admin/seo-health`
+
 ## 1) Deploy Failure
 - Detect: `pipeline_status != OK`, failed checks in deployment report, or failed published deploy.
 - Immediate actions:
