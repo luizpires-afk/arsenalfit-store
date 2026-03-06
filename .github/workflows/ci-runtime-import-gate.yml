@@ -1,0 +1,29 @@
+name: CI Runtime Import Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  runtime-import-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Gate runtime imports tracked
+        run: npm run check_runtime_imports_tracked
+
+      - name: Build
+        run: npm run build
