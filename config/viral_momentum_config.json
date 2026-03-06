@@ -1,0 +1,40 @@
+{
+  "score_version": "v1.0.0",
+  "weights": {
+    "engagement_growth": 0.2,
+    "sales_growth": 0.24,
+    "search_growth": 0.2,
+    "social_mentions": 0.18,
+    "rating_quality": 0.1,
+    "reliability_penalty": 0.08
+  },
+  "windows": {
+    "w1d_weight": 0.5,
+    "w3d_weight": 0.3,
+    "w7d_weight": 0.2,
+    "slope_weight": 0.6,
+    "acceleration_weight": 0.4,
+    "consistency_bonus_cap": 12
+  },
+  "quality_filters": {
+    "min_rating": 4.1,
+    "min_reviews": 8,
+    "min_stock": 1,
+    "min_signal_confidence": 0.45,
+    "blocked_seller_tokens": ["red"],
+    "allowed_category_tokens": [
+      "MLB1276",
+      "MLB1743",
+      "MLB4472",
+      "MLB1071",
+      "MLB1144",
+      "MLB1367",
+      "MLB1798"
+    ]
+  },
+  "thresholds": {
+    "min_viral_momentum_score": 38,
+    "min_opportunity_for_priority": 45,
+    "high_viral_alert_score": 78
+  }
+}
