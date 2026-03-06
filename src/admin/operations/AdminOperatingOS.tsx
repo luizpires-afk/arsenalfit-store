@@ -16,6 +16,7 @@ type CandidateRow = {
   status: CandidateStatus;
   opportunity_score: number;
   viral_score: number;
+  created_at: string;
   updated_at: string;
 };
 
@@ -61,7 +62,7 @@ export default function AdminOperatingOS() {
       ] = await Promise.all([
         supabase
           .from("discovery_candidates" as any)
-          .select("id,title,category,signal_origin,status,opportunity_score,viral_score,updated_at")
+          .select("id,title,category,signal_origin,status,opportunity_score,viral_score,created_at,updated_at")
           .order("updated_at", { ascending: false })
           .limit(2000),
         supabase
@@ -140,6 +141,97 @@ export default function AdminOperatingOS() {
     [filtered],
   );
 
+  const nowTs = Date.now();
+  const elapsedHoursToday = Math.max(1, (nowTs - new Date(todayStartIso()).getTime()) / (1000 * 60 * 60));
+
+  const decisionEventMap = useMemo(() => {
+    const map = new Map<string, EventRow>();
+    for (const event of data?.events || []) {
+      if (!event?.candidate_id || map.has(event.candidate_id)) continue;
+      if (!["approved", "rejected", "saved"].includes(String(event.event_type || ""))) continue;
+      map.set(event.candidate_id, event);
+    }
+    return map;
+  }, [data?.events]);
+
+  const avgDecisionMinutesToday = useMemo(() => {
+    const rows = (data?.candidates || []).filter((row) => decisionEventMap.has(row.id));
+    const minutes = rows
+      .map((row) => {
+        const event = decisionEventMap.get(row.id);
+        if (!event?.created_at) return null;
+        const from = new Date(row.created_at || row.updated_at).getTime();
+        const to = new Date(event.created_at).getTime();
+        if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+        return (to - from) / (1000 * 60);
+      })
+      .filter((v): v is number => v !== null);
+    if (!minutes.length) return 0;
+    return Number((minutes.reduce((acc, cur) => acc + cur, 0) / minutes.length).toFixed(1));
+  }, [data?.candidates, decisionEventMap]);
+
+  const backlogAging = useMemo(() => {
+    const rows = filtered.filter((row) => row.status === "new" || row.status === "reviewing");
+    let lt24 = 0;
+    let h24to72 = 0;
+    let gt72 = 0;
+    for (const row of rows) {
+      const ageHours = (nowTs - new Date(row.created_at || row.updated_at).getTime()) / (1000 * 60 * 60);
+      if (ageHours < 24) lt24 += 1;
+      else if (ageHours < 72) h24to72 += 1;
+      else gt72 += 1;
+    }
+    return { lt24, h24to72, gt72 };
+  }, [filtered, nowTs]);
+
+  const approvalsPerHour = useMemo(() => Number(((data?.kpis?.approvalsToday || 0) / elapsedHoursToday).toFixed(2)), [data?.kpis?.approvalsToday, elapsedHoursToday]);
+  const rejectsPerHour = useMemo(() => Number(((data?.kpis?.rejectionsToday || 0) / elapsedHoursToday).toFixed(2)), [data?.kpis?.rejectionsToday, elapsedHoursToday]);
+
+  const ownerLeaderboard = useMemo(() => {
+    const todayStart = new Date(todayStartIso()).getTime();
+    const counts = new Map<string, number>();
+    for (const event of data?.events || []) {
+      const eventTs = new Date(event.created_at).getTime();
+      if (eventTs < todayStart) continue;
+      if (!["approved", "rejected", "saved"].includes(String(event.event_type || ""))) continue;
+      const actor = String(event.actor || "system");
+      counts.set(actor, (counts.get(actor) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([actor, actions]) => ({ actor, actions }))
+      .sort((a, b) => b.actions - a.actions)
+      .slice(0, 8);
+  }, [data?.events]);
+
+  const applyPreset = (preset: "review_hot" | "high_score" | "seo_today" | "incidents") => {
+    if (preset === "review_hot") {
+      setStatusFilter("reviewing");
+      setScoreFilter("65");
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    if (preset === "high_score") {
+      setStatusFilter("all");
+      setScoreFilter("80");
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    if (preset === "seo_today") {
+      setStatusFilter("approved");
+      setScoreFilter("0");
+      const today = new Date().toISOString().slice(0, 10);
+      setDateFrom(today);
+      setDateTo(today);
+      return;
+    }
+    setStatusFilter("all");
+    setScoreFilter("0");
+    setDateFrom("");
+    setDateTo("");
+  };
+
   const lanes = [
     {
       title: "Discovery Queue",
@@ -195,6 +287,26 @@ export default function AdminOperatingOS() {
         <Card><CardHeader><CardTitle className="text-sm">Paginas SEO/Dia</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.kpis?.seoReleasedToday ?? 0}</p></CardContent></Card>
         <Card><CardHeader><CardTitle className="text-sm">Erros Criticos</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.kpis?.criticalErrors ?? 0}</p></CardContent></Card>
       </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Card><CardHeader><CardTitle className="text-sm">Throughput Aprovacao/H</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{approvalsPerHour}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Throughput Rejeicao/H</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{rejectsPerHour}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Tempo Medio Decisao</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{avgDecisionMinutesToday}m</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Backlog +72h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{backlogAging.gt72}</p></CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Presets Operacionais</CardTitle>
+          <CardDescription>Atalhos para triagem rapida em escala.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => applyPreset("review_hot")}>Review Hot Queue</Button>
+          <Button variant="outline" size="sm" onClick={() => applyPreset("high_score")}>High Score</Button>
+          <Button variant="outline" size="sm" onClick={() => applyPreset("seo_today")}>Aprovados Hoje</Button>
+          <Button variant="outline" size="sm" onClick={() => applyPreset("incidents")}>Reset Filtros</Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -278,6 +390,50 @@ export default function AdminOperatingOS() {
           ) : null}
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">SLA Aging Backlog</CardTitle>
+            <CardDescription>Distribuicao de fila por idade operacional.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p><strong>&lt; 24h:</strong> {backlogAging.lt24}</p>
+            <p><strong>24h - 72h:</strong> {backlogAging.h24to72}</p>
+            <p><strong>&gt; 72h:</strong> {backlogAging.gt72}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Owner Throughput Hoje</CardTitle>
+            <CardDescription>Atores com maior volume de decisao.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!ownerLeaderboard.length ? <p className="text-sm text-muted-foreground">Sem acoes de decisao hoje.</p> : null}
+            {ownerLeaderboard.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="py-2 pr-3">actor</th>
+                      <th className="py-2 pr-3">actions_today</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ownerLeaderboard.map((row) => (
+                      <tr key={row.actor} className="border-b">
+                        <td className="py-2 pr-3">{row.actor}</td>
+                        <td className="py-2 pr-3">{row.actions}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
