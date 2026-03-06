@@ -93,7 +93,11 @@ export default function DiscoveryQueue() {
   const [minDiscount, setMinDiscount] = useState("0");
   const [search, setSearch] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
   const [selected, setSelected] = useState<DiscoveryCandidate | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchRejectReason, setBatchRejectReason] = useState("");
+  const [actorLabel, setActorLabel] = useState("admin_ui");
 
   const { data = [], isLoading, refetch } = useQuery({
     queryKey: ["admin-discovery-candidates"],
@@ -148,6 +152,7 @@ export default function DiscoveryQueue() {
     eventType: "reviewing" | "approved" | "rejected" | "saved",
     nextStatus: CandidateStatus,
     payload: Record<string, unknown> = {},
+    actor = "admin_ui",
   ) => {
     const { error } = await supabase.from("discovery_candidate_events" as any).insert({
       candidate_id: candidate.id,
@@ -155,9 +160,25 @@ export default function DiscoveryQueue() {
       previous_status: candidate.status,
       next_status: nextStatus,
       event_payload: payload,
-      actor: "admin_ui",
+      actor,
     });
     if (error) throw error;
+  };
+
+  const eventAlreadyApplied = async (
+    candidateId: string,
+    eventType: "approved" | "rejected" | "saved",
+    operationId: string,
+  ) => {
+    const { data, error } = await supabase
+      .from("discovery_candidate_events" as any)
+      .select("id")
+      .eq("candidate_id", candidateId)
+      .eq("event_type", eventType)
+      .filter("event_payload->>operation_id", "eq", operationId)
+      .limit(1);
+    if (error) return false;
+    return Boolean((data || []).length);
   };
 
   const upsertProductFromCandidate = async (candidate: DiscoveryCandidate) => {
@@ -201,13 +222,25 @@ export default function DiscoveryQueue() {
     return rows?.[0]?.id || null;
   };
 
-  const setStatus = async (candidate: DiscoveryCandidate, nextStatus: CandidateStatus) => {
+  const setStatus = async (
+    candidate: DiscoveryCandidate,
+    nextStatus: CandidateStatus,
+    options?: { reason?: string; operationId?: string; actor?: string },
+  ) => {
     setPendingId(candidate.id);
     try {
+      const actor = String(options?.actor || actorLabel || "admin_ui");
+      const operationId = String(options?.operationId || `single-${Date.now()}-${candidate.id}`);
+      const reason = String(options?.reason || "").trim();
+
       const eventType: "approved" | "rejected" | "saved" =
         nextStatus === "approved" ? "approved" : nextStatus === "rejected" ? "rejected" : "saved";
 
+      const alreadyApplied = await eventAlreadyApplied(candidate.id, eventType, operationId);
+      if (alreadyApplied) return { ok: true, skipped: true };
+
       let publishedProductId: string | null = null;
+      const previousStatus = candidate.status;
 
       if (nextStatus === "approved") {
         publishedProductId = await upsertProductFromCandidate(candidate);
@@ -241,7 +274,16 @@ export default function DiscoveryQueue() {
 
       await writeEvent(candidate, eventType, nextStatus, {
         published_product_id: publishedProductId,
-      });
+        reason: reason || null,
+        operation_id: operationId,
+        context: {
+          source: "admin_discovery_queue",
+          status_filter: statusFilter,
+          min_opportunity: Number(minOpportunity || 0),
+          min_discount: Number(minDiscount || 0),
+          search: search || null,
+        },
+      }, actor);
 
       if (nextStatus === "approved") {
         const { error: triggerError } = await supabase.rpc("trigger_catalog_ingest_auto");
@@ -252,10 +294,73 @@ export default function DiscoveryQueue() {
 
       toast.success(`Candidato atualizado para ${nextStatus}.`);
       await refetch();
+      return { ok: true, skipped: false };
     } catch (error: any) {
+      // Best-effort rollback if a partial status update happened during batch/single actions.
+      await supabase
+        .from("discovery_candidates" as any)
+        .update({ status: candidate.status, updated_at: new Date().toISOString() })
+        .eq("id", candidate.id);
       toast.error(error?.message || "Falha ao atualizar candidato.");
+      return { ok: false, skipped: false };
     } finally {
       setPendingId(null);
+    }
+  };
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllFiltered = () => {
+    const ids = filtered.map((row) => row.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.includes(id));
+    setSelectedIds(allSelected ? selectedIds.filter((id) => !ids.includes(id)) : Array.from(new Set([...selectedIds, ...ids])));
+  };
+
+  const runBatchAction = async (nextStatus: CandidateStatus) => {
+    if (!selectedIds.length) {
+      toast.warning("Selecione ao menos um candidato para operar em lote.");
+      return;
+    }
+    if (nextStatus === "rejected" && !batchRejectReason.trim()) {
+      toast.error("Motivo obrigatorio para rejeicao em lote.");
+      return;
+    }
+    if (nextStatus === "rejected") {
+      const confirmed = window.confirm("Confirmar rejeicao em lote? Esta acao e destrutiva.");
+      if (!confirmed) return;
+    }
+
+    const operationId = `batch-${nextStatus}-${Date.now()}`;
+    const targets = filtered.filter((row) => selectedIds.includes(row.id));
+    if (!targets.length) {
+      toast.warning("Nenhum item selecionado nos filtros atuais.");
+      return;
+    }
+
+    setBatchRunning(true);
+    try {
+      let okCount = 0;
+      let skippedCount = 0;
+      let failCount = 0;
+
+      for (const candidate of targets) {
+        const result = await setStatus(candidate, nextStatus, {
+          reason: nextStatus === "rejected" ? batchRejectReason : "",
+          operationId,
+          actor: actorLabel,
+        });
+        if (result?.ok && result?.skipped) skippedCount += 1;
+        else if (result?.ok) okCount += 1;
+        else failCount += 1;
+      }
+
+      toast.success(`Lote concluido: ${okCount} sucesso, ${skippedCount} idempotentes, ${failCount} falhas.`);
+      setSelectedIds([]);
+      await refetch();
+    } finally {
+      setBatchRunning(false);
     }
   };
 
@@ -273,7 +378,7 @@ export default function DiscoveryQueue() {
           <CardTitle>Filtros</CardTitle>
           <CardDescription>Filtre por status, score minimo, desconto e busca textual.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-5">
+        <CardContent className="grid gap-3 md:grid-cols-6">
           <select
             className="rounded-md border bg-background px-3 py-2 text-sm"
             value={statusFilter}
@@ -289,7 +394,36 @@ export default function DiscoveryQueue() {
           <Input value={minOpportunity} onChange={(e) => setMinOpportunity(e.target.value)} placeholder="min opportunity" />
           <Input value={minDiscount} onChange={(e) => setMinDiscount(e.target.value)} placeholder="min discount" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="titulo/categoria/id" />
+          <Input value={actorLabel} onChange={(e) => setActorLabel(e.target.value)} placeholder="actor" />
           <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Acoes Em Lote</CardTitle>
+          <CardDescription>Selecione itens e aplique decisao em massa com trilha de auditoria e idempotencia.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-4">
+            <Input
+              value={batchRejectReason}
+              onChange={(e) => setBatchRejectReason(e.target.value)}
+              placeholder="motivo obrigatorio para lote rejeitado"
+            />
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={batchRunning}
+              onClick={() => runBatchAction("approved")}
+            >
+              Aprovar Selecionados
+            </Button>
+            <Button variant="destructive" disabled={batchRunning} onClick={() => runBatchAction("rejected")}>Rejeitar Selecionados</Button>
+            <Button variant="outline" disabled={batchRunning} onClick={() => runBatchAction("saved")}>Salvar Selecionados</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Selecionados: {selectedIds.length}. Rejeicao em lote exige motivo e confirmacao.
+          </p>
         </CardContent>
       </Card>
 
@@ -306,6 +440,13 @@ export default function DiscoveryQueue() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left">
+                    <th className="py-2 pr-3">
+                      <input
+                        type="checkbox"
+                        checked={filtered.length > 0 && filtered.every((row) => selectedIds.includes(row.id))}
+                        onChange={toggleSelectAllFiltered}
+                      />
+                    </th>
                     <th className="py-2 pr-3">title</th>
                     <th className="py-2 pr-3">status</th>
                     <th className="py-2 pr-3">opportunity</th>
@@ -318,6 +459,13 @@ export default function DiscoveryQueue() {
                 <tbody>
                   {filtered.map((row) => (
                     <tr key={row.id} className="border-b align-top">
+                      <td className="py-2 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(row.id)}
+                          onChange={() => toggleSelection(row.id)}
+                        />
+                      </td>
                       <td className="py-2 pr-3">
                         <button className="text-left underline" onClick={() => setSelected(row)}>
                           {row.title}
@@ -337,7 +485,14 @@ export default function DiscoveryQueue() {
                           >
                             APROVAR
                           </Button>
-                          <Button variant="destructive" disabled={pendingId === row.id} onClick={() => setStatus(row, "rejected")}>
+                          <Button
+                            variant="destructive"
+                            disabled={pendingId === row.id}
+                            onClick={() => {
+                              const reason = window.prompt("Motivo da rejeicao (opcional no modo individual):", "") || "";
+                              setStatus(row, "rejected", { reason });
+                            }}
+                          >
                             REJEITAR
                           </Button>
                           <Button variant="outline" disabled={pendingId === row.id} onClick={() => setStatus(row, "saved")}>
