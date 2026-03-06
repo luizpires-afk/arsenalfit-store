@@ -25,6 +25,8 @@ const REQUIRED_TABLES = [
 ];
 
 const REQUIRED_ADMIN_ROUTES = [
+  "/admin/ops",
+  "/admin/discovery",
   "/admin/ai-system",
   "/admin/import-products",
   "/admin/products-queue",

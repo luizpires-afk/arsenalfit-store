@@ -14,6 +14,11 @@ import { discoveryFilterService } from "./discovery/discoveryFilterService.js";
 import { upsertDiscoveryCandidates, writeCandidateEvent } from "./discovery/discoveryQueueService.js";
 import { alertService } from "./discovery/alertService.js";
 import { loadViralMomentumConfig } from "./discovery/viralMomentumConfig.js";
+import {
+  DISCOVERY_SCORE_PAYLOAD_VERSION,
+  DISCOVERY_ERROR_TAXONOMY,
+} from "./discovery/discoveryContracts.js";
+import { buildScorePayload, classifyDiscoveryError } from "./discovery/discoveryContracts.js";
 
 const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "reports/discovery-intelligence-report.json");
@@ -223,11 +228,18 @@ async function main() {
         config: viralConfig,
       });
 
-      const mergedComponents = {
-        opportunity: { score: opp.score, ...opp },
-        viral: { score: viral.score, ...viral },
+      const mergedComponents = buildScorePayload({
+          payload_version: DISCOVERY_SCORE_PAYLOAD_VERSION,
+        opportunity: opp,
+        viral,
         filter,
-      };
+        metadata: {
+          external_product_id: product.external_product_id,
+          signal_origin: "collector",
+          round_id: roundId,
+          marketplace: product.marketplace,
+        },
+      });
 
       const base = {
         ...product,
@@ -330,10 +342,14 @@ async function main() {
         filteredRows.push({ external_product_id: product.external_product_id, reasons: filter.reasons });
       }
     } catch (error) {
+      const taxonomy = classifyDiscoveryError(error?.message || error);
       itemErrors.push({
         external_product_id: product?.external_product_id || null,
         title: product?.title || null,
         message: String(error?.message || error || "item_processing_error"),
+        taxonomy_code: taxonomy.code,
+        severity: taxonomy.severity,
+        priority: taxonomy.priority,
       });
     }
   }
@@ -535,12 +551,30 @@ async function main() {
       item_error_rate: Number(((itemErrors.length / Math.max(1, collected.products.length)) * 100).toFixed(2)),
       viral_scores_generated: viralScoreRows.length,
       viral_signals_collected: viralSignalRows.length,
+        error_taxonomy: DISCOVERY_ERROR_TAXONOMY,
       risk_level:
         collected.products.length < minExpectedCollected || collected.errors.length >= 5
           ? "high"
           : itemErrors.length > 0
             ? "medium"
             : "low",
+    },
+    taxonomy_summary: {
+      collector_errors: (collected.errors || []).map((row) => {
+        const taxonomy = classifyDiscoveryError(row?.error || "");
+        return {
+          term: row?.term || null,
+          code: taxonomy.code,
+          severity: taxonomy.severity,
+          priority: taxonomy.priority,
+        };
+      }),
+      item_errors: (itemErrors || []).map((row) => ({
+        external_product_id: row.external_product_id,
+        code: row.taxonomy_code,
+        severity: row.severity,
+        priority: row.priority,
+      })),
     },
   };
 

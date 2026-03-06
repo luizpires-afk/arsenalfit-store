@@ -8,6 +8,19 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - P2: Major degradation with business impact.
 - P3: Partial degradation, workaround available.
 
+## Contract Baseline
+- Score payload contract:
+  - `payload_version`, `opportunity`, `viral`, `filter`, `metadata`.
+  - `viral` must include `score_components`, `decision_reason`, and `score_version`.
+- Status transition contract:
+  - `new -> reviewing|approved|rejected|saved`
+  - `reviewing -> approved|rejected|saved`
+  - `saved -> reviewing|approved|rejected`
+- Error taxonomy:
+  - `P1`: `pipeline_down`, `critical_baseline_breach`, `schema_drift_blocking_write`
+  - `P2`: `collector_degraded`, `seo_publish_retry_exhausted`, `batch_partial_failure`
+  - `P3`: `quality_gate_filtered`, `idempotent_skip`, `non_critical_signal_missing`
+
 ## Severity Matrix
 - P1 when any of the following is true:
   - `pipeline_status != OK` in production cycle.
