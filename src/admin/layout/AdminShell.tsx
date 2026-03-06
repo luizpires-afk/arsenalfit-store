@@ -13,6 +13,10 @@ type NavSection = {
 
 const sections: NavSection[] = [
   {
+    title: "Operating OS",
+    items: [{ to: "/admin/ops", label: "Operations" }],
+  },
+  {
     title: "Dashboard",
     items: [{ to: "/admin", label: "Overview" }],
   },
@@ -54,6 +58,7 @@ const sections: NavSection[] = [
   {
     title: "System",
     items: [
+      { to: "/admin/operational-reliability", label: "Operational Reliability" },
       { to: "/admin/system-explorer", label: "System Explorer" },
       { to: "/admin/pipeline-health", label: "Pipeline Health" },
     ],

@@ -56,6 +56,8 @@ import AdminPriceAdjustments from "@/admin/pricing/PriceAdjustments";
 import AiSystemDashboard from "@/admin/ai/AiSystemDashboard";
 import SystemExplorer from "@/admin/system/SystemExplorer";
 import PipelineHealth from "@/admin/system/PipelineHealth";
+import OperationalReliability from "@/admin/system/OperationalReliability";
+import AdminOperatingOS from "@/admin/operations/AdminOperatingOS";
 import AdminShell from "@/admin/layout/AdminShell";
 
 const queryClient = new QueryClient({
@@ -104,6 +106,7 @@ const AppRoutes = () => {
           }
         >
           <Route index element={<AdminDashboard />} />
+          <Route path="ops" element={<AdminOperatingOS />} />
           <Route path="seo-pages" element={<SeoPages />} />
           <Route path="seo-clusters" element={<SeoClusters />} />
           <Route path="seo-health" element={<SeoHealth />} />
@@ -120,6 +123,7 @@ const AppRoutes = () => {
           <Route path="ai-system" element={<AiSystemDashboard />} />
           <Route path="system-explorer" element={<SystemExplorer />} />
           <Route path="pipeline-health" element={<PipelineHealth />} />
+          <Route path="operational-reliability" element={<OperationalReliability />} />
           <Route path="control-center" element={<Navigate to="/admin" replace />} />
         </Route>
         <Route

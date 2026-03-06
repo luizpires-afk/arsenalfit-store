@@ -3,6 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Com
 
 const groups = [
   {
+    title: "Operating OS",
+    description: "Unified panel for backlog, batch triage, SEO release and reliability.",
+    links: [{ to: "/admin/ops", label: "Operations" }],
+  },
+  {
     title: "SEO",
     description: "Programmatic SEO management and indexing visibility.",
     links: [
@@ -46,6 +51,7 @@ const groups = [
     title: "System",
     description: "Operational observability and pipeline status.",
     links: [
+      { to: "/admin/operational-reliability", label: "Operational Reliability" },
       { to: "/admin/system-explorer", label: "System Explorer" },
       { to: "/admin/pipeline-health", label: "Pipeline Health" },
     ],
