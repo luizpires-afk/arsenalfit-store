@@ -18,6 +18,7 @@ const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "reports/discovery-intelligence-report.json");
 const perTermLimit = Math.max(5, Math.min(50, toInt(getArg("--per-term-limit", "25"), 25)));
 const lockMinutes = Math.max(5, Math.min(60, toInt(getArg("--lock-minutes", "25"), 25)));
+const minExpectedCollected = Math.max(0, toInt(getArg("--min-expected-collected", process.env.DISCOVERY_MIN_EXPECTED_COLLECTED || "10"), 10));
 
 const nowIso = () => new Date().toISOString();
 
@@ -126,77 +127,42 @@ async function main() {
   const historyRows = [];
   const acceptedCandidateRows = [];
   const filteredRows = [];
+  const itemErrors = [];
 
   for (const product of collected.products) {
-    const previous = previousMap.get(product.external_product_id) || null;
-    const historicalAvg = historicalAvgMap.get(product.external_product_id) || null;
+    try {
+      const previous = previousMap.get(product.external_product_id) || null;
+      const historicalAvg = historicalAvgMap.get(product.external_product_id) || null;
 
-    const opp = opportunityScoringService({
-      product,
-      previousSnapshot: previous,
-      historicalAvgPrice: historicalAvg,
-    });
+      const opp = opportunityScoringService({
+        product,
+        previousSnapshot: previous,
+        historicalAvgPrice: historicalAvg,
+      });
 
-    const viral = viralScoringService({ product, previousSnapshot: previous });
-    const filter = discoveryFilterService({ product, opportunityScore: opp.score, viralScore: viral.score });
+      const viral = viralScoringService({ product, previousSnapshot: previous });
+      const filter = discoveryFilterService({ product, opportunityScore: opp.score, viralScore: viral.score });
 
-    const mergedComponents = {
-      opportunity: { score: opp.score, ...opp },
-      viral: { score: viral.score, ...viral },
-      filter,
-    };
+      const mergedComponents = {
+        opportunity: { score: opp.score, ...opp },
+        viral: { score: viral.score, ...viral },
+        filter,
+      };
 
-    const base = {
-      ...product,
-      opportunity_score: Math.round(opp.score),
-      viral_score: Math.round(viral.score),
-      score_components: mergedComponents,
-      updated_at: nowIso(),
-    };
+      const base = {
+        ...product,
+        opportunity_score: Math.round(opp.score),
+        viral_score: Math.round(viral.score),
+        score_components: mergedComponents,
+        updated_at: nowIso(),
+      };
 
-    snapshotRows.push(base);
+      snapshotRows.push(base);
 
-    metricsRows.push({
-      marketplace: product.marketplace,
-      external_product_id: product.external_product_id,
-      captured_at: nowIso(),
-      current_price: product.current_price,
-      original_price: product.original_price,
-      discount_percent: product.discount_percent,
-      sold_quantity: product.sold_quantity,
-      reviews_count: product.reviews_count,
-      rating: product.rating,
-      stock: product.stock,
-      favorites_count: product.favorites_count,
-      opportunity_score: Math.round(opp.score),
-      viral_score: Math.round(viral.score),
-      opportunity_components: { ...opp.components, ...opp.explanation },
-      viral_components: { ...viral.components, ...viral.explanation },
-      raw_signal: {
-        source_terms: product.source_terms,
-        matched_terms_count: product.matched_terms_count,
-      },
-    });
-
-    if (Number(product.current_price || 0) > 0) {
-      historyRows.push({
+      metricsRows.push({
         marketplace: product.marketplace,
         external_product_id: product.external_product_id,
         captured_at: nowIso(),
-        price: product.current_price,
-      });
-    }
-
-    if (filter.accepted) {
-      acceptedCandidateRows.push({
-        marketplace: product.marketplace,
-        external_product_id: product.external_product_id,
-        title: product.title,
-        category: product.category,
-        seller: product.seller,
-        seller_reputation: product.seller_reputation,
-        affiliate_link: product.affiliate_link,
-        product_url: product.product_url,
         current_price: product.current_price,
         original_price: product.original_price,
         discount_percent: product.discount_percent,
@@ -207,14 +173,58 @@ async function main() {
         favorites_count: product.favorites_count,
         opportunity_score: Math.round(opp.score),
         viral_score: Math.round(viral.score),
-        signal_origin: "collector",
-        score_components: mergedComponents,
-        status: "new",
-        confidence: Number(((opp.score * 0.6 + viral.score * 0.4) / 100).toFixed(3)),
-        updated_at: nowIso(),
+        opportunity_components: { ...opp.components, ...opp.explanation },
+        viral_components: { ...viral.components, ...viral.explanation },
+        raw_signal: {
+          source_terms: product.source_terms,
+          matched_terms_count: product.matched_terms_count,
+        },
       });
-    } else {
-      filteredRows.push({ external_product_id: product.external_product_id, reasons: filter.reasons });
+
+      if (Number(product.current_price || 0) > 0) {
+        historyRows.push({
+          marketplace: product.marketplace,
+          external_product_id: product.external_product_id,
+          captured_at: nowIso(),
+          price: product.current_price,
+        });
+      }
+
+      if (filter.accepted) {
+        acceptedCandidateRows.push({
+          marketplace: product.marketplace,
+          external_product_id: product.external_product_id,
+          title: product.title,
+          category: product.category,
+          seller: product.seller,
+          seller_reputation: product.seller_reputation,
+          affiliate_link: product.affiliate_link,
+          product_url: product.product_url,
+          current_price: product.current_price,
+          original_price: product.original_price,
+          discount_percent: product.discount_percent,
+          sold_quantity: product.sold_quantity,
+          reviews_count: product.reviews_count,
+          rating: product.rating,
+          stock: product.stock,
+          favorites_count: product.favorites_count,
+          opportunity_score: Math.round(opp.score),
+          viral_score: Math.round(viral.score),
+          signal_origin: "collector",
+          score_components: mergedComponents,
+          status: "new",
+          confidence: Number(((opp.score * 0.6 + viral.score * 0.4) / 100).toFixed(3)),
+          updated_at: nowIso(),
+        });
+      } else {
+        filteredRows.push({ external_product_id: product.external_product_id, reasons: filter.reasons });
+      }
+    } catch (error) {
+      itemErrors.push({
+        external_product_id: product?.external_product_id || null,
+        title: product?.title || null,
+        message: String(error?.message || error || "item_processing_error"),
+      });
     }
   }
 
@@ -259,6 +269,28 @@ async function main() {
 
   const upsertedCandidates = await upsertDiscoveryCandidates({ client, acceptedRows: acceptedCandidateRows });
 
+  if (collected.products.length < minExpectedCollected) {
+    await client.request("/discovery_alerts", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify([
+        {
+          marketplace: "mercadolivre",
+          external_product_id: "baseline",
+          alert_type: "pipeline_issue",
+          severity: "critical",
+          status: "new",
+          message: `discovery ingestion below baseline: collected=${collected.products.length}, expected_min=${minExpectedCollected}`,
+          payload: {
+            expected_min_collected: minExpectedCollected,
+            collected: collected.products.length,
+            collector_errors: collected.errors?.length || 0,
+          },
+        },
+      ]),
+    }).catch(() => null);
+  }
+
   for (const candidate of upsertedCandidates) {
     await writeCandidateEvent({
       client,
@@ -288,10 +320,16 @@ async function main() {
       collected: collected.products.length,
       accepted: acceptedCandidateRows.length,
       filtered: filteredRows.length,
-      errors: collected.errors.length,
+      errors: collected.errors.length + itemErrors.length,
     },
     filtered_samples: filteredRows.slice(0, 25),
     collector_errors: collected.errors,
+    item_errors: itemErrors,
+    baseline_guard: {
+      expected_min_collected: minExpectedCollected,
+      collected: collected.products.length,
+      below_baseline: collected.products.length < minExpectedCollected,
+    },
   };
 
   writeJson(outFile, report);
