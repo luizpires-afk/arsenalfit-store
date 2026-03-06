@@ -1,0 +1,216 @@
+import {
+  DEFAULT_ENV,
+  getArg,
+  parseEnvAndClient,
+  writeJson,
+} from "./_affiliate_catalog_common.js";
+import fs from "fs";
+import path from "path";
+
+const envFile = getArg("--env", DEFAULT_ENV);
+const outFile = getArg("--out-file", "reports/seo-release-scheduler-report.json");
+const dlqOutFile = getArg("--dlq-out-file", "reports/seo-release-scheduler-dlq.json");
+const dailyLimit = Math.max(1, Number(getArg("--limit", process.env.SEO_DAILY_RELEASE_LIMIT || "100")) || 100);
+const minContentScore = Number(getArg("--min-content-score", process.env.SEO_MIN_CONTENT_SCORE || "0.5")) || 0.5;
+const minQualityScore = Number(getArg("--min-quality-score", process.env.SEO_MIN_QUALITY_SCORE || "0")) || 0;
+const lockFile = path.resolve(process.cwd(), ".seo-release-scheduler.lock");
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const toN = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const withLock = async (fn) => {
+  if (fs.existsSync(lockFile)) {
+    throw new Error("scheduler_locked: another release scheduler run is active");
+  }
+  fs.writeFileSync(lockFile, String(Date.now()), "utf8");
+  try {
+    return await fn();
+  } finally {
+    try {
+      fs.unlinkSync(lockFile);
+    } catch {
+      // noop
+    }
+  }
+};
+
+const patchWithRetry = async (client, id, payload, maxAttempts = 3) => {
+  let attempts = 0;
+  let retried = 0;
+  let lastError = null;
+
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    try {
+      await client.request(`/seo_pages?id=eq.${id}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(payload),
+      });
+      return { ok: true, attempts, retried };
+    } catch (error) {
+      lastError = error;
+      if (attempts < maxAttempts) {
+        retried += 1;
+        await sleep(250 * 2 ** (attempts - 1));
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    attempts,
+    retried,
+    error: String(lastError?.message || lastError || "patch_failed"),
+  };
+};
+
+const main = async () => {
+  return withLock(async () => {
+    const { client } = parseEnvAndClient(envFile);
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const today = nowIso.slice(0, 10);
+
+    const [releasedToday, drafts] = await Promise.all([
+      client.fetchPagedRows(
+        `/seo_pages?select=id&release_batch_date=eq.${today}&release_status=eq.released&limit=5000`,
+        1000,
+      ),
+      client.fetchPagedRows(
+        "/seo_pages?select=id,slug,title,keyword,content_score,quality_score,created_at,release_status&release_status=eq.draft&order=created_at.asc&limit=5000",
+        1000,
+      ),
+    ]);
+
+    const remaining = Math.max(0, dailyLimit - (releasedToday?.length || 0));
+
+    const activePages = await client.fetchPagedRows(
+      "/seo_pages?select=id,slug,keyword,release_status&release_status=eq.released&limit=250000",
+      1000,
+    );
+
+    const usedSlugs = new Set((activePages || []).map((row) => String(row?.slug || "").trim()).filter(Boolean));
+    const usedKeywords = new Set((activePages || []).map((row) => String(row?.keyword || "").trim().toLowerCase()).filter(Boolean));
+
+    const selected = [];
+    const dlq = [];
+    const metrics = {
+      drafted: (drafts || []).length,
+      queued: 0,
+      published: 0,
+      failed: 0,
+      retried: 0,
+      skipped_by_quality: 0,
+      skipped_by_cannibalization: 0,
+    };
+
+    for (const row of drafts || []) {
+      if (selected.length >= remaining) break;
+
+      const slug = String(row?.slug || "").trim();
+      const keyword = String(row?.keyword || "").trim().toLowerCase();
+      const contentScore = toN(row?.content_score, 0);
+      const qualityScore = toN(row?.quality_score, 0);
+
+      if (!slug || !keyword) {
+        metrics.failed += 1;
+        dlq.push({ id: row?.id, slug, keyword, reason: "missing_slug_or_keyword", created_at: nowIso });
+        continue;
+      }
+
+      if (usedSlugs.has(slug) || usedKeywords.has(keyword)) {
+        metrics.skipped_by_cannibalization += 1;
+        dlq.push({ id: row?.id, slug, keyword, reason: "duplicate_slug_or_keyword", created_at: nowIso });
+        continue;
+      }
+
+      if (contentScore < minContentScore || qualityScore < minQualityScore) {
+        metrics.skipped_by_quality += 1;
+        dlq.push({
+          id: row?.id,
+          slug,
+          keyword,
+          reason: "quality_gate_not_met",
+          quality: { content_score: contentScore, quality_score: qualityScore },
+          created_at: nowIso,
+        });
+        continue;
+      }
+
+      selected.push(row);
+      usedSlugs.add(slug);
+      usedKeywords.add(keyword);
+    }
+
+    metrics.queued = selected.length;
+
+    const attempts = [];
+    for (const row of selected) {
+      const result = await patchWithRetry(client, row.id, {
+        release_status: "released",
+        released_at: nowIso,
+        release_batch_date: today,
+        is_active: true,
+        updated_at: nowIso,
+      });
+
+      attempts.push({
+        page_id: row.id,
+        slug: row.slug,
+        keyword: row.keyword,
+        ok: result.ok,
+        attempts: result.attempts,
+        retried: result.retried,
+        error: result.error || null,
+      });
+
+      metrics.retried += result.retried;
+      if (result.ok) {
+        metrics.published += 1;
+      } else {
+        metrics.failed += 1;
+        dlq.push({
+          id: row.id,
+          slug: row.slug,
+          keyword: row.keyword,
+          reason: "publish_retry_exhausted",
+          error: result.error || "unknown_error",
+          attempts: result.attempts,
+          created_at: nowIso,
+        });
+      }
+    }
+
+    const report = {
+      generated_at: nowIso,
+      ok: true,
+      governance: {
+        daily_limit: dailyLimit,
+        min_content_score: minContentScore,
+        min_quality_score: minQualityScore,
+      },
+      released_today_before_run: releasedToday?.length || 0,
+      released_today_after_run: (releasedToday?.length || 0) + metrics.published,
+      stages: metrics,
+      attempts,
+      dlq_count: dlq.length,
+    };
+
+    writeJson(outFile, report);
+    writeJson(dlqOutFile, {
+      generated_at: nowIso,
+      failed_items: dlq,
+    });
+    console.log(JSON.stringify(report, null, 2));
+  });
+};
+
+main().catch((error) => {
+  console.error(error?.message || error);
+  process.exit(1);
+});
