@@ -5,6 +5,8 @@ import {
   toInt,
   writeJson,
 } from "./_affiliate_catalog_common.js";
+import path from "path";
+import { fileURLToPath } from "url";
 import { loadViralMomentumConfig } from "./discovery/viralMomentumConfig.js";
 import { viralScoringService } from "./discovery/viralScoringService.js";
 
@@ -14,7 +16,7 @@ const limit = Math.max(50, Math.min(5000, toInt(getArg("--limit", "1200"), 1200)
 const roundId = getArg("--round-id", `viral-refresh-${Date.now()}`);
 const lockMinutes = Math.max(5, Math.min(60, toInt(getArg("--lock-minutes", "25"), 25)));
 
-const acquireLock = async (client, lockName, lockBy, lockForMinutes) => {
+export const acquireLock = async (client, lockName, lockBy, lockForMinutes) => {
   const existing = await client.request(`/discovery_job_locks?select=job_name,locked_until&job_name=eq.${encodeURIComponent(lockName)}`, { method: "GET" });
   const row = Array.isArray(existing) ? existing[0] : null;
   const now = Date.now();
@@ -185,7 +187,11 @@ const main = async () => {
   console.log(JSON.stringify(report, null, 2));
 };
 
-main().catch((error) => {
-  console.error(error?.message || error);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(error?.message || error);
+    process.exit(1);
+  });
+}

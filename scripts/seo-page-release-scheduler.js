@@ -6,6 +6,7 @@ import {
 } from "./_affiliate_catalog_common.js";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
 const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "reports/seo-release-scheduler-report.json");
@@ -33,7 +34,7 @@ const toSlug = (value) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 72);
 
-const parseCategoryGate = (raw) => {
+export const parseCategoryGate = (raw) => {
   try {
     const parsed = JSON.parse(String(raw || "{}"));
     if (!parsed || typeof parsed !== "object") return {};
@@ -49,7 +50,7 @@ const parseCategoryGate = (raw) => {
   }
 };
 
-const detectCategoryBucket = (row, map) => {
+export const detectCategoryBucket = (row, map) => {
   const haystack = `${String(row?.keyword || "")} ${String(row?.title || "")}`.toLowerCase();
   for (const key of Object.keys(map || {})) {
     if (haystack.includes(key)) return key;
@@ -279,7 +280,11 @@ const main = async () => {
   });
 };
 
-main().catch((error) => {
-  console.error(error?.message || error);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(error?.message || error);
+    process.exit(1);
+  });
+}
