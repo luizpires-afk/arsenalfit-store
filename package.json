@@ -89,6 +89,7 @@
     "shopee_trend_collector": "node scripts/ai-trend-predictor.js --env supabase/functions/.env.scheduler --out-file logs/ai-trend-predictor-shopee.json --threshold 0.75 --min-run-interval-hours 0",
     "fitness_trend_discovery": "node scripts/fitness-trend-discovery.js --env supabase/functions/.env.scheduler --out-file logs/fitness-trend-discovery.json",
     "discovery_intelligence_run": "node scripts/discovery-intelligence-runner.js --env supabase/functions/.env.scheduler --out-file reports/discovery-intelligence-report.json --per-term-limit 25",
+    "discovery_risk_report": "node scripts/discovery-risk-report.js --env supabase/functions/.env.scheduler --out-file reports/discovery-risk-report.json",
     "discovery_intelligence_daemon_start": "bash scripts/discovery-intelligence-daemon.sh start",
     "discovery_intelligence_daemon_stop": "bash scripts/discovery-intelligence-daemon.sh stop",
     "discovery_intelligence_daemon_status": "bash scripts/discovery-intelligence-daemon.sh status",

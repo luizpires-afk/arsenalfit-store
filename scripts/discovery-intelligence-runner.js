@@ -267,7 +267,23 @@ async function main() {
     row.discovery_product_id = linked?.id || null;
   }
 
-  const upsertedCandidates = await upsertDiscoveryCandidates({ client, acceptedRows: acceptedCandidateRows });
+  const dedupAcceptedMap = new Map();
+  for (const row of acceptedCandidateRows) {
+    const key = `${String(row.marketplace || "").toLowerCase()}::${String(row.external_product_id || "")}`;
+    const existing = dedupAcceptedMap.get(key);
+    if (!existing) {
+      dedupAcceptedMap.set(key, row);
+      continue;
+    }
+    const currentScore = Number(row?.opportunity_score || 0) + Number(row?.viral_score || 0);
+    const existingScore = Number(existing?.opportunity_score || 0) + Number(existing?.viral_score || 0);
+    if (currentScore > existingScore) {
+      dedupAcceptedMap.set(key, row);
+    }
+  }
+
+  const dedupAcceptedRows = Array.from(dedupAcceptedMap.values());
+  const upsertedCandidates = await upsertDiscoveryCandidates({ client, acceptedRows: dedupAcceptedRows });
 
   if (collected.products.length < minExpectedCollected) {
     await client.request("/discovery_alerts", {
@@ -318,7 +334,7 @@ async function main() {
     lock,
     totals: {
       collected: collected.products.length,
-      accepted: acceptedCandidateRows.length,
+      accepted: dedupAcceptedRows.length,
       filtered: filteredRows.length,
       errors: collected.errors.length + itemErrors.length,
     },
@@ -329,6 +345,17 @@ async function main() {
       expected_min_collected: minExpectedCollected,
       collected: collected.products.length,
       below_baseline: collected.products.length < minExpectedCollected,
+    },
+    operational_risk: {
+      deduped_candidates_removed: Math.max(0, acceptedCandidateRows.length - dedupAcceptedRows.length),
+      collector_error_rate: Number(((collected.errors.length / Math.max(1, collected.products.length + collected.errors.length)) * 100).toFixed(2)),
+      item_error_rate: Number(((itemErrors.length / Math.max(1, collected.products.length)) * 100).toFixed(2)),
+      risk_level:
+        collected.products.length < minExpectedCollected || collected.errors.length >= 5
+          ? "high"
+          : itemErrors.length > 0
+            ? "medium"
+            : "low",
     },
   };
 
