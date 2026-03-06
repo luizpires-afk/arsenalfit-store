@@ -56,6 +56,7 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - SEO operations:
   - `npm run seo_release_scheduler`
   - Admin: `/admin/seo-health`
+  - Optional category gates: `SEO_CATEGORY_MIN_QUALITY_MAP='{"creatina":0.62,"whey":0.58}'`
 
 ## 1) Deploy Failure
 - Detect: `pipeline_status != OK`, failed checks in deployment report, or failed published deploy.
@@ -120,6 +121,11 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - Recovery:
   - Retry via scheduler (built-in backoff).
   - Fix low quality pages before requeue.
+  - If category quality gate fails, either raise content quality or adjust `SEO_CATEGORY_MIN_QUALITY_MAP` under controlled change.
+
+## 4.1) Viral Refresh Lock
+- `npm run viral_momentum_refresh` acquires lock `viral-momentum-refresh-6h` in `discovery_job_locks`.
+- If locked, script exits as `ok=true` with `skipped=true` to avoid concurrent writes.
 
 ## 5) Safe Rollback Procedure
 - Create rollback commit scoped to failing change only.

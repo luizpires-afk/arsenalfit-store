@@ -14,6 +14,7 @@ const dailyLimit = Math.max(1, Number(getArg("--limit", process.env.SEO_DAILY_RE
 const minContentScore = Number(getArg("--min-content-score", process.env.SEO_MIN_CONTENT_SCORE || "0.5")) || 0.5;
 const minQualityScore = Number(getArg("--min-quality-score", process.env.SEO_MIN_QUALITY_SCORE || "0")) || 0;
 const maxDlqRatio = Math.max(0, Math.min(1, Number(getArg("--max-dlq-ratio", process.env.SEO_MAX_DLQ_RATIO || "0.25")) || 0.25));
+const categoryGateRaw = getArg("--category-min-quality-map", process.env.SEO_CATEGORY_MIN_QUALITY_MAP || "{}");
 const lockFile = path.resolve(process.cwd(), ".seo-release-scheduler.lock");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,6 +22,39 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const toN = (value, fallback = 0) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+};
+
+const toSlug = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72);
+
+const parseCategoryGate = (raw) => {
+  try {
+    const parsed = JSON.parse(String(raw || "{}"));
+    if (!parsed || typeof parsed !== "object") return {};
+    const out = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const normalizedKey = String(key || "").trim().toLowerCase();
+      if (!normalizedKey) continue;
+      out[normalizedKey] = toN(value, 0);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+};
+
+const detectCategoryBucket = (row, map) => {
+  const haystack = `${String(row?.keyword || "")} ${String(row?.title || "")}`.toLowerCase();
+  for (const key of Object.keys(map || {})) {
+    if (haystack.includes(key)) return key;
+  }
+  return "default";
 };
 
 const withLock = async (fn) => {
@@ -76,6 +110,7 @@ const main = async () => {
     const now = new Date();
     const nowIso = now.toISOString();
     const today = nowIso.slice(0, 10);
+    const categoryGateMap = parseCategoryGate(categoryGateRaw);
 
     const [releasedToday, drafts] = await Promise.all([
       client.fetchPagedRows(
@@ -107,16 +142,26 @@ const main = async () => {
       failed: 0,
       retried: 0,
       skipped_by_quality: 0,
+      skipped_by_category_gate: 0,
       skipped_by_cannibalization: 0,
+      fallback_slug_used: 0,
     };
 
     for (const row of drafts || []) {
       if (selected.length >= remaining) break;
 
-      const slug = String(row?.slug || "").trim();
+      let slug = String(row?.slug || "").trim();
       const keyword = String(row?.keyword || "").trim().toLowerCase();
       const contentScore = toN(row?.content_score, 0);
       const qualityScore = toN(row?.quality_score, 0);
+
+      if (!slug && (keyword || row?.title)) {
+        const fallbackBase = toSlug(keyword || row?.title || "pagina-seo");
+        if (fallbackBase) {
+          slug = `${fallbackBase}-${String(row?.id || "tmp").slice(-8)}`;
+          metrics.fallback_slug_used += 1;
+        }
+      }
 
       if (!slug || !keyword) {
         metrics.failed += 1;
@@ -138,6 +183,23 @@ const main = async () => {
           keyword,
           reason: "quality_gate_not_met",
           quality: { content_score: contentScore, quality_score: qualityScore },
+          created_at: nowIso,
+        });
+        continue;
+      }
+
+      const bucket = detectCategoryBucket(row, categoryGateMap);
+      const bucketMin = bucket === "default"
+        ? minQualityScore
+        : toN(categoryGateMap[bucket], minQualityScore);
+      if (qualityScore < bucketMin) {
+        metrics.skipped_by_category_gate += 1;
+        dlq.push({
+          id: row?.id,
+          slug,
+          keyword,
+          reason: "category_quality_gate_not_met",
+          quality: { quality_score: qualityScore, min_required: bucketMin, bucket },
           created_at: nowIso,
         });
         continue;
@@ -195,6 +257,7 @@ const main = async () => {
         min_content_score: minContentScore,
         min_quality_score: minQualityScore,
         max_dlq_ratio: maxDlqRatio,
+        category_min_quality_map: categoryGateMap,
       },
       released_today_before_run: releasedToday?.length || 0,
       released_today_after_run: (releasedToday?.length || 0) + metrics.published,

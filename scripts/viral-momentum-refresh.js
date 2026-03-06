@@ -12,6 +12,33 @@ const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "reports/viral-momentum-refresh-report.json");
 const limit = Math.max(50, Math.min(5000, toInt(getArg("--limit", "1200"), 1200)));
 const roundId = getArg("--round-id", `viral-refresh-${Date.now()}`);
+const lockMinutes = Math.max(5, Math.min(60, toInt(getArg("--lock-minutes", "25"), 25)));
+
+const acquireLock = async (client, lockName, lockBy, lockForMinutes) => {
+  const existing = await client.request(`/discovery_job_locks?select=job_name,locked_until&job_name=eq.${encodeURIComponent(lockName)}`, { method: "GET" });
+  const row = Array.isArray(existing) ? existing[0] : null;
+  const now = Date.now();
+  const lockedUntilTs = row?.locked_until ? new Date(row.locked_until).getTime() : 0;
+
+  if (lockedUntilTs > now) {
+    return { acquired: false, reason: "already_locked", locked_until: row.locked_until };
+  }
+
+  const nextLock = new Date(now + lockForMinutes * 60 * 1000).toISOString();
+  await client.request("/discovery_job_locks?on_conflict=job_name", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([
+      {
+        job_name: lockName,
+        locked_until: nextLock,
+        locked_by: lockBy,
+      },
+    ]),
+  });
+
+  return { acquired: true, locked_until: nextLock };
+};
 
 const buildInFilter = (values) =>
   values
@@ -48,6 +75,22 @@ const main = async () => {
   const { env, client } = parseEnvAndClient(envFile);
   const config = loadViralMomentumConfig({ ...process.env, ...env });
   const nowIso = new Date().toISOString();
+  const lock = await acquireLock(client, "viral-momentum-refresh-6h", "viral_momentum_refresh", lockMinutes);
+
+  if (!lock.acquired) {
+    const skipped = {
+      generated_at: nowIso,
+      ok: true,
+      skipped: true,
+      reason: lock.reason,
+      lock,
+      round_id: roundId,
+      score_version: config.score_version,
+    };
+    writeJson(outFile, skipped);
+    console.log(JSON.stringify(skipped, null, 2));
+    return;
+  }
 
   const products = await client.fetchPagedRows(
     `/discovery_products?select=id,marketplace,external_product_id,title,category,seller,seller_reputation,affiliate_link,product_url,current_price,original_price,discount_percent,sold_quantity,reviews_count,rating,stock,favorites_count,source_terms,matched_terms_count,opportunity_score,viral_score,updated_at&marketplace=eq.mercadolivre&order=updated_at.desc&limit=${limit}`,
@@ -129,6 +172,7 @@ const main = async () => {
   const report = {
     generated_at: nowIso,
     ok: true,
+    lock,
     round_id: roundId,
     score_version: config.score_version,
     scanned: products.length,
