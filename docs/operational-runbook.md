@@ -29,6 +29,7 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - Pipeline health:
   - `npm run pipeline_final_health`
   - `npm run discovery_risk_report`
+  - `npm run alert_routing`
 - Discovery operations:
   - `npm run discovery_intelligence_run`
   - Admin: `/admin/ops` and `/admin/discovery`
@@ -56,6 +57,22 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - Containment:
   - Keep pipeline running in degraded mode; do not block the whole cycle due to item-level failures.
   - Open incident if below baseline persists for 3 cycles.
+
+## 2.1) Alert Routing, SLA and Escalation
+- Source of truth:
+  - `discovery_alerts.severity` maps to priority `P1/P2/P3`.
+  - `payload.routing` stores SLA, escalation level and dispatch evidence.
+- SLA targets:
+  - `P1`: 15 minutes.
+  - `P2`: 60 minutes.
+  - `P3`: 240 minutes.
+- Runbook command:
+  - Execute `npm run alert_routing` every cycle.
+  - Configure `ALERT_ROUTING_P1_WEBHOOK`, `ALERT_ROUTING_P2_WEBHOOK`, `ALERT_ROUTING_P3_WEBHOOK`.
+- Escalation policy:
+  - `L1`: within SLA.
+  - `L2`: after SLA breach.
+  - `L3`: after 2x SLA breach.
 
 ## 3) High Backlog In Admin Queue
 - Detect: backlog (new/reviewing) over operational threshold.
