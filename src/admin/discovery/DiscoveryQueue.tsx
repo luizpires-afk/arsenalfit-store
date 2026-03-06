@@ -369,22 +369,51 @@ export default function DiscoveryQueue() {
 
     setBatchRunning(true);
     try {
-      let okCount = 0;
-      let skippedCount = 0;
-      let failCount = 0;
+      if (nextStatus === "approved") {
+        let okCount = 0;
+        let skippedCount = 0;
+        let failCount = 0;
 
-      for (const candidate of targets) {
-        const result = await setStatus(candidate, nextStatus, {
-          reason: nextStatus === "rejected" ? batchRejectReason : "",
-          operationId,
-          actor: actorLabel,
+        for (const candidate of targets) {
+          const result = await setStatus(candidate, nextStatus, {
+            reason: "",
+            operationId,
+            actor: actorLabel,
+          });
+          if (result?.ok && result?.skipped) skippedCount += 1;
+          else if (result?.ok) okCount += 1;
+          else failCount += 1;
+        }
+
+        toast.success(`Lote concluido: ${okCount} sucesso, ${skippedCount} idempotentes, ${failCount} falhas.`);
+      } else {
+        const reason = nextStatus === "rejected" ? batchRejectReason.trim() : "";
+        const { data, error } = await supabase.rpc("apply_discovery_batch_decision_atomic" as any, {
+          p_candidate_ids: targets.map((row) => row.id),
+          p_next_status: nextStatus,
+          p_actor: actorLabel,
+          p_reason: reason || null,
+          p_operation_id: operationId,
         });
-        if (result?.ok && result?.skipped) skippedCount += 1;
-        else if (result?.ok) okCount += 1;
-        else failCount += 1;
+
+        if (error) throw error;
+
+        const result = (data || {}) as {
+          updated_count?: number;
+          skipped_count?: number;
+          target_count?: number;
+          operation_id?: string;
+        };
+        const updatedCount = Number(result.updated_count || 0);
+        const skippedCount = Number(result.skipped_count || 0);
+        const targetCount = Number(result.target_count || targets.length);
+        const failCount = Math.max(0, targetCount - updatedCount - skippedCount);
+
+        toast.success(
+          `Lote transacional concluido: ${updatedCount} sucesso, ${skippedCount} idempotentes, ${failCount} falhas. op=${result.operation_id || operationId}`,
+        );
       }
 
-      toast.success(`Lote concluido: ${okCount} sucesso, ${skippedCount} idempotentes, ${failCount} falhas.`);
       setSelectedIds([]);
       setOperationKey("");
       await refetch();
