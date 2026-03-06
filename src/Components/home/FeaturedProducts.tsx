@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RedirectModal } from "@/Components/shared/RedirectModalx";
+import { RedirectModal } from "@/Components/shared/RedirectModal";
 
 const products = [
   { id: 1, name: "Whey Protein Isolado", price: "189,90", image: "URL_AQUI", link: "https://link-afiliado.com" },
