@@ -35,6 +35,40 @@ const chunkRows = (rows, size = 200) => {
   return out;
 };
 
+const missingColumnFromError = (error) => {
+  const msg = String(error?.message || error || "");
+  const match = msg.match(/Could not find the '([^']+)' column/i);
+  return match ? String(match[1] || "").trim() : null;
+};
+
+const removeColumnFromRows = (rows, columnName) => {
+  return (rows || []).map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const next = { ...row };
+    delete next[columnName];
+    return next;
+  });
+};
+
+const postWithSchemaFallback = async (client, path, rows, headers = { Prefer: "return=minimal" }) => {
+  let payload = Array.isArray(rows) ? rows : [];
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await client.request(path, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      return;
+    } catch (error) {
+      const missing = missingColumnFromError(error);
+      if (!missing) throw error;
+      payload = removeColumnFromRows(payload, missing);
+    }
+  }
+};
+
 const acquireLock = async (client, lockName, lockedBy, lockForMinutes) => {
   const existing = await client.request(`/discovery_job_locks?select=job_name,locked_until&job_name=eq.${encodeURIComponent(lockName)}`, { method: "GET" });
   const row = Array.isArray(existing) ? existing[0] : null;
@@ -319,11 +353,7 @@ async function main() {
       const linked = productRows.get(metric.external_product_id);
       metric.discovery_product_id = linked?.id || null;
     }
-    await client.request("/discovery_product_metrics", {
-      method: "POST",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(metricsRows),
-    });
+    await postWithSchemaFallback(client, "/discovery_product_metrics", metricsRows, { Prefer: "return=minimal" });
   }
 
   if (historyRows.length) {

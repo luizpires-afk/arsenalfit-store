@@ -4,21 +4,46 @@ const nowIso = () => new Date().toISOString();
 
 const createSlugFallback = (externalId) => `discovery-${String(externalId || "ml")}-${Date.now()}`;
 
+const missingColumnFromError = (error) => {
+  const msg = String(error?.message || error || "");
+  const match = msg.match(/Could not find the '([^']+)' column/i);
+  return match ? String(match[1] || "").trim() : null;
+};
+
+const stripColumn = (rows, columnName) =>
+  (rows || []).map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const next = { ...row };
+    delete next[columnName];
+    return next;
+  });
+
 export async function upsertDiscoveryCandidates({ client, acceptedRows = [] }) {
   if (!acceptedRows.length) return [];
 
-  await client.request(
-    "/discovery_candidates?on_conflict=marketplace,external_product_id",
-    {
-      method: "POST",
-      headers: {
-        Prefer: "resolution=merge-duplicates,return=representation",
-      },
-      body: JSON.stringify(acceptedRows),
-    },
-  );
+  let payload = acceptedRows;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await client.request(
+        "/discovery_candidates?on_conflict=marketplace,external_product_id",
+        {
+          method: "POST",
+          headers: {
+            Prefer: "resolution=merge-duplicates,return=representation",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+      break;
+    } catch (error) {
+      const missingColumn = missingColumnFromError(error);
+      if (!missingColumn) throw error;
+      payload = stripColumn(payload, missingColumn);
+      if (attempt === 3) throw error;
+    }
+  }
 
-  const ids = acceptedRows.map((row) => row.external_product_id).filter(Boolean);
+  const ids = payload.map((row) => row.external_product_id).filter(Boolean);
   const inFilter = ids.map((id) => `"${String(id).replace(/"/g, '\\"')}"`).join(",");
   if (!inFilter) return [];
 
