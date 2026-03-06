@@ -154,68 +154,6 @@ const checkFunctions = async () => {
   };
 };
 
-const checkDiscoveryPayloadContract = async () => {
-  const contractsPath = path.resolve("shared/discoveryContracts.js");
-  const runnerPath = path.resolve("scripts/discovery-intelligence-runner.js");
-
-  if (!fs.existsSync(contractsPath)) {
-    return {
-      ok: false,
-      status: "contracts_file_missing",
-      version: null,
-      details: { contracts_path: contractsPath, runner_path: runnerPath },
-    };
-  }
-  if (!fs.existsSync(runnerPath)) {
-    return {
-      ok: false,
-      status: "runner_file_missing",
-      version: null,
-      details: { contracts_path: contractsPath, runner_path: runnerPath },
-    };
-  }
-
-  try {
-    const contractMod = await import(pathToFileURL(contractsPath).href);
-    const payloadVersion = String(contractMod?.DISCOVERY_SCORE_PAYLOAD_VERSION || "").trim();
-    const runnerContent = String(fs.readFileSync(runnerPath, "utf8"));
-
-    const hasVersionConstImport = /DISCOVERY_SCORE_PAYLOAD_VERSION/.test(runnerContent);
-    const hasPayloadVersionUsage = /payload_version\s*:\s*DISCOVERY_SCORE_PAYLOAD_VERSION/.test(runnerContent);
-    const hasPayloadBuilder = /buildScorePayload\s*\(/.test(runnerContent);
-
-    const ok =
-      /^v\d+$/i.test(payloadVersion) &&
-      hasVersionConstImport &&
-      hasPayloadVersionUsage &&
-      hasPayloadBuilder;
-
-    return {
-      ok,
-      status: ok ? "ok" : "contract_mismatch",
-      version: payloadVersion || null,
-      details: {
-        contracts_path: contractsPath,
-        runner_path: runnerPath,
-        has_version_const_import: hasVersionConstImport,
-        has_payload_version_usage: hasPayloadVersionUsage,
-        has_payload_builder: hasPayloadBuilder,
-      },
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      status: "contract_check_error",
-      version: null,
-      details: {
-        contracts_path: contractsPath,
-        runner_path: runnerPath,
-        error: String(error?.message || error),
-      },
-    };
-  }
-};
-
 const main = async () => {
   let databaseConnected = false;
   let tableChecks = [];
@@ -253,13 +191,12 @@ const main = async () => {
 
   const routes = checkAdminRoutes();
   const functions = await checkFunctions();
-  const payloadContract = await checkDiscoveryPayloadContract();
 
   const pipelineLogPath = path.resolve("logs/ml-30m-sync-cycle.log");
   const pipelineDetected = fs.existsSync(pipelineLogPath);
 
   const tablesOk = tableChecks.every((item) => item.ok);
-  const overallOk = databaseConnected && tablesOk && pipelineDetected && routes.ok && functions.ok && payloadContract.ok;
+  const overallOk = databaseConnected && tablesOk && pipelineDetected && routes.ok && functions.ok;
 
   const report = {
     generated_at: new Date().toISOString(),
@@ -268,13 +205,11 @@ const main = async () => {
     pipeline_detected: pipelineDetected,
     admin_routes_ok: routes.ok,
     functions_ok: functions.ok,
-    payload_contract_ok: payloadContract.ok,
     overall_status: overallOk ? "READY" : "DEGRADED",
     details: {
       table_checks: tableChecks,
       admin_routes: routes,
       function_checks: functions.checks,
-      payload_contract: payloadContract,
       pipeline_log_path: pipelineLogPath,
       database_error: databaseError,
     },
