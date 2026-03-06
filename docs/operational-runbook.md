@@ -33,6 +33,10 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
 - Discovery operations:
   - `npm run discovery_intelligence_run`
   - Admin: `/admin/ops` and `/admin/discovery`
+- Cron cadence (required):
+  - `30min`: `npm run discovery_intelligence_daemon_start` (or `npm run ml_30m_sync_cron_start`)
+  - `2h`: `npm run price_maintenance_2h_cron_start`
+  - `24h`: `npm run score_recalc_24h_cron_start`
 - SEO operations:
   - `npm run seo_release_scheduler`
   - Admin: `/admin/seo-health`
