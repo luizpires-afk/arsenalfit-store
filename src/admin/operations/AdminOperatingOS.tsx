@@ -27,6 +27,15 @@ type EventRow = {
   created_at: string;
 };
 
+type WindowMetrics = {
+  approvals1h: number;
+  approvals24h: number;
+  approvals7d: number;
+  decisions1h: number;
+  decisions24h: number;
+  decisions7d: number;
+};
+
 const todayStartIso = () => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -52,6 +61,11 @@ export default function AdminOperatingOS() {
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["admin-operating-os"],
     queryFn: async () => {
+      const now = Date.now();
+      const iso1h = new Date(now - 1 * 60 * 60 * 1000).toISOString();
+      const iso24h = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      const iso7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+
       const [
         candidatesResp,
         eventsResp,
@@ -59,6 +73,12 @@ export default function AdminOperatingOS() {
         rejectionsToday,
         seoReleasedToday,
         discoveryCritical,
+        approvals1h,
+        approvals24h,
+        approvals7d,
+        decisions1h,
+        decisions24h,
+        decisions7d,
       ] = await Promise.all([
         supabase
           .from("discovery_candidates" as any)
@@ -74,6 +94,12 @@ export default function AdminOperatingOS() {
         safeCount("discovery_candidate_events", (q) => q.eq("event_type", "rejected").gte("created_at", todayStartIso())),
         safeCount("seo_pages", (q) => q.eq("release_status", "released").gte("released_at", todayStartIso())),
         safeCount("discovery_alerts", (q) => q.eq("severity", "critical").in("status", ["new", "acknowledged"])),
+        safeCount("discovery_candidate_events", (q) => q.eq("event_type", "approved").gte("created_at", iso1h)),
+        safeCount("discovery_candidate_events", (q) => q.eq("event_type", "approved").gte("created_at", iso24h)),
+        safeCount("discovery_candidate_events", (q) => q.eq("event_type", "approved").gte("created_at", iso7d)),
+        safeCount("discovery_candidate_events", (q) => q.in("event_type", ["approved", "rejected", "saved"]).gte("created_at", iso1h)),
+        safeCount("discovery_candidate_events", (q) => q.in("event_type", ["approved", "rejected", "saved"]).gte("created_at", iso24h)),
+        safeCount("discovery_candidate_events", (q) => q.in("event_type", ["approved", "rejected", "saved"]).gte("created_at", iso7d)),
       ]);
 
       let deployHealth = { status: "unknown", critical: 0 };
@@ -97,6 +123,14 @@ export default function AdminOperatingOS() {
           seoReleasedToday,
           criticalErrors: discoveryCritical + deployHealth.critical,
           deployStatus: deployHealth.status,
+          windows: {
+            approvals1h,
+            approvals24h,
+            approvals7d,
+            decisions1h,
+            decisions24h,
+            decisions7d,
+          } as WindowMetrics,
         },
       };
     },
@@ -184,6 +218,20 @@ export default function AdminOperatingOS() {
     return { lt24, h24to72, gt72 };
   }, [filtered, nowTs]);
 
+  const backlogAgingSeverity = useMemo(() => {
+    const rows = filtered.filter((row) => row.status === "new" || row.status === "reviewing");
+    let high = 0;
+    let medium = 0;
+    let low = 0;
+    for (const row of rows) {
+      const mergedScore = Math.max(Number(row.opportunity_score || 0), Number(row.viral_score || 0));
+      if (mergedScore >= 80) high += 1;
+      else if (mergedScore >= 60) medium += 1;
+      else low += 1;
+    }
+    return { high, medium, low };
+  }, [filtered]);
+
   const approvalsPerHour = useMemo(() => Number(((data?.kpis?.approvalsToday || 0) / elapsedHoursToday).toFixed(2)), [data?.kpis?.approvalsToday, elapsedHoursToday]);
   const rejectsPerHour = useMemo(() => Number(((data?.kpis?.rejectionsToday || 0) / elapsedHoursToday).toFixed(2)), [data?.kpis?.rejectionsToday, elapsedHoursToday]);
 
@@ -202,6 +250,38 @@ export default function AdminOperatingOS() {
       .sort((a, b) => b.actions - a.actions)
       .slice(0, 8);
   }, [data?.events]);
+
+  const operatorEfficiency = useMemo(() => {
+    const todayStart = new Date(todayStartIso()).getTime();
+    const candidateMap = new Map((data?.candidates || []).map((row) => [row.id, row]));
+    const grouped = new Map<string, { actions: number; minutes: number[] }>();
+
+    for (const event of data?.events || []) {
+      const ts = new Date(event.created_at).getTime();
+      if (ts < todayStart) continue;
+      if (!["approved", "rejected", "saved"].includes(String(event.event_type || ""))) continue;
+      const actor = String(event.actor || "system");
+      const candidate = candidateMap.get(String(event.candidate_id || ""));
+      const fromTs = candidate ? new Date(candidate.created_at || candidate.updated_at).getTime() : NaN;
+      const decisionMinutes = Number.isFinite(fromTs) && ts >= fromTs ? (ts - fromTs) / (1000 * 60) : null;
+
+      if (!grouped.has(actor)) grouped.set(actor, { actions: 0, minutes: [] });
+      const row = grouped.get(actor)!;
+      row.actions += 1;
+      if (decisionMinutes !== null) row.minutes.push(decisionMinutes);
+    }
+
+    return Array.from(grouped.entries())
+      .map(([actor, payload]) => ({
+        actor,
+        actions: payload.actions,
+        avgDecisionMinutes: payload.minutes.length
+          ? Number((payload.minutes.reduce((acc, cur) => acc + cur, 0) / payload.minutes.length).toFixed(1))
+          : 0,
+      }))
+      .sort((a, b) => b.actions - a.actions)
+      .slice(0, 8);
+  }, [data?.events, data?.candidates]);
 
   const applyPreset = (preset: "review_hot" | "high_score" | "seo_today" | "incidents") => {
     if (preset === "review_hot") {
@@ -286,6 +366,15 @@ export default function AdminOperatingOS() {
         <Card><CardHeader><CardTitle className="text-sm">Rejeitados/Dia</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.kpis?.rejectionsToday ?? 0}</p></CardContent></Card>
         <Card><CardHeader><CardTitle className="text-sm">Paginas SEO/Dia</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.kpis?.seoReleasedToday ?? 0}</p></CardContent></Card>
         <Card><CardHeader><CardTitle className="text-sm">Erros Criticos</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.kpis?.criticalErrors ?? 0}</p></CardContent></Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-6">
+        <Card><CardHeader><CardTitle className="text-sm">Aprovacoes 1h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.kpis?.windows?.approvals1h ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Aprovacoes 24h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.kpis?.windows?.approvals24h ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Aprovacoes 7d</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.kpis?.windows?.approvals7d ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Decisoes 1h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.kpis?.windows?.decisions1h ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Decisoes 24h</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.kpis?.windows?.decisions24h ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Decisoes 7d</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.kpis?.windows?.decisions7d ?? 0}</p></CardContent></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -406,6 +495,18 @@ export default function AdminOperatingOS() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Backlog por Severidade</CardTitle>
+            <CardDescription>Priorizacao operacional por score combinado.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p><strong>Alta (&gt;=80):</strong> {backlogAgingSeverity.high}</p>
+            <p><strong>Media (60-79):</strong> {backlogAgingSeverity.medium}</p>
+            <p><strong>Baixa (&lt;60):</strong> {backlogAgingSeverity.low}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Owner Throughput Hoje</CardTitle>
             <CardDescription>Atores com maior volume de decisao.</CardDescription>
           </CardHeader>
@@ -425,6 +526,38 @@ export default function AdminOperatingOS() {
                       <tr key={row.actor} className="border-b">
                         <td className="py-2 pr-3">{row.actor}</td>
                         <td className="py-2 pr-3">{row.actions}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Eficiencia por Operador</CardTitle>
+            <CardDescription>Throughput e tempo medio de decisao no dia.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!operatorEfficiency.length ? <p className="text-sm text-muted-foreground">Sem dados de eficiencia hoje.</p> : null}
+            {operatorEfficiency.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="py-2 pr-3">actor</th>
+                      <th className="py-2 pr-3">acoes</th>
+                      <th className="py-2 pr-3">tempo medio (m)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operatorEfficiency.map((row) => (
+                      <tr key={row.actor} className="border-b">
+                        <td className="py-2 pr-3">{row.actor}</td>
+                        <td className="py-2 pr-3">{row.actions}</td>
+                        <td className="py-2 pr-3">{row.avgDecisionMinutes}</td>
                       </tr>
                     ))}
                   </tbody>

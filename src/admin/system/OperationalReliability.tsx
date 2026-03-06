@@ -30,7 +30,7 @@ export default function OperationalReliability() {
         safeCount("discovery_candidate_events", (q) => q.in("event_type", ["approved", "rejected", "saved"]).gte("created_at", iso72h)),
         supabase
           .from("discovery_alerts" as any)
-          .select("id,alert_type,severity,status,message,created_at")
+          .select("id,alert_type,severity,status,message,payload,created_at")
           .order("created_at", { ascending: false })
           .limit(40),
       ]);
@@ -154,6 +154,7 @@ export default function OperationalReliability() {
                     <th className="py-2 pr-3">created_at</th>
                     <th className="py-2 pr-3">severity</th>
                     <th className="py-2 pr-3">type</th>
+                    <th className="py-2 pr-3">owner</th>
                     <th className="py-2 pr-3">status</th>
                     <th className="py-2 pr-3">message</th>
                   </tr>
@@ -161,11 +162,20 @@ export default function OperationalReliability() {
                 <tbody>
                   {(data?.recentAlerts || []).slice(0, 25).map((alert: any) => (
                     <tr key={String(alert.id)} className="border-b align-top">
+                      {(() => {
+                        const payload = (alert?.payload || {}) as Record<string, any>;
+                        const owner = String(payload?.owner || payload?.routing?.owner || payload?.routing?.dispatch?.owner || "unassigned");
+                        return (
+                          <>
                       <td className="py-2 pr-3">{new Date(alert.created_at).toLocaleString()}</td>
                       <td className="py-2 pr-3">{String(alert.severity || "-")}</td>
                       <td className="py-2 pr-3">{String(alert.alert_type || "-")}</td>
+                      <td className="py-2 pr-3">{owner}</td>
                       <td className="py-2 pr-3">{String(alert.status || "-")}</td>
                       <td className="py-2 pr-3">{String(alert.message || "-")}</td>
+                          </>
+                        );
+                      })()}
                     </tr>
                   ))}
                 </tbody>
