@@ -43,6 +43,7 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
   - `npm run pipeline_final_health`
   - `npm run discovery_risk_report`
   - `npm run alert_routing`
+  - `npm run e2e_discovery_seo_flow` (auto-seed enabled by default when queue is empty)
 - Discovery operations:
   - `npm run discovery_intelligence_run`
   - `npm run viral_momentum_refresh`
@@ -89,7 +90,11 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
   - `P3`: 240 minutes.
 - Runbook command:
   - Execute `npm run alert_routing` every cycle.
-  - Configure `ALERT_ROUTING_P1_WEBHOOK`, `ALERT_ROUTING_P2_WEBHOOK`, `ALERT_ROUTING_P3_WEBHOOK`.
+  - Configure external routes by channel and priority:
+    - `ALERT_ROUTING_SLACK_P1_WEBHOOK`, `ALERT_ROUTING_SLACK_P2_WEBHOOK`, `ALERT_ROUTING_SLACK_P3_WEBHOOK`
+    - `ALERT_ROUTING_EMAIL_P1_WEBHOOK`, `ALERT_ROUTING_EMAIL_P2_WEBHOOK`, `ALERT_ROUTING_EMAIL_P3_WEBHOOK`
+    - `ALERT_ROUTING_PAGER_P1_WEBHOOK`, `ALERT_ROUTING_PAGER_P2_WEBHOOK`, `ALERT_ROUTING_PAGER_P3_WEBHOOK`
+  - Compatibility fallback still accepted: `ALERT_ROUTING_P1_WEBHOOK`, `ALERT_ROUTING_P2_WEBHOOK`, `ALERT_ROUTING_P3_WEBHOOK`.
 - Escalation policy:
   - `L1`: within SLA.
   - `L2`: after SLA breach.
