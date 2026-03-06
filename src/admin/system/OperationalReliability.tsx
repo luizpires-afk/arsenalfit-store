@@ -3,13 +3,6 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/Components/ui/card";
 import { Button } from "@/Components/ui/button";
-import { DISCOVERY_PRIORITY_LEVELS } from "@/lib/discoveryContracts";
-
-const PRIORITY_LABELS: Record<string, string> = {
-  P1: "Critico",
-  P2: "Alto",
-  P3: "Medio",
-};
 
 const safeCount = async (table: string, filter?: (query: any) => any) => {
   let query = supabase.from(table as any).select("id", { count: "exact", head: true });
@@ -101,19 +94,9 @@ export default function OperationalReliability() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {DISCOVERY_PRIORITY_LEVELS.map((priority) => {
-          const key = priority.toLowerCase() as "p1" | "p2" | "p3";
-          return (
-            <Card key={priority}>
-              <CardHeader>
-                <CardTitle className="text-sm">{priority} {PRIORITY_LABELS[priority] || ""}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{data?.incidents?.[key] ?? 0}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
+        <Card><CardHeader><CardTitle className="text-sm">P1 Critico</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.incidents?.p1 ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">P2 Alto</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.incidents?.p2 ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">P3 Medio</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.incidents?.p3 ?? 0}</p></CardContent></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
