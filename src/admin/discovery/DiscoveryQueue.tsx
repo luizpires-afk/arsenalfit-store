@@ -39,6 +39,15 @@ type PriceHistory = {
   price: number;
 };
 
+type CandidateEvent = {
+  id: number;
+  candidate_id: string;
+  event_type: string;
+  actor: string | null;
+  created_at: string;
+  event_payload: Record<string, unknown> | null;
+};
+
 const score = (v: number | null | undefined) => Number(v || 0).toFixed(2);
 
 const createSeoPayload = (candidate: DiscoveryCandidate) => {
@@ -98,6 +107,7 @@ export default function DiscoveryQueue() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchRejectReason, setBatchRejectReason] = useState("");
   const [actorLabel, setActorLabel] = useState("admin_ui");
+  const [operationKey, setOperationKey] = useState("");
 
   const { data = [], isLoading, refetch } = useQuery({
     queryKey: ["admin-discovery-candidates"],
@@ -130,6 +140,20 @@ export default function DiscoveryQueue() {
       if (error) throw error;
       return (rows || []) as PriceHistory[];
     },
+  });
+
+  const { data: recentEvents = [] } = useQuery({
+    queryKey: ["admin-discovery-events-recent"],
+    queryFn: async () => {
+      const { data: rows, error } = await supabase
+        .from("discovery_candidate_events" as any)
+        .select("id,candidate_id,event_type,actor,created_at,event_payload")
+        .order("created_at", { ascending: false })
+        .limit(120);
+      if (error) throw error;
+      return (rows || []) as CandidateEvent[];
+    },
+    refetchInterval: 30000,
   });
 
   const filtered = useMemo(() => {
@@ -232,6 +256,10 @@ export default function DiscoveryQueue() {
       const actor = String(options?.actor || actorLabel || "admin_ui");
       const operationId = String(options?.operationId || `single-${Date.now()}-${candidate.id}`);
       const reason = String(options?.reason || "").trim();
+      if (nextStatus === "rejected" && !reason) {
+        toast.error("Motivo obrigatorio para rejeicao.");
+        return { ok: false, skipped: false };
+      }
 
       const eventType: "approved" | "rejected" | "saved" =
         nextStatus === "approved" ? "approved" : nextStatus === "rejected" ? "rejected" : "saved";
@@ -332,7 +360,7 @@ export default function DiscoveryQueue() {
       if (!confirmed) return;
     }
 
-    const operationId = `batch-${nextStatus}-${Date.now()}`;
+    const operationId = operationKey.trim() || `batch-${nextStatus}-${Date.now()}`;
     const targets = filtered.filter((row) => selectedIds.includes(row.id));
     if (!targets.length) {
       toast.warning("Nenhum item selecionado nos filtros atuais.");
@@ -358,6 +386,7 @@ export default function DiscoveryQueue() {
 
       toast.success(`Lote concluido: ${okCount} sucesso, ${skippedCount} idempotentes, ${failCount} falhas.`);
       setSelectedIds([]);
+      setOperationKey("");
       await refetch();
     } finally {
       setBatchRunning(false);
@@ -405,11 +434,16 @@ export default function DiscoveryQueue() {
           <CardDescription>Selecione itens e aplique decisao em massa com trilha de auditoria e idempotencia.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
             <Input
               value={batchRejectReason}
               onChange={(e) => setBatchRejectReason(e.target.value)}
               placeholder="motivo obrigatorio para lote rejeitado"
+            />
+            <Input
+              value={operationKey}
+              onChange={(e) => setOperationKey(e.target.value)}
+              placeholder="operation key (idempotencia)"
             />
             <Button
               className="bg-emerald-600 hover:bg-emerald-700"
@@ -422,8 +456,50 @@ export default function DiscoveryQueue() {
             <Button variant="outline" disabled={batchRunning} onClick={() => runBatchAction("saved")}>Salvar Selecionados</Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Selecionados: {selectedIds.length}. Rejeicao em lote exige motivo e confirmacao.
+            Selecionados: {selectedIds.length}. Rejeicao exige motivo e confirmacao. Informe operation key para reruns idempotentes controlados.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Auditoria Recente</CardTitle>
+          <CardDescription>Ultimas operacoes com actor, action e operation_id para rastreabilidade.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!recentEvents.length ? <p className="text-sm text-muted-foreground">Sem eventos recentes.</p> : null}
+          {recentEvents.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="py-2 pr-3">created_at</th>
+                    <th className="py-2 pr-3">event_type</th>
+                    <th className="py-2 pr-3">actor</th>
+                    <th className="py-2 pr-3">candidate_id</th>
+                    <th className="py-2 pr-3">operation_id</th>
+                    <th className="py-2 pr-3">reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentEvents.slice(0, 40).map((event) => {
+                    const operationId = String((event.event_payload || {})["operation_id"] || "-");
+                    const reason = String((event.event_payload || {})["reason"] || "-");
+                    return (
+                      <tr key={event.id} className="border-b">
+                        <td className="py-2 pr-3">{new Date(event.created_at).toLocaleString()}</td>
+                        <td className="py-2 pr-3">{event.event_type}</td>
+                        <td className="py-2 pr-3">{event.actor || "system"}</td>
+                        <td className="py-2 pr-3">{event.candidate_id}</td>
+                        <td className="py-2 pr-3">{operationId}</td>
+                        <td className="py-2 pr-3">{reason}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -489,7 +565,13 @@ export default function DiscoveryQueue() {
                             variant="destructive"
                             disabled={pendingId === row.id}
                             onClick={() => {
-                              const reason = window.prompt("Motivo da rejeicao (opcional no modo individual):", "") || "";
+                              const reason = window.prompt("Motivo da rejeicao (obrigatorio):", "") || "";
+                              if (!reason.trim()) {
+                                toast.error("Motivo obrigatorio para rejeicao.");
+                                return;
+                              }
+                              const confirmed = window.confirm("Confirmar rejeicao deste candidato?");
+                              if (!confirmed) return;
                               setStatus(row, "rejected", { reason });
                             }}
                           >
