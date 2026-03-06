@@ -25,6 +25,11 @@ const readRunnerEnv = (envFilePath) => {
   const envFile = parseEnvFile(envFilePath);
   const supabaseEnv = parseEnvFile("supabase/.env");
   const rootEnv = parseEnvFile(".env");
+  const mergedEnv = {
+    ...rootEnv,
+    ...supabaseEnv,
+    ...envFile,
+  };
 
   const SUPABASE_URL =
     process.env.SUPABASE_URL ||
@@ -46,6 +51,7 @@ const readRunnerEnv = (envFilePath) => {
     rootEnv.CRON_SECRET;
 
   return {
+    ...mergedEnv,
     SUPABASE_URL,
     SERVICE_ROLE_KEY,
     CRON_SECRET,
@@ -279,13 +285,23 @@ const createSupabaseRestClient = ({ supabaseUrl, serviceRoleKey }) => {
     const rows = [];
     while (true) {
       const to = from + pageSize - 1;
-      const batch = await request(pathWithQuery, {
-        method: "GET",
-        headers: {
-          Range: `${from}-${to}`,
-          Prefer: "count=exact",
-        },
-      });
+      let batch = [];
+      try {
+        batch = await request(pathWithQuery, {
+          method: "GET",
+          headers: {
+            Range: `${from}-${to}`,
+            Prefer: "count=exact",
+          },
+        });
+      } catch (error) {
+        const text = String(error?.message || error || "");
+        // PostgREST can return 416 at pagination boundary; treat it as end-of-data.
+        if (text.includes("416") || text.includes("PGRST103") || text.toLowerCase().includes("range not satisfiable")) {
+          break;
+        }
+        throw error;
+      }
       if (!Array.isArray(batch) || batch.length === 0) break;
       rows.push(...batch);
       if (batch.length < pageSize) break;
