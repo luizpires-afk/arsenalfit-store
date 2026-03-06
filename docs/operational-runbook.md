@@ -32,10 +32,13 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
   - `npm run alert_routing`
 - Discovery operations:
   - `npm run discovery_intelligence_run`
+  - `npm run viral_momentum_refresh`
+  - `npm run viral_momentum_observability`
   - Admin: `/admin/ops` and `/admin/discovery`
 - Cron cadence (required):
   - `30min`: `npm run discovery_intelligence_daemon_start` (or `npm run ml_30m_sync_cron_start`)
   - `2h`: `npm run price_maintenance_2h_cron_start`
+  - `6h`: `npm run viral_momentum_6h_cron_start`
   - `24h`: `npm run score_recalc_24h_cron_start`
 - SEO operations:
   - `npm run seo_release_scheduler`
@@ -77,6 +80,13 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
   - `L1`: within SLA.
   - `L2`: after SLA breach.
   - `L3`: after 2x SLA breach.
+
+## 2.2) Viral Momentum Monitoring
+- Health checks:
+  - Run `npm run viral_momentum_observability`.
+  - Confirm `metrics.scored_24h >= baseline.expected_min_scored_24h`.
+- Baseline breach behavior:
+  - Script emits `pipeline_issue` alert with severity `critical` for triage.
 
 ## 3) High Backlog In Admin Queue
 - Detect: backlog (new/reviewing) over operational threshold.
