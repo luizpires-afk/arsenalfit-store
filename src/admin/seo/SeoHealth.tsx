@@ -14,18 +14,38 @@ export default function SeoHealth() {
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["admin-seo-health"],
     queryFn: async () => {
-      const [totalPages, releasedPages, indexedPages, totalClusters] = await Promise.all([
+      const [totalPages, releasedPages, indexedPages, totalClusters, releasedToday, draftsLowContent, draftsLowQuality, releasedRows] = await Promise.all([
         safeCount("seo_pages"),
         safeCount("seo_pages", (q) => q.eq("release_status", "released")),
         safeCount("seo_pages", (q) => q.eq("index_status", "indexed")),
         safeCount("seo_clusters"),
+        safeCount("seo_pages", (q) => q.eq("release_status", "released").gte("released_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString())),
+        safeCount("seo_pages", (q) => q.eq("release_status", "draft").lt("content_score", 0.5)),
+        safeCount("seo_pages", (q) => q.eq("release_status", "draft").lt("quality_score", 0)),
+        supabase
+          .from("seo_pages" as any)
+          .select("keyword")
+          .eq("release_status", "released")
+          .limit(50000),
       ]);
+
+      const keywordCount = new Map<string, number>();
+      for (const row of releasedRows?.data || []) {
+        const key = String(row?.keyword || "").trim().toLowerCase();
+        if (!key) continue;
+        keywordCount.set(key, (keywordCount.get(key) || 0) + 1);
+      }
+      const duplicateReleasedKeywords = Array.from(keywordCount.values()).filter((v) => v > 1).length;
 
       return {
         totalPages,
         releasedPages,
         indexedPages,
         totalClusters,
+        releasedToday,
+        draftsLowContent,
+        draftsLowQuality,
+        duplicateReleasedKeywords,
       };
     },
     refetchInterval: 30000,
@@ -46,6 +66,13 @@ export default function SeoHealth() {
         <Card><CardHeader><CardTitle className="text-sm">Total Clusters</CardTitle></CardHeader><CardContent><p className="text-3xl font-bold">{data?.totalClusters ?? 0}</p></CardContent></Card>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Card><CardHeader><CardTitle className="text-sm">Released Today</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.releasedToday ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Draft Low Content</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.draftsLowContent ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Draft Low Quality</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.draftsLowQuality ?? 0}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle className="text-sm">Keyword Duplicates</CardTitle></CardHeader><CardContent><p className="text-2xl font-bold">{data?.duplicateReleasedKeywords ?? 0}</p></CardContent></Card>
+      </div>
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Observability Links</CardTitle>
@@ -57,6 +84,7 @@ export default function SeoHealth() {
           {isLoading ? <p>Loading health metrics...</p> : null}
           <p>Use <strong>/admin/system-explorer</strong> for event stream and operational observability.</p>
           <p>Use <strong>/admin/seo-pages</strong> and <strong>/admin/seo-clusters</strong> for paginated SEO management.</p>
+          <p>Governance: mantenha <strong>Keyword Duplicates</strong> em zero e reduza <strong>Draft Low Content/Quality</strong> antes do release.</p>
         </CardContent>
       </Card>
     </div>

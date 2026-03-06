@@ -13,6 +13,7 @@ const dlqOutFile = getArg("--dlq-out-file", "reports/seo-release-scheduler-dlq.j
 const dailyLimit = Math.max(1, Number(getArg("--limit", process.env.SEO_DAILY_RELEASE_LIMIT || "100")) || 100);
 const minContentScore = Number(getArg("--min-content-score", process.env.SEO_MIN_CONTENT_SCORE || "0.5")) || 0.5;
 const minQualityScore = Number(getArg("--min-quality-score", process.env.SEO_MIN_QUALITY_SCORE || "0")) || 0;
+const maxDlqRatio = Math.max(0, Math.min(1, Number(getArg("--max-dlq-ratio", process.env.SEO_MAX_DLQ_RATIO || "0.25")) || 0.25));
 const lockFile = path.resolve(process.cwd(), ".seo-release-scheduler.lock");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -193,12 +194,17 @@ const main = async () => {
         daily_limit: dailyLimit,
         min_content_score: minContentScore,
         min_quality_score: minQualityScore,
+        max_dlq_ratio: maxDlqRatio,
       },
       released_today_before_run: releasedToday?.length || 0,
       released_today_after_run: (releasedToday?.length || 0) + metrics.published,
       stages: metrics,
       attempts,
       dlq_count: dlq.length,
+      risk: {
+        dlq_ratio: Number((dlq.length / Math.max(1, metrics.drafted)).toFixed(4)),
+        status: dlq.length / Math.max(1, metrics.drafted) > maxDlqRatio ? "warning" : "ok",
+      },
     };
 
     writeJson(outFile, report);
