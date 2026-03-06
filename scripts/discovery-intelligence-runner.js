@@ -13,6 +13,7 @@ import { viralScoringService } from "./discovery/viralScoringService.js";
 import { discoveryFilterService } from "./discovery/discoveryFilterService.js";
 import { upsertDiscoveryCandidates, writeCandidateEvent } from "./discovery/discoveryQueueService.js";
 import { alertService } from "./discovery/alertService.js";
+import { loadViralMomentumConfig } from "./discovery/viralMomentumConfig.js";
 
 const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "reports/discovery-intelligence-report.json");
@@ -27,6 +28,12 @@ const buildInFilter = (values) =>
     .filter(Boolean)
     .map((v) => `"${String(v).replace(/"/g, '\\"')}"`)
     .join(",");
+
+const chunkRows = (rows, size = 200) => {
+  const out = [];
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+  return out;
+};
 
 const acquireLock = async (client, lockName, lockedBy, lockForMinutes) => {
   const existing = await client.request(`/discovery_job_locks?select=job_name,locked_until&job_name=eq.${encodeURIComponent(lockName)}`, { method: "GET" });
@@ -92,11 +99,32 @@ const loadHistoricalAverageMap = async (client, externalIds) => {
   return avgMap;
 };
 
+const loadTrendHistoryMap = async (client, externalIds) => {
+  const filter = buildInFilter(externalIds);
+  if (!filter) return new Map();
+
+  const rows = await client.request(
+    `/product_trend_history?select=external_product_id,captured_at,sales_count,reviews_count,questions_count,favorites_count,stock,search_trend_score,social_mentions,engagement_score,signal_confidence&marketplace=eq.mercadolivre&external_product_id=in.(${filter})&order=captured_at.desc&limit=10000`,
+    { method: "GET" },
+  ).catch(() => []);
+
+  const grouped = new Map();
+  for (const row of rows || []) {
+    const key = String(row?.external_product_id || "");
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
+  }
+  return grouped;
+};
+
 async function main() {
   const { env, client } = parseEnvAndClient(envFile);
+  const viralConfig = loadViralMomentumConfig({ ...process.env, ...env });
   const token = getMlToken(env);
   const lockName = "discovery-intelligence-30m";
   const lockBy = `${os.hostname()}:${process.pid}`;
+  const roundId = `discovery-round-${Date.now()}`;
 
   const lock = await acquireLock(client, lockName, lockBy, lockMinutes);
   if (!lock.acquired) {
@@ -121,10 +149,15 @@ async function main() {
   const externalIds = collected.products.map((p) => p.external_product_id);
   const previousMap = await loadPreviousSnapshots(client, externalIds);
   const historicalAvgMap = await loadHistoricalAverageMap(client, externalIds);
+  const trendHistoryMap = await loadTrendHistoryMap(client, externalIds);
 
   const snapshotRows = [];
   const metricsRows = [];
   const historyRows = [];
+  const viralSignalRows = [];
+  const trendKeywordRows = [];
+  const productTrendHistoryRows = [];
+  const viralScoreRows = [];
   const acceptedCandidateRows = [];
   const filteredRows = [];
   const itemErrors = [];
@@ -140,8 +173,21 @@ async function main() {
         historicalAvgPrice: historicalAvg,
       });
 
-      const viral = viralScoringService({ product, previousSnapshot: previous });
-      const filter = discoveryFilterService({ product, opportunityScore: opp.score, viralScore: viral.score });
+      const historySeries = trendHistoryMap.get(product.external_product_id) || [];
+      const viral = viralScoringService({
+        product,
+        previousSnapshot: previous,
+        historySeries,
+        config: viralConfig,
+        roundId,
+      });
+      const filter = discoveryFilterService({
+        product,
+        opportunityScore: opp.score,
+        viralScore: viral.score,
+        signalConfidence: viral.signal_confidence,
+        config: viralConfig,
+      });
 
       const mergedComponents = {
         opportunity: { score: opp.score, ...opp },
@@ -153,6 +199,8 @@ async function main() {
         ...product,
         opportunity_score: Math.round(opp.score),
         viral_score: Math.round(viral.score),
+        viral_momentum_score: Number(viral.score.toFixed(3)),
+        score_version: viral.score_version,
         score_components: mergedComponents,
         updated_at: nowIso(),
       };
@@ -173,12 +221,37 @@ async function main() {
         favorites_count: product.favorites_count,
         opportunity_score: Math.round(opp.score),
         viral_score: Math.round(viral.score),
+        viral_momentum_score: Number(viral.score.toFixed(3)),
+        score_version: viral.score_version,
         opportunity_components: { ...opp.components, ...opp.explanation },
-        viral_components: { ...viral.components, ...viral.explanation },
+        viral_components: {
+          ...(viral.components || {}),
+          ...(viral.explanation || {}),
+          top_signals: viral.top_signals,
+          windows: viral.windows,
+        },
         raw_signal: {
           source_terms: product.source_terms,
           matched_terms_count: product.matched_terms_count,
         },
+      });
+
+      viralSignalRows.push(...(viral.signals?.windowsRows || []));
+      trendKeywordRows.push(...(viral.signals?.trendKeywordRows || []));
+      if (viral.signals?.trendHistoryRow) productTrendHistoryRows.push(viral.signals.trendHistoryRow);
+
+      viralScoreRows.push({
+        round_id: roundId,
+        marketplace: product.marketplace,
+        external_product_id: product.external_product_id,
+        score_version: viral.score_version,
+        score: Number(viral.score.toFixed(3)),
+        reliability_penalty: Number((viral.reliability_penalty || 0).toFixed(3)),
+        score_components: viral.score_components || {},
+        decision_reason: String(viral.decision_reason || ""),
+        windows: viral.windows || {},
+        created_at: nowIso(),
+        updated_at: nowIso(),
       });
 
       if (Number(product.current_price || 0) > 0) {
@@ -210,10 +283,13 @@ async function main() {
           favorites_count: product.favorites_count,
           opportunity_score: Math.round(opp.score),
           viral_score: Math.round(viral.score),
+          viral_momentum_score: Number(viral.score.toFixed(3)),
           signal_origin: "collector",
           score_components: mergedComponents,
           status: "new",
-          confidence: Number(((opp.score * 0.6 + viral.score * 0.4) / 100).toFixed(3)),
+          confidence: Number(Math.min(1, ((opp.score * 0.55 + viral.score * 0.45) / 100) * (viral.signal_confidence || 0.6)).toFixed(3)),
+          score_version: viral.score_version,
+          score_decision_reason: String(viral.decision_reason || ""),
           updated_at: nowIso(),
         });
       } else {
@@ -262,6 +338,58 @@ async function main() {
     });
   }
 
+  if (viralSignalRows.length) {
+    for (const row of viralSignalRows) {
+      const linked = productRows.get(row.external_product_id);
+      row.discovery_product_id = linked?.id || null;
+    }
+    for (const batch of chunkRows(viralSignalRows, 300)) {
+      await client.request("/viral_signals?on_conflict=round_id,marketplace,external_product_id,signal_window", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(batch),
+      }).catch(() => null);
+    }
+  }
+
+  if (trendKeywordRows.length) {
+    for (const batch of chunkRows(trendKeywordRows, 500)) {
+      await client.request("/trend_keywords", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify(batch.map(({ _round_id, _external_product_id, ...row }) => row)),
+      }).catch(() => null);
+    }
+  }
+
+  if (productTrendHistoryRows.length) {
+    for (const row of productTrendHistoryRows) {
+      const linked = productRows.get(row.external_product_id);
+      row.discovery_product_id = linked?.id || null;
+    }
+    for (const batch of chunkRows(productTrendHistoryRows, 300)) {
+      await client.request("/product_trend_history", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify(batch),
+      }).catch(() => null);
+    }
+  }
+
+  if (viralScoreRows.length) {
+    for (const row of viralScoreRows) {
+      const linked = productRows.get(row.external_product_id);
+      row.discovery_product_id = linked?.id || null;
+    }
+    for (const batch of chunkRows(viralScoreRows, 300)) {
+      await client.request("/viral_scores?on_conflict=round_id,marketplace,external_product_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(batch),
+      }).catch(() => null);
+    }
+  }
+
   for (const row of acceptedCandidateRows) {
     const linked = productRows.get(row.external_product_id);
     row.discovery_product_id = linked?.id || null;
@@ -284,6 +412,31 @@ async function main() {
 
   const dedupAcceptedRows = Array.from(dedupAcceptedMap.values());
   const upsertedCandidates = await upsertDiscoveryCandidates({ client, acceptedRows: dedupAcceptedRows });
+
+  const candidateByExternalId = new Map();
+  for (const row of upsertedCandidates || []) {
+    candidateByExternalId.set(String(row?.external_product_id || ""), row);
+  }
+
+  if (viralScoreRows.length) {
+    const scoreRowsWithCandidates = viralScoreRows
+      .map((row) => {
+        const candidate = candidateByExternalId.get(String(row.external_product_id || ""));
+        return {
+          ...row,
+          candidate_id: candidate?.id || null,
+        };
+      })
+      .filter((row) => row.candidate_id);
+
+    for (const batch of chunkRows(scoreRowsWithCandidates, 200)) {
+      await client.request("/viral_scores?on_conflict=round_id,marketplace,external_product_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(batch),
+      }).catch(() => null);
+    }
+  }
 
   if (collected.products.length < minExpectedCollected) {
     await client.request("/discovery_alerts", {
@@ -350,6 +503,8 @@ async function main() {
       deduped_candidates_removed: Math.max(0, acceptedCandidateRows.length - dedupAcceptedRows.length),
       collector_error_rate: Number(((collected.errors.length / Math.max(1, collected.products.length + collected.errors.length)) * 100).toFixed(2)),
       item_error_rate: Number(((itemErrors.length / Math.max(1, collected.products.length)) * 100).toFixed(2)),
+      viral_scores_generated: viralScoreRows.length,
+      viral_signals_collected: viralSignalRows.length,
       risk_level:
         collected.products.length < minExpectedCollected || collected.errors.length >= 5
           ? "high"

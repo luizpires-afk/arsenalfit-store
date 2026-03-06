@@ -1,37 +1,57 @@
-const clamp = (v, min = 0, max = 100) => Math.max(min, Math.min(max, v));
-const num = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
+import { loadViralMomentumConfig } from "./viralMomentumConfig.js";
+import { buildProductSignalSnapshot } from "./viralSignalService.js";
+import { computeViralMomentumScore } from "./viralMomentumEngine.js";
 
-export function viralScoringService({ product, previousSnapshot = null }) {
-  const previousSold = num(previousSnapshot?.sold_quantity);
-  const soldQuantity = num(product?.sold_quantity);
-  const salesVelocityPct = previousSold > 0 ? ((soldQuantity - previousSold) / previousSold) * 100 : 0;
+export function viralScoringService({ product, previousSnapshot = null, historySeries = [], config = null, roundId = "inline" }) {
+  const resolvedConfig = config || loadViralMomentumConfig(process.env);
+  const snapshot = buildProductSignalSnapshot({
+    product,
+    previousSnapshot,
+    roundId,
+    nowIso: new Date().toISOString(),
+  });
 
-  const previousReviews = num(previousSnapshot?.reviews_count);
-  const reviews = num(product?.reviews_count);
-  const recentReviewGrowth = previousReviews > 0 ? ((reviews - previousReviews) / previousReviews) * 100 : 0;
+  const signalConfidence = Number(
+    Math.min(
+      1,
+      Math.max(
+        0,
+        (Number(product?.matched_terms_count || 0) >= 3 ? 0.7 : 0.45)
+        + (Number(product?.favorites_count || 0) > 0 ? 0.15 : 0)
+        + (previousSnapshot ? 0.1 : 0),
+      ),
+    ).toFixed(3),
+  );
 
-  const matchedTermsCount = num(product?.matched_terms_count);
-  const favorites = num(product?.favorites_count);
-
-  const components = {
-    sales_velocity: Number(clamp(salesVelocityPct * 0.45, 0, 45).toFixed(2)),
-    review_momentum: Number(clamp(recentReviewGrowth * 0.25, 0, 20).toFixed(2)),
-    multi_search_repetition: Number(clamp(matchedTermsCount * 8, 0, 25).toFixed(2)),
-    favorites_signal: Number(clamp(favorites > 0 ? 10 : 0, 0, 10).toFixed(2)),
-  };
-
-  const score = Number(clamp(Object.values(components).reduce((a, b) => a + b, 0), 0, 100).toFixed(2));
+  const computed = computeViralMomentumScore({
+    signals: {
+      ...snapshot.signalPayload,
+      confidence: {
+        ...(snapshot.signalPayload?.confidence || {}),
+        signal_confidence: signalConfidence,
+      },
+    },
+    historySeries,
+    config: resolvedConfig,
+  });
 
   return {
-    score,
-    components,
+    score: computed.score,
+    components: computed.score_components,
     explanation: {
-      sales_velocity_pct: Number(salesVelocityPct.toFixed(2)),
-      review_growth_pct: Number(recentReviewGrowth.toFixed(2)),
-      matched_terms_count: matchedTermsCount,
+      decision_reason: computed.decision_reason,
+      top_signals: computed.top_signals,
+      score_version: resolvedConfig.score_version,
+      reliability_penalty: computed.reliability_penalty,
+      signal_confidence: signalConfidence,
     },
+    signals: snapshot,
+    score_version: resolvedConfig.score_version,
+    score_components: computed.score_components,
+    decision_reason: computed.decision_reason,
+    reliability_penalty: computed.reliability_penalty,
+    top_signals: computed.top_signals,
+    windows: computed.windows,
+    signal_confidence: signalConfidence,
   };
 }
