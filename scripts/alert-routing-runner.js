@@ -31,6 +31,14 @@ const toEscalationLevel = (ageMinutes, slaMinutes) => {
   return "L3";
 };
 
+const CHANNELS = ["slack", "email", "pager"];
+
+const DEFAULT_CHANNELS_BY_PRIORITY = {
+  P1: ["slack", "email", "pager"],
+  P2: ["slack", "email"],
+  P3: ["slack"],
+};
+
 const toDateIso = (dateLike) => {
   const d = new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
@@ -66,7 +74,40 @@ const postWebhook = async (url, payload, timeoutMs) => {
   }
 };
 
-const buildRoutingPayload = (alert, nowMs, webhookUrl) => {
+const toChannelWebhook = (env, priority, channel) => {
+  const upperChannel = String(channel || "").toUpperCase();
+  const prio = String(priority || "P3").toUpperCase();
+
+  const fromEnv =
+    process.env[`ALERT_ROUTING_${upperChannel}_${prio}_WEBHOOK`] ||
+    env[`ALERT_ROUTING_${upperChannel}_${prio}_WEBHOOK`] ||
+    process.env[`ALERT_ROUTING_${upperChannel}_WEBHOOK`] ||
+    env[`ALERT_ROUTING_${upperChannel}_WEBHOOK`] ||
+    null;
+
+  if (fromEnv) return fromEnv;
+
+  // Compatibility path: old ALERT_ROUTING_P1/P2/P3_WEBHOOK map is treated as slack default.
+  if (channel === "slack") {
+    return (
+      process.env[`ALERT_ROUTING_${prio}_WEBHOOK`] ||
+      env[`ALERT_ROUTING_${prio}_WEBHOOK`] ||
+      null
+    );
+  }
+
+  return null;
+};
+
+const channelsForPriority = (priority, escalationLevel) => {
+  const base = [...(DEFAULT_CHANNELS_BY_PRIORITY[priority] || DEFAULT_CHANNELS_BY_PRIORITY.P3)];
+  if (escalationLevel !== "L1" && !base.includes("pager")) {
+    base.push("pager");
+  }
+  return base;
+};
+
+const buildRoutingPayload = (alert, nowMs, channelTargets = {}) => {
   const createdMs = Date.parse(String(alert?.created_at || ""));
   const safeCreatedMs = Number.isFinite(createdMs) ? createdMs : nowMs;
   const ageMinutes = Math.max(0, Math.floor((nowMs - safeCreatedMs) / 60000));
@@ -75,14 +116,17 @@ const buildRoutingPayload = (alert, nowMs, webhookUrl) => {
   const slaMinutes = SLA_MINUTES[priority] || SLA_MINUTES.P3;
   const escalationLevel = toEscalationLevel(ageMinutes, slaMinutes);
   const breachedSla = ageMinutes > slaMinutes;
+  const channels = channelsForPriority(priority, escalationLevel);
 
   return {
     priority,
+    channels,
+    channel_targets: channelTargets,
     sla_minutes: slaMinutes,
     age_minutes: ageMinutes,
     escalation_level: escalationLevel,
     breached_sla: breachedSla,
-    route_target: webhookUrl ? "webhook" : "unconfigured",
+    route_target: channels.join(","),
     due_at: toDateIso(safeCreatedMs + slaMinutes * 60000),
     escalated_at: breachedSla ? new Date(nowMs).toISOString() : null,
   };
@@ -111,12 +155,6 @@ const main = async () => {
     500,
   );
 
-  const routingWebhooks = {
-    P1: process.env.ALERT_ROUTING_P1_WEBHOOK || env.ALERT_ROUTING_P1_WEBHOOK || null,
-    P2: process.env.ALERT_ROUTING_P2_WEBHOOK || env.ALERT_ROUTING_P2_WEBHOOK || null,
-    P3: process.env.ALERT_ROUTING_P3_WEBHOOK || env.ALERT_ROUTING_P3_WEBHOOK || null,
-  };
-
   const output = {
     generated_at: new Date(nowMs).toISOString(),
     ok: true,
@@ -125,17 +163,32 @@ const main = async () => {
     escalated: 0,
     sla_breached: 0,
     webhook_failures: 0,
+    channel_dispatch: {
+      slack: { attempted: 0, delivered: 0, failed: 0 },
+      email: { attempted: 0, delivered: 0, failed: 0 },
+      pager: { attempted: 0, delivered: 0, failed: 0 },
+    },
     priorities: { P1: 0, P2: 0, P3: 0 },
     alerts: [],
   };
 
   for (const alert of alerts) {
-    const routing = buildRoutingPayload(alert, nowMs, routingWebhooks[toPriority(alert?.severity)]);
+    const priority = toPriority(alert?.severity);
+    const preChannels = channelsForPriority(priority, "L1");
+    const preTargets = Object.fromEntries(preChannels.map((channel) => [channel, toChannelWebhook(env, priority, channel)]));
+    const routing = buildRoutingPayload(alert, nowMs, preTargets);
     output.priorities[routing.priority] += 1;
     if (routing.breached_sla) output.sla_breached += 1;
     if (routing.escalation_level !== "L1") output.escalated += 1;
 
-    const dispatchPayload = {
+    const channels = channelsForPriority(routing.priority, routing.escalation_level);
+    const channelTargets = Object.fromEntries(
+      channels.map((channel) => [channel, toChannelWebhook(env, routing.priority, channel)]),
+    );
+    routing.channels = channels;
+    routing.channel_targets = channelTargets;
+
+    const baseDispatchPayload = {
       incident_type: "discovery_alert",
       alert_id: alert.id,
       priority: routing.priority,
@@ -152,18 +205,38 @@ const main = async () => {
       occurred_at: alert.created_at,
     };
 
-    const dispatch = await postWebhook(routingWebhooks[routing.priority], dispatchPayload, webhookTimeoutMs);
-    if (!dispatch.ok && dispatch.attempted) output.webhook_failures += 1;
+    const dispatches = {};
+    for (const channel of channels) {
+      const dispatchPayload = {
+        ...baseDispatchPayload,
+        route_channel: channel,
+      };
+      const dispatch = await postWebhook(channelTargets[channel], dispatchPayload, webhookTimeoutMs);
+      dispatches[channel] = dispatch;
+
+      if (dispatch.attempted) output.channel_dispatch[channel].attempted += 1;
+      if (dispatch.ok) {
+        output.channel_dispatch[channel].delivered += 1;
+      } else if (dispatch.attempted) {
+        output.channel_dispatch[channel].failed += 1;
+        output.webhook_failures += 1;
+      }
+    }
+
+    const attemptedChannels = Object.entries(dispatches).filter(([, result]) => result?.attempted).map(([channel]) => channel);
+    const deliveredChannels = Object.entries(dispatches).filter(([, result]) => result?.ok).map(([channel]) => channel);
+    const dispatchOk = attemptedChannels.length > 0 && deliveredChannels.length === attemptedChannels.length;
 
     const payload = mergePayload(alert.payload, routing, {
-      attempted: dispatch.attempted,
-      delivered: dispatch.ok,
-      webhook_status: dispatch.status,
-      webhook_error: dispatch.error,
-      delivered_at: dispatch.ok ? new Date().toISOString() : null,
+      attempted: attemptedChannels.length > 0,
+      delivered: dispatchOk,
+      attempted_channels: attemptedChannels,
+      delivered_channels: deliveredChannels,
+      dispatches,
+      delivered_at: dispatchOk ? new Date().toISOString() : null,
     });
 
-    const nextStatus = dispatch.ok && String(alert.status) === "new" ? "acknowledged" : String(alert.status || "new");
+    const nextStatus = dispatchOk && String(alert.status) === "new" ? "acknowledged" : String(alert.status || "new");
 
     await client.request(`/discovery_alerts?id=eq.${encodeURIComponent(alert.id)}`, {
       method: "PATCH",
@@ -186,8 +259,14 @@ const main = async () => {
       priority: routing.priority,
       escalation_level: routing.escalation_level,
       breached_sla: routing.breached_sla,
-      dispatch_ok: dispatch.ok,
-      dispatch_error: dispatch.error,
+      dispatch_ok: dispatchOk,
+      attempted_channels: attemptedChannels,
+      delivered_channels: deliveredChannels,
+      dispatch_errors: Object.fromEntries(
+        Object.entries(dispatches)
+          .filter(([, value]) => value?.attempted && !value?.ok)
+          .map(([channel, value]) => [channel, value?.error || "webhook_error"]),
+      ),
     });
   }
 
