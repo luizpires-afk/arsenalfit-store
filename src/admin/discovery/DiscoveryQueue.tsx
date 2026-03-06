@@ -27,6 +27,10 @@ type DiscoveryCandidate = {
   stock: number | null;
   opportunity_score: number;
   viral_score: number;
+  viral_momentum_score: number | null;
+  score_version: string | null;
+  score_decision_reason: string | null;
+  score_components: Record<string, unknown> | null;
   signal_origin: string;
   status: CandidateStatus;
   updated_at: string;
@@ -50,6 +54,20 @@ type CandidateEvent = {
 
 const score = (v: number | null | undefined) => Number(v || 0).toFixed(2);
 
+const topSignalsSummary = (candidate: DiscoveryCandidate) => {
+  const fromReason = String(candidate?.score_decision_reason || "").trim();
+  if (fromReason) return fromReason;
+
+  const root = candidate?.score_components || {};
+  const topSignals = ((root as any)?.viral?.top_signals || (root as any)?.top_signals || {}) as Record<string, unknown>;
+  const keys = Object.keys(topSignals || {});
+  if (!keys.length) return "sinais em processamento";
+  return keys
+    .slice(0, 3)
+    .map((k) => `${k}:${Number(topSignals[k] || 0).toFixed(1)}`)
+    .join(" | ");
+};
+
 const createSeoPayload = (candidate: DiscoveryCandidate) => {
   const slug = `${String(candidate.title || "produto")
     .normalize("NFD")
@@ -65,7 +83,7 @@ const createSeoPayload = (candidate: DiscoveryCandidate) => {
   const faq = [
     {
       question: "Por que este produto esta na descoberta?",
-      answer: `Porque atingiu score de oportunidade ${candidate.opportunity_score}/100 e viralidade ${candidate.viral_score}/100.`,
+      answer: `Porque atingiu score de oportunidade ${candidate.opportunity_score}/100 e momentum viral ${Number(candidate.viral_momentum_score ?? candidate.viral_score ?? 0).toFixed(2)}/100.`,
     },
     {
       question: "A compra e no Mercado Livre?",
@@ -112,15 +130,38 @@ export default function DiscoveryQueue() {
   const { data = [], isLoading, refetch } = useQuery({
     queryKey: ["admin-discovery-candidates"],
     queryFn: async () => {
-      const { data: rows, error } = await supabase
-        .from("discovery_candidates" as any)
-        .select(
-          "id,marketplace,external_product_id,title,category,seller,seller_reputation,affiliate_link,product_url,current_price,original_price,discount_percent,sold_quantity,reviews_count,rating,stock,opportunity_score,viral_score,signal_origin,status,updated_at,created_at",
-        )
-        .order("updated_at", { ascending: false })
-        .limit(1000);
+      const selectNew =
+        "id,marketplace,external_product_id,title,category,seller,seller_reputation,affiliate_link,product_url,current_price,original_price,discount_percent,sold_quantity,reviews_count,rating,stock,opportunity_score,viral_score,viral_momentum_score,score_version,score_decision_reason,score_components,signal_origin,status,updated_at,created_at";
+      const selectLegacy =
+        "id,marketplace,external_product_id,title,category,seller,seller_reputation,affiliate_link,product_url,current_price,original_price,discount_percent,sold_quantity,reviews_count,rating,stock,opportunity_score,viral_score,signal_origin,status,updated_at,created_at";
+
+      const attempt = async (selectClause: string) => {
+        return await supabase
+          .from("discovery_candidates" as any)
+          .select(selectClause)
+          .order("updated_at", { ascending: false })
+          .limit(1000);
+      };
+
+      let rows = null as any;
+      let error = null as any;
+
+      ({ data: rows, error } = await attempt(selectNew));
+      if (error) {
+        const legacy = await attempt(selectLegacy);
+        rows = legacy.data;
+        error = legacy.error;
+      }
+
       if (error) throw error;
-      return (rows || []) as DiscoveryCandidate[];
+
+      return ((rows || []) as DiscoveryCandidate[]).map((row) => ({
+        ...row,
+        viral_momentum_score: Number((row as any)?.viral_momentum_score ?? row.viral_score ?? 0),
+        score_version: String((row as any)?.score_version || "v1-legacy"),
+        score_decision_reason: String((row as any)?.score_decision_reason || ""),
+        score_components: ((row as any)?.score_components || null) as Record<string, unknown> | null,
+      }));
     },
     refetchInterval: 30000,
   });
@@ -555,9 +596,10 @@ export default function DiscoveryQueue() {
                     <th className="py-2 pr-3">title</th>
                     <th className="py-2 pr-3">status</th>
                     <th className="py-2 pr-3">opportunity</th>
-                    <th className="py-2 pr-3">viral</th>
+                    <th className="py-2 pr-3">viral_momentum</th>
                     <th className="py-2 pr-3">discount%</th>
                     <th className="py-2 pr-3">price</th>
+                    <th className="py-2 pr-3">top_sinais</th>
                     <th className="py-2 pr-3">actions</th>
                   </tr>
                 </thead>
@@ -578,9 +620,10 @@ export default function DiscoveryQueue() {
                       </td>
                       <td className="py-2 pr-3">{row.status}</td>
                       <td className="py-2 pr-3">{row.opportunity_score}</td>
-                      <td className="py-2 pr-3">{row.viral_score}</td>
+                      <td className="py-2 pr-3">{score(row.viral_momentum_score ?? row.viral_score)}</td>
                       <td className="py-2 pr-3">{score(row.discount_percent)}</td>
                       <td className="py-2 pr-3">{score(row.current_price)}</td>
+                      <td className="py-2 pr-3 max-w-[260px] truncate" title={topSignalsSummary(row)}>{topSignalsSummary(row)}</td>
                       <td className="py-2 pr-3">
                         <div className="flex gap-2">
                           <Button
