@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "check_runtime_imports_tracked": "node scripts/check-runtime-imports-tracked.js",
     "check:text": "node tools/check-mojibake.mjs",
     "dev": "vite --config vite.config.js",
     "prebuild": "npm run check:text",
@@ -91,6 +92,7 @@
     "discovery_intelligence_daemon_start": "bash scripts/discovery-intelligence-daemon.sh start",
     "discovery_intelligence_daemon_stop": "bash scripts/discovery-intelligence-daemon.sh stop",
     "discovery_intelligence_daemon_status": "bash scripts/discovery-intelligence-daemon.sh status",
+    "e2e_discovery_seo_flow": "node scripts/e2e-discovery-seo-flow.js --env supabase/functions/.env.scheduler --out-file reports/e2e-discovery-seo-flow.json",
     "discovery_history_maintenance": "node scripts/discovery-history-maintenance.js --env supabase/functions/.env.scheduler --out-file reports/discovery-history-maintenance.json --keep-days 180",
     "viral_fitness_discovery": "node scripts/viral-fitness-trend-discovery.js --env supabase/functions/.env.scheduler --out-file logs/viral-fitness-trend-discovery.json --threshold 8",
     "viral_fitness_trend_discovery": "node scripts/viral-fitness-trend-discovery.js --env supabase/functions/.env.scheduler --out-file logs/viral-fitness-trend-discovery.json --threshold 8",
