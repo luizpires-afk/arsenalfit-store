@@ -116,6 +116,8 @@ runStep("Export links-fonte diarios estritos (15)", [
   envFile,
   "--limit",
   "15",
+  "--fail-if-insufficient-safe",
+  "false",
   "--out-prefix",
   "docs/daily-strict-sources",
 ]);

@@ -67,6 +67,7 @@ const parseListArg = (names) => {
 };
 
 const envFromFile = parseEnvFile(envFile);
+const supabaseFunctionsEnv = parseEnvFile("supabase/functions/.env");
 const supabaseEnv = parseEnvFile("supabase/.env");
 const rootEnv = parseEnvFile(".env");
 
@@ -77,18 +78,41 @@ const SUPABASE_URL =
   rootEnv.SUPABASE_URL ||
   rootEnv.VITE_SUPABASE_URL;
 
-const CRON_SECRET =
-  process.env.CRON_SECRET ||
-  envFromFile.CRON_SECRET ||
-  supabaseEnv.CRON_SECRET ||
-  rootEnv.CRON_SECRET;
+const collectCronSecretCandidates = () => {
+  const candidates = [];
+  const seen = new Set();
+  const pushCandidate = (value, source) => {
+    const normalized = String(value || "").trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push({ value: normalized, source });
+  };
+
+  pushCandidate(process.env.CRON_SECRET, "process.env.CRON_SECRET");
+  pushCandidate(process.env.X_CRON_SECRET, "process.env.X_CRON_SECRET");
+  pushCandidate(envFromFile.CRON_SECRET, `${envFile}:CRON_SECRET`);
+  pushCandidate(envFromFile.X_CRON_SECRET, `${envFile}:X_CRON_SECRET`);
+  pushCandidate(supabaseFunctionsEnv.CRON_SECRET, "supabase/functions/.env:CRON_SECRET");
+  pushCandidate(supabaseFunctionsEnv.X_CRON_SECRET, "supabase/functions/.env:X_CRON_SECRET");
+  pushCandidate(supabaseEnv.CRON_SECRET, "supabase/.env:CRON_SECRET");
+  pushCandidate(supabaseEnv.X_CRON_SECRET, "supabase/.env:X_CRON_SECRET");
+  pushCandidate(rootEnv.CRON_SECRET, ".env:CRON_SECRET");
+  pushCandidate(rootEnv.X_CRON_SECRET, ".env:X_CRON_SECRET");
+
+  return candidates;
+};
+
+const cronSecretCandidates = collectCronSecretCandidates();
 
 if (!SUPABASE_URL) {
   console.error("SUPABASE_URL nao definido. Informe no ambiente ou no arquivo:", envFile);
   process.exit(1);
 }
-if (!CRON_SECRET) {
-  console.error("CRON_SECRET nao definido. Informe no ambiente ou no arquivo:", envFile);
+if (!cronSecretCandidates.length) {
+  console.error(
+    "CRON_SECRET/X_CRON_SECRET nao definido. Informe no ambiente ou no arquivo:",
+    envFile,
+  );
   process.exit(1);
 }
 
@@ -186,27 +210,49 @@ const body = {
   ...(hasDailyTargets ? targetsBySiteCategory : {}),
 };
 
-const controller = new AbortController();
-const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-fetch(endpoint, {
-  method: "POST",
-  headers: {
-    "content-type": "application/json",
-    "x-cron-secret": CRON_SECRET,
-  },
-  body: JSON.stringify(body),
-  signal: controller.signal,
-})
-  .then(async (resp) => {
-    clearTimeout(timer);
+const runWithSecretCandidate = async (candidate) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-cron-secret": candidate.value,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
     const text = await resp.text();
-    console.log("Status:", resp.status);
-    if (text) console.log(text);
-    if (!resp.ok) process.exit(1);
-  })
-  .catch((err) => {
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      text,
+      source: candidate.source,
+    };
+  } finally {
     clearTimeout(timer);
-    console.error(err?.message || err);
-    process.exit(1);
-  });
+  }
+};
+
+(async () => {
+  let lastResult = null;
+  for (const candidate of cronSecretCandidates) {
+    const result = await runWithSecretCandidate(candidate);
+    lastResult = result;
+    console.log(`Status (${result.source}):`, result.status);
+    if (result.text) console.log(result.text);
+    if (result.ok) return;
+    if (result.status !== 401) break;
+  }
+
+  if (lastResult?.status === 401) {
+    console.error(
+      "Falha de autenticacao (401) apos testar todos os segredos locais. Sincronize CRON_SECRET no deploy do edge function catalog-ingest.",
+    );
+  }
+  process.exit(1);
+})().catch((err) => {
+  console.error(err?.message || err);
+  process.exit(1);
+});
