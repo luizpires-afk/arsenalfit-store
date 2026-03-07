@@ -4,6 +4,7 @@ import path from "path";
 const projectRoot = process.cwd();
 const publicDir = path.join(projectRoot, "public");
 const seedPath = path.join(projectRoot, "src", "config", "programmaticSeoSeeds.json");
+const schedulerEnvPath = path.join(projectRoot, "supabase", "functions", ".env.scheduler");
 
 const nowIso = new Date().toISOString();
 const baseUrl = process.env.SITE_URL || "https://arsenalfit.com.br";
@@ -19,6 +20,42 @@ const staticRoutes = [
   "/privacidade",
   "/termos"
 ];
+
+const parseDotEnvText = (text) => {
+  const out = {};
+  const lines = String(text || "").split(/\r?\n/);
+  for (const lineRaw of lines) {
+    const line = String(lineRaw || "").trim();
+    if (!line || line.startsWith("#")) continue;
+    const eqIndex = line.indexOf("=");
+    if (eqIndex <= 0) continue;
+    const key = line.slice(0, eqIndex).trim();
+    const value = line.slice(eqIndex + 1).trim();
+    if (!key) continue;
+    out[key] = value;
+  }
+  return out;
+};
+
+const loadOptionalSchedulerEnv = () => {
+  if (!fs.existsSync(schedulerEnvPath)) return {};
+  try {
+    return parseDotEnvText(fs.readFileSync(schedulerEnvPath, "utf8"));
+  } catch {
+    return {};
+  }
+};
+
+const normalizeSeoRouteFromSlug = (slug) => {
+  let normalized = String(slug || "")
+    .trim()
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  if (!normalized) return null;
+  if (normalized.startsWith("seo/")) normalized = normalized.slice(4);
+  if (!normalized) return null;
+  return `/seo/${normalized}`;
+};
 
 const readSeoRoutes = () => {
   if (!fs.existsSync(seedPath)) return [];
@@ -45,7 +82,44 @@ const readSeoRoutes = () => {
   return routes;
 };
 
-const uniqueRoutes = Array.from(new Set([...staticRoutes, ...readSeoRoutes()]));
+const fetchReleasedSeoDbRoutes = async () => {
+  const fallbackEnv = loadOptionalSchedulerEnv();
+  const supabaseUrl = process.env.SUPABASE_URL || fallbackEnv.SUPABASE_URL || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || fallbackEnv.SUPABASE_SERVICE_ROLE_KEY || "";
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.log("[sitemap] Skipping DB SEO routes (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set)");
+    return [];
+  }
+
+  const endpoint = `${String(supabaseUrl).replace(/\/+$/, "")}/rest/v1/seo_pages?select=slug&release_status=eq.released&is_active=eq.true&limit=50000`;
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.log(`[sitemap] Skipping DB SEO routes (HTTP ${response.status})`);
+      return [];
+    }
+
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .map((row) => normalizeSeoRouteFromSlug(row?.slug))
+      .filter(Boolean);
+  } catch (error) {
+    console.log(`[sitemap] Skipping DB SEO routes (${String(error?.message || error || "unknown_error")})`);
+    return [];
+  }
+};
+
+const dbSeoRoutes = await fetchReleasedSeoDbRoutes();
+const uniqueRoutes = Array.from(new Set([...staticRoutes, ...readSeoRoutes(), ...dbSeoRoutes]));
 
 const buildUrlNode = (route) => {
   const loc = `${baseUrl}${route}`;
