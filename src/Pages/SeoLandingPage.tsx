@@ -26,6 +26,27 @@ type CategoryRow = {
   name: string;
 };
 
+type SeoDbPage = {
+  id: number;
+  slug: string | null;
+  title: string | null;
+  description: string | null;
+  keyword: string | null;
+  meta_title: string | null;
+  meta_description: string | null;
+  search_intent: string | null;
+  is_active: boolean | null;
+  release_status: string | null;
+  updated_at: string | null;
+};
+
+const normalizeSeoPath = (slug: string) => {
+  const raw = String(slug || "").trim().replace(/^\/+/, "");
+  if (!raw) return "/seo";
+  if (raw.startsWith("seo/")) return `/${raw}`;
+  return `/seo/${raw}`;
+};
+
 const paragraphFromKeyword = (keywordLabel: string, categoryName: string) => {
   return [
     `Se voce busca ${keywordLabel}, esta pagina resume os pontos mais importantes para escolher com seguranca dentro de ${categoryName}. Nosso processo cruza dados de preco monitorado, atualizacoes frequentes e sinais de confianca para priorizar opcoes que realmente fazem sentido para treino e rotina fitness.`,
@@ -36,15 +57,44 @@ const paragraphFromKeyword = (keywordLabel: string, categoryName: string) => {
 
 export default function SeoLandingPage() {
   const params = useParams();
+  const singleSlug = toSlug(params.slug || "");
   const categorySlug = toSlug(params.category || "");
   const keywordSlug = toSlug(params.keyword || "");
-  const keywordLabel = keywordSlugToLabel(keywordSlug);
+  const composedSlug = [categorySlug, keywordSlug].filter(Boolean).join("/");
+
+  const slugCandidates = useMemo(() => {
+    const pool = [singleSlug, composedSlug, keywordSlug].filter(Boolean);
+    return Array.from(new Set(pool));
+  }, [singleSlug, composedSlug, keywordSlug]);
 
   const isKeywordAllowed = useMemo(() => {
+    if (!categorySlug || !keywordSlug) return false;
     const seed = getProgrammaticSeeds().find((item) => item.slug === categorySlug);
     if (!seed) return false;
     return seed.keywords.includes(keywordSlug);
   }, [categorySlug, keywordSlug]);
+
+  const { data: dbPage } = useQuery({
+    queryKey: ["seo-page", "db-page", ...slugCandidates],
+    queryFn: async () => {
+      if (slugCandidates.length === 0) return null;
+      const { data, error } = await supabase
+        .from("seo_pages" as any)
+        .select("id,slug,title,description,keyword,meta_title,meta_description,search_intent,is_active,release_status,updated_at")
+        .in("slug", slugCandidates)
+        .eq("is_active", true)
+        .eq("release_status", "released")
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return ((data || [])[0] as SeoDbPage | undefined) || null;
+    },
+    enabled: slugCandidates.length > 0,
+  });
+
+  const isPageAllowed = isKeywordAllowed || Boolean(dbPage);
+  const effectiveKeywordSlug = toSlug(dbPage?.keyword || keywordSlug || singleSlug);
+  const keywordLabel = keywordSlugToLabel(effectiveKeywordSlug);
 
   const { data: category } = useQuery({
     queryKey: ["seo-page", "category", categorySlug],
@@ -57,14 +107,13 @@ export default function SeoLandingPage() {
       if (error) throw error;
       return (data as CategoryRow | null) || null;
     },
-    enabled: Boolean(categorySlug && isKeywordAllowed),
+    enabled: Boolean(categorySlug && isPageAllowed),
   });
 
   const { data: products = [], isLoading } = useQuery({
-    queryKey: ["seo-page", "products", category?.id, keywordSlug],
+    queryKey: ["seo-page", "products", category?.id || "all", effectiveKeywordSlug],
     queryFn: async () => {
-      if (!category?.id) return [];
-      const words = keywordSlug
+      const words = effectiveKeywordSlug
         .split("-")
         .map((word) => word.trim())
         .filter((word) => word.length >= 3)
@@ -74,10 +123,13 @@ export default function SeoLandingPage() {
         .from("products")
         .select(PRODUCT_SELECT)
         .eq("is_blocked", false)
-        .eq("category_id", category.id)
         .or(VISIBLE_PRODUCTS_FILTER)
         .order("updated_at", { ascending: false })
         .limit(80);
+
+      if (category?.id) {
+        query = query.eq("category_id", category.id);
+      }
 
       if (words.length > 0) {
         const ilike = words.map((word) => `name.ilike.%${word}%`).join(",");
@@ -102,17 +154,22 @@ export default function SeoLandingPage() {
 
       return deduped;
     },
-    enabled: Boolean(category?.id),
+    enabled: isPageAllowed,
   });
 
   const categoryName = category?.name || "categoria fitness";
   const relatedSeoLinks = listRelatedSeoLinks(categorySlug, keywordSlug, 6);
   const relatedProducts = products.slice(0, 12);
 
-  const hasMinimumData = isKeywordAllowed && Boolean(category?.id) && relatedProducts.length >= 3;
-  const longText = paragraphFromKeyword(keywordLabel, categoryName);
+  const hasMinimumData = isPageAllowed && relatedProducts.length >= 3;
+  const longText = String(dbPage?.description || "").trim() || paragraphFromKeyword(keywordLabel, categoryName);
+  const pageTitle = String(dbPage?.title || "").trim() || `Best ${keywordLabel}`;
+  const pageDescription = String(dbPage?.meta_description || "").trim() ||
+    `Discover the best ${keywordLabel} with updated prices, reviews and comparisons.`;
+  const canonicalSlug = String(dbPage?.slug || composedSlug || singleSlug || effectiveKeywordSlug).trim();
+  const canonicalPath = normalizeSeoPath(canonicalSlug);
 
-  if (!isKeywordAllowed) {
+  if (!isPageAllowed) {
     return (
       <Layout>
         <SEOHead
@@ -133,9 +190,9 @@ export default function SeoLandingPage() {
   return (
     <Layout>
       <SEOHead
-        title={`${keywordLabel} | Best Deals and Reviews`}
-        description={`Discover the best ${keywordLabel} with updated prices, reviews and comparisons.`}
-        canonicalPath={`/seo/${categorySlug}/${keywordSlug}`}
+        title={`${String(dbPage?.meta_title || pageTitle)} | Best Deals and Reviews`}
+        description={pageDescription}
+        canonicalPath={canonicalPath}
         noindex={!hasMinimumData}
         ogType="article"
       />
@@ -144,7 +201,7 @@ export default function SeoLandingPage() {
         <header className="mb-8">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">SEO Page</p>
           <h1 className="mt-2 text-3xl md:text-4xl font-black text-zinc-900 tracking-tight">
-            Best {keywordLabel}
+            {pageTitle}
           </h1>
           <p className="mt-4 text-zinc-700 leading-7">{longText}</p>
         </header>
@@ -225,12 +282,14 @@ export default function SeoLandingPage() {
             <section className="rounded-2xl border border-zinc-200 bg-white p-6">
               <h2 className="text-2xl font-black text-zinc-900">Related searches</h2>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Link
-                  to={`/categoria/${categorySlug}`}
-                  className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
-                >
-                  best {categoryName}
-                </Link>
+                {categorySlug ? (
+                  <Link
+                    to={`/categoria/${categorySlug}`}
+                    className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100"
+                  >
+                    best {categoryName}
+                  </Link>
+                ) : null}
                 {relatedSeoLinks.map((item) => (
                   <Link
                     key={item.href}

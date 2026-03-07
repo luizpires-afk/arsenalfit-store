@@ -10,6 +10,13 @@ import { toSlug } from "@/lib/programmaticSeo";
 
 const PAGE_SIZE = 50;
 
+const normalizeSeoSlugInput = (value: string) =>
+  String(value || "")
+    .split("/")
+    .map((chunk) => toSlug(chunk))
+    .filter(Boolean)
+    .join("/");
+
 type SeoPageRow = {
   id: number;
   slug: string | null;
@@ -94,7 +101,7 @@ export default function SeoPages() {
   const upsertMutation = useMutation({
     mutationFn: async (payload: SeoPageForm) => {
       const nowIso = new Date().toISOString();
-      const cleanSlug = toSlug(payload.slug || payload.keyword);
+      const cleanSlug = normalizeSeoSlugInput(payload.slug || payload.keyword);
       const cleanKeyword = String(payload.keyword || "").trim().toLowerCase();
 
       if (!cleanSlug || !cleanKeyword || !payload.title.trim() || !payload.description.trim()) {
@@ -276,7 +283,7 @@ export default function SeoPages() {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-semibold uppercase text-muted-foreground">Slug</label>
-            <Input value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: toSlug(e.target.value) }))} placeholder="ex: creatina-monohidratada" />
+            <Input value={form.slug} onChange={(e) => setForm((prev) => ({ ...prev, slug: normalizeSeoSlugInput(e.target.value) }))} placeholder="ex: suplementos/creatina-monohidratada" />
           </div>
           <div className="space-y-1 md:col-span-2">
             <label className="text-xs font-semibold uppercase text-muted-foreground">Title</label>
