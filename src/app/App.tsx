@@ -3,8 +3,8 @@ import { Toaster as Sonner } from "@/Components/ui/sonner";
 import { TooltipProvider } from "@/Components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Suspense, lazy } from "react";
-import { AuthProvider } from "@/hooks/useAuth";
+import { Suspense, lazy, useEffect, useRef } from "react";
+import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import ScrollToTop from "@/Components/ScrollToTop";
 import { Header } from "@/Components/Header";
 import { MonitorInfoDialog } from "@/Components/monitoring/MonitorInfoDialog";
@@ -42,26 +42,99 @@ import OutProduct from "@/Pages/OutProduct";
 import ComoMonitorar from "@/Pages/ComoMonitorar";
 import { AdminRoute } from "@/Components/auth/AdminRoute";
 
-const AdminDashboard = lazy(() => import("@/admin/dashboard/AdminDashboard"));
-const SeoPages = lazy(() => import("@/admin/seo/SeoPages"));
-const SeoClusters = lazy(() => import("@/admin/seo/SeoClusters"));
-const SeoHealth = lazy(() => import("@/admin/seo/SeoHealth"));
-const ProductsTable = lazy(() => import("@/admin/products/ProductsTable"));
-const LegacyProductsConsole = lazy(() => import("@/admin/products/LegacyProductsConsole"));
-const ProductsQueue = lazy(() => import("@/admin/products/ProductsQueue"));
-const ImportProducts = lazy(() => import("@/admin/products/ImportProducts"));
-const TrendProducts = lazy(() => import("@/admin/discovery/TrendProducts"));
-const ViralProducts = lazy(() => import("@/admin/discovery/ViralProducts"));
-const DiscoveryQueue = lazy(() => import("@/admin/discovery/DiscoveryQueue"));
-const PriceSync = lazy(() => import("@/admin/pricing/PriceSync"));
-const AdminPriceAdjustments = lazy(() => import("@/admin/pricing/PriceAdjustments"));
-const AiSystemDashboard = lazy(() => import("@/admin/ai/AiSystemDashboard"));
-const SystemExplorer = lazy(() => import("@/admin/system/SystemExplorer"));
-const PipelineHealth = lazy(() => import("@/admin/system/PipelineHealth"));
-const OperationalReliability = lazy(() => import("@/admin/system/OperationalReliability"));
-const AdminOperatingOS = lazy(() => import("@/admin/operations/AdminOperatingOS"));
-const AdminShell = lazy(() => import("@/admin/layout/AdminShell"));
-const SeoLandingPage = lazy(() => import("@/Pages/SeoLandingPage"));
+const loadAdminDashboard = () => import("@/admin/dashboard/AdminDashboard");
+const loadSeoPages = () => import("@/admin/seo/SeoPages");
+const loadSeoClusters = () => import("@/admin/seo/SeoClusters");
+const loadSeoHealth = () => import("@/admin/seo/SeoHealth");
+const loadProductsTable = () => import("@/admin/products/ProductsTable");
+const loadLegacyProductsConsole = () => import("@/admin/products/LegacyProductsConsole");
+const loadProductsQueue = () => import("@/admin/products/ProductsQueue");
+const loadImportProducts = () => import("@/admin/products/ImportProducts");
+const loadTrendProducts = () => import("@/admin/discovery/TrendProducts");
+const loadViralProducts = () => import("@/admin/discovery/ViralProducts");
+const loadDiscoveryQueue = () => import("@/admin/discovery/DiscoveryQueue");
+const loadPriceSync = () => import("@/admin/pricing/PriceSync");
+const loadAdminPriceAdjustments = () => import("@/admin/pricing/PriceAdjustments");
+const loadAiSystemDashboard = () => import("@/admin/ai/AiSystemDashboard");
+const loadSystemExplorer = () => import("@/admin/system/SystemExplorer");
+const loadPipelineHealth = () => import("@/admin/system/PipelineHealth");
+const loadOperationalReliability = () => import("@/admin/system/OperationalReliability");
+const loadAdminOperatingOS = () => import("@/admin/operations/AdminOperatingOS");
+const loadAdminShell = () => import("@/admin/layout/AdminShell");
+const loadSeoLandingPage = () => import("@/Pages/SeoLandingPage");
+
+const AdminDashboard = lazy(loadAdminDashboard);
+const SeoPages = lazy(loadSeoPages);
+const SeoClusters = lazy(loadSeoClusters);
+const SeoHealth = lazy(loadSeoHealth);
+const ProductsTable = lazy(loadProductsTable);
+const LegacyProductsConsole = lazy(loadLegacyProductsConsole);
+const ProductsQueue = lazy(loadProductsQueue);
+const ImportProducts = lazy(loadImportProducts);
+const TrendProducts = lazy(loadTrendProducts);
+const ViralProducts = lazy(loadViralProducts);
+const DiscoveryQueue = lazy(loadDiscoveryQueue);
+const PriceSync = lazy(loadPriceSync);
+const AdminPriceAdjustments = lazy(loadAdminPriceAdjustments);
+const AiSystemDashboard = lazy(loadAiSystemDashboard);
+const SystemExplorer = lazy(loadSystemExplorer);
+const PipelineHealth = lazy(loadPipelineHealth);
+const OperationalReliability = lazy(loadOperationalReliability);
+const AdminOperatingOS = lazy(loadAdminOperatingOS);
+const AdminShell = lazy(loadAdminShell);
+const SeoLandingPage = lazy(loadSeoLandingPage);
+
+const adminPrefetchLoaders = [
+  loadAdminShell,
+  loadAdminDashboard,
+  loadAdminOperatingOS,
+  loadSeoPages,
+  loadSeoClusters,
+  loadSeoHealth,
+  loadProductsTable,
+  loadLegacyProductsConsole,
+  loadProductsQueue,
+  loadImportProducts,
+  loadTrendProducts,
+  loadViralProducts,
+  loadDiscoveryQueue,
+  loadPriceSync,
+  loadAdminPriceAdjustments,
+  loadAiSystemDashboard,
+  loadSystemExplorer,
+  loadPipelineHealth,
+  loadOperationalReliability,
+  loadSeoLandingPage,
+];
+
+function AdminChunkPrefetcher() {
+  const { user, isAdmin, loading } = useAuth();
+  const hasPrefetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (loading || !user || !isAdmin || hasPrefetchedRef.current) return;
+    hasPrefetchedRef.current = true;
+
+    const win = window as any;
+    const prefetch = () => {
+      Promise.allSettled(adminPrefetchLoaders.map((loader) => loader()));
+    };
+
+    if (typeof win.requestIdleCallback === "function") {
+      const idleId = win.requestIdleCallback(prefetch, { timeout: 2000 });
+      return () => {
+        if (typeof win.cancelIdleCallback === "function") {
+          win.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timer = window.setTimeout(prefetch, 300);
+    return () => window.clearTimeout(timer);
+  }, [loading, user, isAdmin]);
+
+  return null;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -76,6 +149,7 @@ const AppRoutes = () => {
   return (
     <RouteErrorBoundary>
       <Header />
+      <AdminChunkPrefetcher />
       <Suspense fallback={<div className="container-tight py-10 text-sm text-zinc-500">Carregando pagina...</div>}>
       <Routes>
         <Route
