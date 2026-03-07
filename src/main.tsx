@@ -1,6 +1,5 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
-import App from "@/app/App"
 import "./index.css"
 
 declare global {
@@ -43,16 +42,21 @@ window.addEventListener("unhandledrejection", (event) => {
   renderFatalFallback("Falha ao carregar o site", reasonMessage)
 })
 
-try {
+const bootstrap = async () => {
   if (!rootElement) {
     throw new Error("Elemento root não encontrado")
   }
+
+  // Load the app lazily so module-evaluation failures are caught and surfaced.
+  const { default: App } = await import("@/app/App")
 
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>,
   )
-} catch (error: any) {
-  renderFatalFallback("Falha ao carregar o site", error?.message || "Erro fatal durante a renderização inicial")
 }
+
+bootstrap().catch((error: any) => {
+  renderFatalFallback("Falha ao carregar o site", error?.message || "Erro fatal durante a renderização inicial")
+})
