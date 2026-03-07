@@ -153,6 +153,7 @@ const AppRoutes = () => {
         <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />
         <Route path="/seo/:category/:keyword" element={<SeoLandingPage />} />
         <Route path="/seo/:slug" element={<SeoLandingPage />} />
+        <Route path="/seo/*" element={<SeoLandingPage />} />
         <Route path="/carrinho" element={<Cart />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/favoritos" element={<Favorites />} />

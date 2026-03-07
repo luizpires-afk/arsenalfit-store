@@ -57,15 +57,23 @@ const paragraphFromKeyword = (keywordLabel: string, categoryName: string) => {
 
 export default function SeoLandingPage() {
   const params = useParams();
+  const wildcardRaw = String(params["*"] || "").trim();
+  const wildcardSlug = wildcardRaw
+    .split("/")
+    .map((chunk) => toSlug(chunk))
+    .filter(Boolean)
+    .join("/");
   const singleSlug = toSlug(params.slug || "");
   const categorySlug = toSlug(params.category || "");
   const keywordSlug = toSlug(params.keyword || "");
   const composedSlug = [categorySlug, keywordSlug].filter(Boolean).join("/");
 
   const slugCandidates = useMemo(() => {
-    const pool = [singleSlug, composedSlug, keywordSlug].filter(Boolean);
+    const wildcardSegments = wildcardSlug.split("/").filter(Boolean);
+    const wildcardLastSegment = wildcardSegments.length > 0 ? wildcardSegments[wildcardSegments.length - 1] : "";
+    const pool = [wildcardSlug, singleSlug, composedSlug, keywordSlug, wildcardLastSegment].filter(Boolean);
     return Array.from(new Set(pool));
-  }, [singleSlug, composedSlug, keywordSlug]);
+  }, [wildcardSlug, singleSlug, composedSlug, keywordSlug]);
 
   const isKeywordAllowed = useMemo(() => {
     if (!categorySlug || !keywordSlug) return false;
@@ -93,7 +101,7 @@ export default function SeoLandingPage() {
   });
 
   const isPageAllowed = isKeywordAllowed || Boolean(dbPage);
-  const effectiveKeywordSlug = toSlug(dbPage?.keyword || keywordSlug || singleSlug);
+  const effectiveKeywordSlug = toSlug(dbPage?.keyword || keywordSlug || singleSlug || wildcardSlug);
   const keywordLabel = keywordSlugToLabel(effectiveKeywordSlug);
 
   const { data: category } = useQuery({
@@ -166,7 +174,7 @@ export default function SeoLandingPage() {
   const pageTitle = String(dbPage?.title || "").trim() || `Best ${keywordLabel}`;
   const pageDescription = String(dbPage?.meta_description || "").trim() ||
     `Discover the best ${keywordLabel} with updated prices, reviews and comparisons.`;
-  const canonicalSlug = String(dbPage?.slug || composedSlug || singleSlug || effectiveKeywordSlug).trim();
+  const canonicalSlug = String(dbPage?.slug || wildcardSlug || composedSlug || singleSlug || effectiveKeywordSlug).trim();
   const canonicalPath = normalizeSeoPath(canonicalSlug);
 
   if (!isPageAllowed) {
