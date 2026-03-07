@@ -1,0 +1,43 @@
+{
+  "categories": [
+    {
+      "slug": "suplementos",
+      "keywords": [
+        "best-creatine-for-strength",
+        "pre-workout-for-beginners",
+        "whey-protein-cost-benefit",
+        "creatine-under-100"
+      ]
+    },
+    {
+      "slug": "equipamentos",
+      "keywords": [
+        "adjustable-dumbbells-for-home-gym",
+        "resistance-bands-for-strength",
+        "best-kettlebell-for-home"
+      ]
+    },
+    {
+      "slug": "acessorios",
+      "keywords": [
+        "best-shaker-bottles-for-gym",
+        "lifting-straps-for-deadlift",
+        "fitness-gloves-for-training"
+      ]
+    },
+    {
+      "slug": "roupas-masculinas",
+      "keywords": [
+        "mens-gym-shorts-breathable",
+        "mens-dry-fit-shirts-for-workout"
+      ]
+    },
+    {
+      "slug": "roupas-femininas",
+      "keywords": [
+        "womens-gym-leggings-high-waist",
+        "womens-sports-top-for-training"
+      ]
+    }
+  ]
+}

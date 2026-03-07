@@ -2713,6 +2713,9 @@ export default function Admin() {
               <Button variant="secondary" onClick={() => navigate('/admin/price-adjustments')}>
                 Ajustes de preço
               </Button>
+              <Button variant="outline" onClick={() => navigate('/seo/suplementos/best-creatine-for-strength')}>
+                SEO Pages (preview)
+              </Button>
               <Button onClick={() => handleOpenDialog()} className="btn-energy">
                 <Plus className="h-4 w-4 mr-2" />
                 Novo Produto

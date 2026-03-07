@@ -805,6 +805,21 @@ export default function HomeV2() {
     const isMercadoLivre = (product: any) =>
       String(product.marketplace || "").toLowerCase().includes("mercado");
 
+    const isFitnessCategory = (product: any) => {
+      const categorySlug = String(product?.category?.slug || product?.category_slug || "").toLowerCase();
+      const categoryName = String(product?.category?.name || product?.category_name || "").toLowerCase();
+      const target = `${categorySlug} ${categoryName}`;
+      return (
+        target.includes("suplement") ||
+        target.includes("equip") ||
+        target.includes("acessor") ||
+        target.includes("roupa") ||
+        target.includes("vestu")
+      );
+    };
+
+    const hasFreeShipping = (product: any) => product?.free_shipping === true;
+
     const hasSourceField = basePool.some((product: any) =>
       Object.prototype.hasOwnProperty.call(product, "last_price_source"),
     );

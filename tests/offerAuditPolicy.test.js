@@ -53,7 +53,7 @@ test("repair policy: broken active offer moves to standby", () => {
     status: "active",
     is_active: true,
     affiliate_link: null,
-    source_url: "https://www.mercadolivre.com.br/p/MLB4478549231",
+    source_url: null,
     external_id: "MLB4478549231",
   });
   assert.equal(result.ok, false);

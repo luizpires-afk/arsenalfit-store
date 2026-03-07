@@ -6,8 +6,9 @@
   "scripts": {
     "check_runtime_imports_tracked": "node scripts/check-runtime-imports-tracked.js",
     "check:text": "node tools/check-mojibake.mjs",
+    "generate:sitemap": "node scripts/generate-sitemap.mjs",
     "dev": "vite --config vite.config.js",
-    "prebuild": "npm run check_runtime_imports_tracked && npm run check:text",
+    "prebuild": "npm run check_runtime_imports_tracked && npm run check:text && npm run generate:sitemap",
     "build": "vite build --config vite.config.js",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview --config vite.config.js",

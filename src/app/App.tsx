@@ -59,6 +59,7 @@ import PipelineHealth from "@/admin/system/PipelineHealth";
 import OperationalReliability from "@/admin/system/OperationalReliability";
 import AdminOperatingOS from "@/admin/operations/AdminOperatingOS";
 import AdminShell from "@/admin/layout/AdminShell";
+import SeoLandingPage from "@/Pages/SeoLandingPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -150,6 +151,7 @@ const AppRoutes = () => {
         <Route path="/out/product/:id" element={<OutProduct />} />
         <Route path="/ofertas" element={<Navigate to="/" replace />} />
         <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />
+        <Route path="/seo/:category/:keyword" element={<SeoLandingPage />} />
         <Route path="/carrinho" element={<Cart />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/favoritos" element={<Favorites />} />
