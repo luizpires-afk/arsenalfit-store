@@ -1,13 +1,15 @@
 
 // @ts-ignore - Remote module resolution is handled by Deno at runtime.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import {
+// @ts-ignore - JS named exports are resolved at runtime in Deno.
+import * as fitnessGate from "./filter_policy.js";
+const {
   SITE_CATEGORIES,
   evaluateFitnessGate,
   loadFilterConfig,
   normalizeFitnessText,
   shouldAcceptCandidate,
-} from "./fitness_gate.ts";
+} = fitnessGate as any;
 import {
   resolveDailyQuotaRange,
   resolveDailyQuotaValue,
@@ -4499,7 +4501,6 @@ Deno.serve(async (req) => {
           })),
           mapping_errors: mappingErrorSamples.slice(0, 20),
           bulk_targets: Object.fromEntries(bulkTargetsBySiteCategory.entries()),
-          affiliate_gate: affiliateGateSummary,
           daily_targets: dailyTargetsSummary,
           insufficient_accepted_candidates: insufficientAcceptedCandidates,
           daily_checklist: dailyChecklist,

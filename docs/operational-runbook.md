@@ -35,6 +35,11 @@ This runbook covers production incidents for deploy, discovery ingestion, admin 
   - Non-critical alert accumulation requiring scheduled triage.
 
 ## Command Map (Fast Triage)
+- Unified operations stack:
+  - `npm run ops_stack_start`
+  - `npm run ops_stack_status`
+  - `npm run ops_stack_readiness`
+  - Full guide: `docs/operations-stack-professional.md`
 - Deploy and sync:
   - `git rev-parse HEAD`
   - `git ls-remote --heads origin main`
