@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/Components/ui/sonner";
 import { TooltipProvider } from "@/Components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, lazy } from "react";
 import { AuthProvider } from "@/hooks/useAuth";
 import ScrollToTop from "@/Components/ScrollToTop";
 import { Header } from "@/Components/Header";
@@ -40,26 +41,27 @@ import ResetPassword from "@/Pages/ResetPassword";
 import OutProduct from "@/Pages/OutProduct";
 import ComoMonitorar from "@/Pages/ComoMonitorar";
 import { AdminRoute } from "@/Components/auth/AdminRoute";
-import AdminDashboard from "@/admin/dashboard/AdminDashboard";
-import SeoPages from "@/admin/seo/SeoPages";
-import SeoClusters from "@/admin/seo/SeoClusters";
-import SeoHealth from "@/admin/seo/SeoHealth";
-import ProductsTable from "@/admin/products/ProductsTable";
-import LegacyProductsConsole from "@/admin/products/LegacyProductsConsole";
-import ProductsQueue from "@/admin/products/ProductsQueue";
-import ImportProducts from "@/admin/products/ImportProducts";
-import TrendProducts from "@/admin/discovery/TrendProducts";
-import ViralProducts from "@/admin/discovery/ViralProducts";
-import DiscoveryQueue from "@/admin/discovery/DiscoveryQueue";
-import PriceSync from "@/admin/pricing/PriceSync";
-import AdminPriceAdjustments from "@/admin/pricing/PriceAdjustments";
-import AiSystemDashboard from "@/admin/ai/AiSystemDashboard";
-import SystemExplorer from "@/admin/system/SystemExplorer";
-import PipelineHealth from "@/admin/system/PipelineHealth";
-import OperationalReliability from "@/admin/system/OperationalReliability";
-import AdminOperatingOS from "@/admin/operations/AdminOperatingOS";
-import AdminShell from "@/admin/layout/AdminShell";
-import SeoLandingPage from "@/Pages/SeoLandingPage";
+
+const AdminDashboard = lazy(() => import("@/admin/dashboard/AdminDashboard"));
+const SeoPages = lazy(() => import("@/admin/seo/SeoPages"));
+const SeoClusters = lazy(() => import("@/admin/seo/SeoClusters"));
+const SeoHealth = lazy(() => import("@/admin/seo/SeoHealth"));
+const ProductsTable = lazy(() => import("@/admin/products/ProductsTable"));
+const LegacyProductsConsole = lazy(() => import("@/admin/products/LegacyProductsConsole"));
+const ProductsQueue = lazy(() => import("@/admin/products/ProductsQueue"));
+const ImportProducts = lazy(() => import("@/admin/products/ImportProducts"));
+const TrendProducts = lazy(() => import("@/admin/discovery/TrendProducts"));
+const ViralProducts = lazy(() => import("@/admin/discovery/ViralProducts"));
+const DiscoveryQueue = lazy(() => import("@/admin/discovery/DiscoveryQueue"));
+const PriceSync = lazy(() => import("@/admin/pricing/PriceSync"));
+const AdminPriceAdjustments = lazy(() => import("@/admin/pricing/PriceAdjustments"));
+const AiSystemDashboard = lazy(() => import("@/admin/ai/AiSystemDashboard"));
+const SystemExplorer = lazy(() => import("@/admin/system/SystemExplorer"));
+const PipelineHealth = lazy(() => import("@/admin/system/PipelineHealth"));
+const OperationalReliability = lazy(() => import("@/admin/system/OperationalReliability"));
+const AdminOperatingOS = lazy(() => import("@/admin/operations/AdminOperatingOS"));
+const AdminShell = lazy(() => import("@/admin/layout/AdminShell"));
+const SeoLandingPage = lazy(() => import("@/Pages/SeoLandingPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,6 +76,7 @@ const AppRoutes = () => {
   return (
     <RouteErrorBoundary>
       <Header />
+      <Suspense fallback={<div className="container-tight py-10 text-sm text-zinc-500">Carregando pagina...</div>}>
       <Routes>
         <Route
           path="/"
@@ -160,6 +163,7 @@ const AppRoutes = () => {
         <Route path="/compare" element={<Compare />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
       <SiteFooter />
     </RouteErrorBoundary>
   );
