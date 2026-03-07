@@ -422,10 +422,11 @@ const main = async () => {
     const projectRef =
       args.projectRef ||
       process.env.SUPABASE_PROJECT_REF ||
+      env.SUPABASE_PROJECT_REF ||
       (fs.existsSync("supabase/.temp/project-ref")
         ? String(fs.readFileSync("supabase/.temp/project-ref", "utf8")).trim()
         : "");
-    const accessToken = process.env.SUPABASE_ACCESS_TOKEN || "";
+    const accessToken = process.env.SUPABASE_ACCESS_TOKEN || env.SUPABASE_ACCESS_TOKEN || "";
     if (!projectRef || !accessToken) {
       throw new Error(
         "admin_required and fallback_unavailable: set SUPABASE_ACCESS_TOKEN (and project ref if needed) to use SQL admin API fallback",
