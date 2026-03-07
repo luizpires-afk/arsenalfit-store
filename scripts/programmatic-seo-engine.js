@@ -8,8 +8,16 @@ import {
 
 const envFile = getArg("--env", DEFAULT_ENV);
 const outFile = getArg("--out-file", "logs/programmatic-seo-engine.json");
-const pageLimit = Math.max(100, Math.min(10000, Number(getArg("--page-limit", "10000")) || 10000));
+const pageLimit = Math.max(5, Math.min(1000000, Number(getArg("--page-limit", "100000")) || 100000));
 const productsPerPage = Math.max(5, Math.min(50, Number(getArg("--products-per-page", "20")) || 20));
+const dailyPageCap = Math.max(5, Math.min(5000, Number(getArg("--daily-page-cap", "500")) || 500));
+
+const TEMPLATE_TYPES = [
+  "product_comparison",
+  "category_ranking",
+  "best_products_list",
+  "fitness_goal_page",
+];
 
 const FITNESS_KEYWORDS = [
   "whey protein barato",
@@ -65,6 +73,88 @@ const seoMeta = (keyword) => {
     meta_title: `${pretty} em Promocao | Melhores Ofertas Hoje`,
     meta_description: `Compare ofertas de ${normalize(keyword)} com foco em preco, ranking e potencial de lucro.`,
     seo_keywords: [...new Set(normalize(keyword).split(" ").filter((w) => w.length >= 3))].slice(0, 12),
+  };
+};
+
+const buildFaqSchema = (keyword) => {
+  const k = normalize(keyword);
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: `Qual o melhor ${k} para comecar?`,
+        acceptedAnswer: { "@type": "Answer", text: `Compare reputacao, numero de avaliacoes e preco para escolher o melhor ${k}.` },
+      },
+      {
+        "@type": "Question",
+        name: `Como comparar ${k} com seguranca?`,
+        acceptedAnswer: { "@type": "Answer", text: "Priorize produtos com reviews consistentes, vendedores confiaveis e historico estavel de preco." },
+      },
+      {
+        "@type": "Question",
+        name: `Com que frequencia as ofertas mudam?`,
+        acceptedAnswer: { "@type": "Answer", text: "As ofertas podem variar ao longo do dia; acompanhe as atualizacoes para capturar o melhor momento." },
+      },
+    ],
+  };
+};
+
+const buildComparisonTable = (blocks = [], productsById = new Map()) =>
+  blocks.slice(0, 12).map((b) => {
+    const row = productsById.get(b.product_id) || {};
+    return {
+      product_id: b.product_id,
+      title: b.title,
+      price: Number(row?.price || 0) || null,
+      rank_score: Number(row?.rank_score || 0) || 0,
+      profit_score: Number(row?.profit_score || 0) || 0,
+      discount_score: Number(row?.discount_score || 0) || 0,
+    };
+  });
+
+const buildPageByTemplate = ({ templateType, keyword, products }) => {
+  const pretty = titleCase(normalize(keyword));
+  const blocks = products.slice(0, 12).map((p, idx) => ({
+    product_id: p.id,
+    position: idx + 1,
+    title: p?.title || p?.name || "Produto",
+  }));
+
+  if (templateType === "product_comparison") {
+    return {
+      slug: `${slugify(keyword)}-vs-opcoes`,
+      title: `${pretty}: comparativo de produtos`,
+      description: `Comparativo de ${keyword} com foco em custo-beneficio e performance.`,
+      intent: "comparison",
+      blocks,
+    };
+  }
+  if (templateType === "category_ranking") {
+    return {
+      slug: `ranking-${slugify(keyword)}-${new Date().getUTCFullYear()}`,
+      title: `Ranking ${new Date().getUTCFullYear()}: ${pretty}`,
+      description: `Ranking atualizado de ${keyword} com base em score comercial.`,
+      intent: "category_ranking",
+      blocks,
+    };
+  }
+  if (templateType === "fitness_goal_page") {
+    return {
+      slug: `melhores-${slugify(keyword)}-para-home-gym`,
+      title: `Melhores ${pretty} para home gym`,
+      description: `Guia de ${keyword} para objetivo fitness com selecao por desempenho.`,
+      intent: "fitness_goal",
+      blocks,
+    };
+  }
+  return {
+    slug: `best-${slugify(keyword)}`,
+    title: `Best ${pretty}`,
+    description: `Selecao dos melhores produtos para ${keyword}.`,
+    intent: "best_products",
+    blocks,
   };
 };
 
@@ -160,6 +250,7 @@ const main = async () => {
   }
 
   const { rows: products, missingColumns: missingProductColumns } = await loadProductsAdaptive(client);
+  const productsById = new Map((products || []).map((row) => [row.id, row]));
   const trendKeywords = await loadTrendKeywords(client);
   const productKeywords = pickKeywordsFromProducts(products);
 
@@ -167,43 +258,130 @@ const main = async () => {
     .filter((k) => k.length >= 4)
     .slice(0, pageLimit);
 
+  const startOfDayIso = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+  let createdToday = 0;
+  try {
+    const todayRows = await client.fetchPagedRows(
+      `/seo_pages?select=id,created_at&created_at=gte.${encodeURIComponent(startOfDayIso)}&limit=10000`,
+      1000,
+    );
+    createdToday = (todayRows || []).length;
+  } catch {
+    createdToday = 0;
+  }
+
+  const remainingDaily = Math.max(0, dailyPageCap - createdToday);
+  const maxKeywordsByCap = Math.max(0, Math.floor(remainingDaily / TEMPLATE_TYPES.length));
+  const cappedKeywords = mergedKeywords.slice(0, Math.min(mergedKeywords.length, maxKeywordsByCap || 0));
+
+  if (!cappedKeywords.length) {
+    const report = {
+      generated_at: nowIso,
+      ok: true,
+      skipped: true,
+      reason: "daily_page_cap_reached",
+      totals: {
+        daily_cap: dailyPageCap,
+        created_today: createdToday,
+        remaining_daily_capacity: remainingDaily,
+      },
+    };
+    writeJson(outFile, report);
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
   const productTokens = new Map();
   for (const p of products) {
     productTokens.set(p.id, normalize(p?.title || p?.name || ""));
   }
 
   const pageRows = [];
-  for (const keyword of mergedKeywords) {
-    const meta = seoMeta(keyword);
-    pageRows.push({
-      slug: meta.slug,
-      title: meta.title,
-      description: meta.description,
-      keyword,
-      search_intent: keyword,
-      meta_title: meta.meta_title,
-      meta_description: meta.meta_description,
-      seo_keywords: meta.seo_keywords,
-      updated_at: nowIso,
-      is_active: true,
-    });
+  for (const keyword of cappedKeywords) {
+    const scopedProducts = products
+      .filter((p) => (productTokens.get(p.id) || "").includes(keyword))
+      .slice(0, productsPerPage);
+
+    const relatedSlugs = TEMPLATE_TYPES.map((t) => buildPageByTemplate({ templateType: t, keyword, products: scopedProducts }).slug);
+
+    for (const templateType of TEMPLATE_TYPES) {
+      const page = buildPageByTemplate({ templateType, keyword, products: scopedProducts });
+      const meta = seoMeta(keyword);
+      const introText = `Analise orientada por dados para ${keyword}, comparando relevancia comercial, preco e confiabilidade.`;
+      const comparisonTable = buildComparisonTable(page.blocks, productsById);
+      const faqSchema = buildFaqSchema(keyword);
+      pageRows.push({
+        slug: page.slug,
+        title: page.title,
+        description: page.description,
+        intro_text: introText,
+        comparison_table: comparisonTable,
+        faq_schema: faqSchema,
+        keyword,
+        search_intent: page.intent,
+        page_type: templateType,
+        category: "fitness",
+        intent: page.intent,
+        meta_title: meta.meta_title,
+        meta_description: meta.meta_description,
+        seo_keywords: meta.seo_keywords,
+        internal_links: relatedSlugs.filter((s) => s !== page.slug).slice(0, 8).map((slug) => ({ slug })),
+        structured_data: {
+          ItemList: {
+            "@type": "ItemList",
+            itemListElement: page.blocks.map((b, idx) => ({ "@type": "ListItem", position: idx + 1, name: b.title })),
+          },
+          BreadcrumbList: {
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Home", item: "https://arsenalfit.store/" },
+              { "@type": "ListItem", position: 2, name: "SEO", item: "https://arsenalfit.store/sitemap-seo-index.xml" },
+              { "@type": "ListItem", position: 3, name: page.title, item: `https://arsenalfit.store/seo/${page.slug}` },
+            ],
+          },
+          FAQPage: faqSchema,
+          comparison_table: comparisonTable,
+          product_blocks: page.blocks,
+        },
+        updated_at: nowIso,
+        is_active: true,
+      });
+    }
   }
 
   const upsertedPages = [];
+  const pageExcludedColumns = new Set();
   for (const part of chunk(pageRows, 200)) {
-    const inserted = await client.request("/seo_pages", {
-      method: "POST",
-      headers: {
-        Prefer: "resolution=merge-duplicates,return=representation",
-      },
-      body: JSON.stringify(part),
-    });
-    if (Array.isArray(inserted)) upsertedPages.push(...inserted);
+    let attempts = 0;
+    while (attempts < 10) {
+      attempts += 1;
+      const payload = part.map((row) => {
+        const next = { ...row };
+        for (const col of pageExcludedColumns) delete next[col];
+        return next;
+      });
+
+      try {
+        const inserted = await client.request("/seo_pages?on_conflict=slug", {
+          method: "POST",
+          headers: {
+            Prefer: "resolution=merge-duplicates,return=representation",
+          },
+          body: JSON.stringify(payload),
+        });
+        if (Array.isArray(inserted)) upsertedPages.push(...inserted);
+        break;
+      } catch (error) {
+        const missing = parseMissingColumn(error);
+        if (!missing || pageExcludedColumns.has(missing)) throw error;
+        pageExcludedColumns.add(missing);
+      }
+    }
   }
 
   const slugToPageId = new Map();
   for (const row of upsertedPages) {
-    if (row?.slug && row?.id) slugToPageId.set(String(row.slug), Number(row.id));
+    if (row?.slug && row?.id) slugToPageId.set(String(row.slug), String(row.id));
   }
 
   if (slugToPageId.size < pageRows.length) {
@@ -212,7 +390,7 @@ const main = async () => {
       1000,
     );
     for (const row of fresh || []) {
-      if (row?.slug && row?.id) slugToPageId.set(String(row.slug), Number(row.id));
+      if (row?.slug && row?.id) slugToPageId.set(String(row.slug), String(row.id));
     }
   }
 
@@ -261,25 +439,43 @@ const main = async () => {
 
   let insertedLinks = 0;
   for (const part of chunk(pageProducts, 500)) {
-    const inserted = await client.request("/seo_page_products", {
+    const inserted = await client.request("/seo_page_products?on_conflict=page_id,product_id", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
       body: JSON.stringify(part),
+    }).catch(async () => {
+      return client.request("/seo_page_products?on_conflict=seo_page_id,product_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(part.map((row) => ({
+          page_id: row.page_id,
+          seo_page_id: row.page_id,
+          product_id: row.product_id,
+          position: row.position,
+        }))),
+      });
     });
     if (Array.isArray(inserted)) insertedLinks += inserted.length;
   }
 
   const metricRows = [...slugToPageId.values()].map((pageId) => ({
     page_id: pageId,
+    seo_page_id: pageId,
     updated_at: nowIso,
   }));
 
   let metricsUpserted = 0;
   for (const part of chunk(metricRows, 500)) {
-    const inserted = await client.request("/seo_page_metrics", {
+    const inserted = await client.request("/seo_page_metrics?on_conflict=page_id", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
       body: JSON.stringify(part),
+    }).catch(async () => {
+      return client.request("/seo_page_metrics?on_conflict=seo_page_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(part),
+      });
     });
     if (Array.isArray(inserted)) metricsUpserted += inserted.length;
   }
@@ -289,6 +485,11 @@ const main = async () => {
     ok: true,
     totals: {
       keywords: mergedKeywords.length,
+      keywords_after_daily_cap: cappedKeywords.length,
+      daily_page_cap: dailyPageCap,
+      created_today_before_run: createdToday,
+      remaining_daily_capacity_before_run: remainingDaily,
+      template_types: TEMPLATE_TYPES.length,
       pages_upserted: slugToPageId.size,
       page_products_upserted: insertedLinks,
       old_page_products_removed: removedOldLinks,
@@ -296,6 +497,7 @@ const main = async () => {
     },
     missing_columns_ignored: {
       products_read: missingProductColumns,
+      seo_pages_write: [...pageExcludedColumns],
     },
     samples: {
       keywords: mergedKeywords.slice(0, 20),
