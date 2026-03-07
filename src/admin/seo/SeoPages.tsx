@@ -77,6 +77,58 @@ export default function SeoPages() {
 
   const isEditing = editingId !== null;
 
+  const ensureSeoUniqueness = async ({
+    slug,
+    keyword,
+    editingIdValue,
+    enforceReleasedKeywordOnly,
+  }: {
+    slug: string;
+    keyword: string;
+    editingIdValue: number | null;
+    enforceReleasedKeywordOnly: boolean;
+  }) => {
+    const slugQuery = supabase
+      .from("seo_pages" as any)
+      .select("id")
+      .eq("slug", slug)
+      .limit(1);
+
+    const keywordQuery = supabase
+      .from("seo_pages" as any)
+      .select("id")
+      .eq("keyword", keyword)
+      .limit(1);
+
+    if (enforceReleasedKeywordOnly) {
+      keywordQuery.eq("release_status", "released");
+    }
+
+    if (editingIdValue) {
+      slugQuery.neq("id", editingIdValue);
+      keywordQuery.neq("id", editingIdValue);
+    }
+
+    const [{ data: slugRows, error: slugError }, { data: keywordRows, error: keywordError }] = await Promise.all([
+      slugQuery,
+      keywordQuery,
+    ]);
+
+    if (slugError) throw slugError;
+    if (keywordError) throw keywordError;
+
+    if (Array.isArray(slugRows) && slugRows.length > 0) {
+      throw new Error("Slug ja existe. Use um slug unico para evitar conflito de URL.");
+    }
+
+    if (Array.isArray(keywordRows) && keywordRows.length > 0) {
+      if (enforceReleasedKeywordOnly) {
+        throw new Error("Keyword ja publicada. Evite canibalizacao de keyword em pages released.");
+      }
+      throw new Error("Keyword ja existe. Ajuste a keyword para manter cobertura sem duplicidade.");
+    }
+  };
+
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["admin-seo-pages", page],
     queryFn: async () => {
@@ -107,6 +159,13 @@ export default function SeoPages() {
       if (!cleanSlug || !cleanKeyword || !payload.title.trim() || !payload.description.trim()) {
         throw new Error("Preencha slug, keyword, title e description.");
       }
+
+      await ensureSeoUniqueness({
+        slug: cleanSlug,
+        keyword: cleanKeyword,
+        editingIdValue: editingId,
+        enforceReleasedKeywordOnly: payload.release_status === "released",
+      });
 
       const base = {
         slug: cleanSlug,
@@ -157,6 +216,26 @@ export default function SeoPages() {
 
   const statusMutation = useMutation({
     mutationFn: async ({ id, releaseStatus, isActive }: { id: number; releaseStatus: "draft" | "released"; isActive: boolean }) => {
+      if (releaseStatus === "released") {
+        const { data: row, error: rowError } = await supabase
+          .from("seo_pages" as any)
+          .select("slug,keyword")
+          .eq("id", id)
+          .maybeSingle();
+        if (rowError) throw rowError;
+        const cleanSlug = normalizeSeoSlugInput(String(row?.slug || ""));
+        const cleanKeyword = String(row?.keyword || "").trim().toLowerCase();
+        if (!cleanSlug || !cleanKeyword) {
+          throw new Error("Slug/keyword invalidos. Edite a pagina antes de publicar.");
+        }
+        await ensureSeoUniqueness({
+          slug: cleanSlug,
+          keyword: cleanKeyword,
+          editingIdValue: id,
+          enforceReleasedKeywordOnly: true,
+        });
+      }
+
       const payload: Record<string, any> = {
         release_status: releaseStatus,
         is_active: isActive,
