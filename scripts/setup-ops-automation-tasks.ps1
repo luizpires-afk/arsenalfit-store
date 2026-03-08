@@ -36,7 +36,8 @@ function New-TaskRunCommand {
     [string]$NpmScript
   )
 
-  return ('cmd /c cd /d "{0}" && npm run {1}' -f $RepoPath, $NpmScript)
+  $escapedRepoPath = $RepoPath.Replace('"', '""')
+  return ('cmd /c cd /d "' + $escapedRepoPath + '" && npm run ' + $NpmScript)
 }
 
 $tasks = @(
