@@ -72,7 +72,7 @@ function New-OrUpdateTask {
     [hashtable]$Task
   )
 
-  $args = @(
+  $taskArgs = @(
     "/Create"
     "/TN", $Task.Name
     "/TR", $Task.Run
@@ -80,7 +80,7 @@ function New-OrUpdateTask {
   ) + $Task.Schedule
 
   Write-Host "[ops-setup] Registrando tarefa: $($Task.Name)"
-  $output = & schtasks @args 2>&1
+  $output = & schtasks @taskArgs 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw "Falha ao registrar tarefa '$($Task.Name)': $($output -join ' ')"
   }
