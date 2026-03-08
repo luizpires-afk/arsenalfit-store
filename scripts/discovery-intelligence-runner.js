@@ -157,10 +157,31 @@ const loadTrendHistoryMap = async (client, externalIds) => {
   return grouped;
 };
 
+const resolveDiscoveryToken = async (client, env) => {
+  const envToken = getMlToken(env);
+  try {
+    const rows = await client.request(
+      "/meli_tokens?select=access_token,updated_at,expires_at&order=updated_at.desc&limit=1",
+      { method: "GET" },
+    );
+    const latest = Array.isArray(rows) ? rows[0] : null;
+    const dbToken = String(latest?.access_token || "").trim();
+    if (!dbToken) return envToken;
+
+    const expiresAt = latest?.expires_at ? new Date(latest.expires_at).getTime() : null;
+    if (expiresAt && Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      return envToken || dbToken;
+    }
+    return dbToken;
+  } catch {
+    return envToken;
+  }
+};
+
 async function main() {
   const { env, client } = parseEnvAndClient(envFile);
   const viralConfig = loadViralMomentumConfig({ ...process.env, ...env });
-  const token = getMlToken(env);
+  const token = await resolveDiscoveryToken(client, env);
   const lockName = "discovery-intelligence-30m";
   const lockBy = `${os.hostname()}:${process.pid}`;
   const roundId = `discovery-round-${Date.now()}`;

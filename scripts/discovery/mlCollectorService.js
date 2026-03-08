@@ -61,11 +61,19 @@ export async function mlCollectorService({ terms = DISCOVERY_TERMS, token = null
 
   for (const term of terms) {
     try {
-      const payload = await fetchMlJson(
-        `/sites/MLB/search?q=${encodeURIComponent(term)}&limit=${Math.max(5, Math.min(perTermLimit, 50))}`,
-        token,
-        12000,
-      );
+      const searchPath = `/sites/MLB/search?q=${encodeURIComponent(term)}&limit=${Math.max(5, Math.min(perTermLimit, 50))}`;
+      let payload = null;
+
+      try {
+        payload = await fetchMlJson(searchPath, token, 12000);
+      } catch (error) {
+        const message = String(error?.message || error || "");
+        const unauthorized = message.includes("ml_api_401") || message.toLowerCase().includes("unauthorized");
+        if (!(unauthorized && token)) throw error;
+        // Fallback for stale/invalid token: public search endpoints can still respond without auth.
+        payload = await fetchMlJson(searchPath, null, 12000);
+      }
+
       const rows = Array.isArray(payload?.results) ? payload.results : [];
       for (const row of rows) {
         const normalized = normalizeResult(row, term);
