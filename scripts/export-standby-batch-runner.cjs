@@ -43,6 +43,7 @@ const main = async () => {
     pickFallbackRows,
     buildFallbackBatchSource,
     buildFallbackSummary,
+    resolveAffiliateBatchSourceUrl,
   } = await import("../src/lib/affiliateFallbackBatch.js");
 
   const env = readRunnerEnv(envFile);
@@ -130,8 +131,8 @@ const main = async () => {
               batch_id: batchId,
               position: index + 1,
               product_id: item.product_id,
-              source_url: item.source_url,
-              external_id: item.ml_item_id || null,
+              source_url: resolveAffiliateBatchSourceUrl(item) || item.source_url || null,
+              external_id: item.ml_item_id || item.external_id || null,
             }));
             await client.request(`/affiliate_validation_batch_items`, {
               method: "POST",
@@ -155,7 +156,14 @@ const main = async () => {
           : [];
 
         const fallbackOrdered = Array.isArray(fallbackItems) ? fallbackItems : [];
-        const fallbackUrls = fallbackOrdered.map((item) => String(item.source_url || "").trim()).filter(Boolean);
+        const fallbackUrls = fallbackOrdered
+          .map((item) =>
+            resolveAffiliateBatchSourceUrl({
+              source_url: item.source_url,
+              external_id: item.external_id,
+            }),
+          )
+          .filter(Boolean);
         payload = {
           ok: true,
           batch_id: batchId,
@@ -204,7 +212,14 @@ const main = async () => {
     .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
   const batchId = ordered[0]?.batch_id ?? null;
   const urls = ordered
-    .map((row) => String(row.source_url ?? "").trim())
+    .map((row) =>
+      resolveAffiliateBatchSourceUrl({
+        source_url: row.source_url,
+        external_id: row.external_id,
+        ml_item_id: row.ml_item_id,
+        canonical_offer_url: row.canonical_offer_url,
+      }),
+    )
     .filter(Boolean);
 
   const payload = {

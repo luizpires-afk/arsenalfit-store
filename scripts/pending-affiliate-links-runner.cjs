@@ -54,6 +54,8 @@ const writeArtifacts = ({ baseName, outDirPath, payload, rows, txtContent }) => 
 };
 
 const main = async () => {
+  const { resolveAffiliateBatchSourceUrl } = await import("../src/lib/affiliateFallbackBatch.js");
+
   const env = readRunnerEnv(envFile);
   if (!env.SUPABASE_URL || !env.SERVICE_ROLE_KEY) {
     throw new Error("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY ausentes no ambiente.");
@@ -70,7 +72,7 @@ const main = async () => {
 
   const productRows = productIds.length
     ? await client.request(
-        `/products?select=id,category_id&id=in.(${productIds.map((id) => encodeURIComponent(id)).join(",")})`,
+        `/products?select=id,category_id,canonical_offer_url&id=in.(${productIds.map((id) => encodeURIComponent(id)).join(",")})`,
         { method: "GET" },
       )
     : [];
@@ -91,7 +93,14 @@ const main = async () => {
       categoria: categoryName,
       status: row.status,
       motivo: row.reason_code,
-      source_url: row.source_url || null,
+      source_url: resolveAffiliateBatchSourceUrl({
+        source_url: row.source_url,
+        ml_item_id: row.ml_item_id,
+        canonical_offer_url: product?.canonical_offer_url,
+      }) || null,
+      original_source_url: row.source_url || null,
+      ml_item_id: row.ml_item_id || null,
+      canonical_offer_url: product?.canonical_offer_url || null,
       affiliate_link: row.affiliate_link || null,
       affiliate_validation_status: row.affiliate_validation_status || null,
       affiliate_validation_error: row.affiliate_validation_error || null,

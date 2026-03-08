@@ -1,5 +1,50 @@
 const normalize = (value) => String(value ?? "").trim();
 
+export const normalizeMlItemId = (value) => {
+  const match = normalize(value).toUpperCase().match(/MLB\d{6,14}/i);
+  return match ? match[0].toUpperCase() : "";
+};
+
+export const isMercadoCatalogProductUrl = (value) => {
+  const link = normalize(value);
+  if (!link) return false;
+  try {
+    const parsed = new URL(link);
+    const host = normalize(parsed.host).toLowerCase();
+    if (!host.includes("mercadolivre")) return false;
+    return /^\/p\/MLB\d{6,14}/i.test(parsed.pathname || "");
+  } catch {
+    return false;
+  }
+};
+
+export const buildMercadoItemUrl = (mlItemId) => {
+  const normalized = normalizeMlItemId(mlItemId);
+  if (!normalized) return "";
+  const numeric = normalized.replace(/^MLB/i, "");
+  return `https://produto.mercadolivre.com.br/MLB-${numeric}-_JM`;
+};
+
+export const resolveAffiliateBatchSourceUrl = (row) => {
+  const sourceUrl = normalize(row?.source_url);
+  const canonicalOfferUrl = normalize(row?.canonical_offer_url);
+  const mlItemId = normalizeMlItemId(row?.ml_item_id || row?.external_id || sourceUrl || canonicalOfferUrl);
+
+  if (mlItemId) {
+    return buildMercadoItemUrl(mlItemId);
+  }
+
+  if (canonicalOfferUrl && /^https?:\/\//i.test(canonicalOfferUrl) && !isMercadoCatalogProductUrl(canonicalOfferUrl)) {
+    return canonicalOfferUrl;
+  }
+
+  if (sourceUrl && /^https?:\/\//i.test(sourceUrl) && !isMercadoCatalogProductUrl(sourceUrl)) {
+    return sourceUrl;
+  }
+
+  return sourceUrl || canonicalOfferUrl || "";
+};
+
 export const normalizeCategoryFilter = (value) => normalize(value).toLowerCase();
 
 export const classifyCategoryBlock = (categoryName) => {
@@ -38,9 +83,10 @@ export const pickFallbackRows = ({
   const seenKeys = new Set();
   const deduped = [];
   for (const row of filtered) {
-    const sourceUrl = normalize(row?.source_url);
+    const sourceUrl = resolveAffiliateBatchSourceUrl(row);
     const productKey = normalize(row?.product_id || row?.id);
-    const dedupeKey = sourceUrl || productKey;
+    const mlItemKey = normalizeMlItemId(row?.ml_item_id || row?.external_id || sourceUrl);
+    const dedupeKey = mlItemKey || sourceUrl || productKey;
     if (!dedupeKey) continue;
     if (seenKeys.has(dedupeKey)) continue;
     seenKeys.add(dedupeKey);
