@@ -1,9 +1,11 @@
+[CmdletBinding()]
 param(
   [string]$RepoPath = "",
-  [bool]$RunSmokeTest = $true
+  [switch]$SkipSmokeTest
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 if ([string]::IsNullOrWhiteSpace($RepoPath)) {
   $RepoPath = Split-Path -Parent $PSScriptRoot
@@ -13,6 +15,10 @@ $RepoPath = [System.IO.Path]::GetFullPath($RepoPath)
 
 if (-not (Test-Path $RepoPath)) {
   throw "RepoPath nao encontrado: $RepoPath"
+}
+
+if (-not (Test-Path (Join-Path $RepoPath "package.json"))) {
+  throw "package.json nao encontrado em: $RepoPath"
 }
 
 Write-Host "[ops-setup] Repo: $RepoPath"
@@ -74,7 +80,10 @@ function New-OrUpdateTask {
   ) + $Task.Schedule
 
   Write-Host "[ops-setup] Registrando tarefa: $($Task.Name)"
-  & schtasks @args | Out-Null
+  $output = & schtasks @args 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "Falha ao registrar tarefa '$($Task.Name)': $($output -join ' ')"
+  }
 }
 
 function Show-TaskSummary {
@@ -90,7 +99,7 @@ foreach ($task in $tasks) {
   New-OrUpdateTask -Task $task
 }
 
-if ($RunSmokeTest) {
+if (-not $SkipSmokeTest) {
   Write-Host "`n[ops-setup] Iniciando smoke test de tarefas principais..."
   & schtasks /Run /TN "ArsenalFit Ops Daily" | Out-Null
   & schtasks /Run /TN "ArsenalFit SEO Health" | Out-Null
