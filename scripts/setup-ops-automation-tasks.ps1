@@ -1,6 +1,6 @@
 param(
   [string]$RepoPath = "",
-  [switch]$RunSmokeTest = $true
+  [bool]$RunSmokeTest = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +16,14 @@ if (-not (Test-Path $RepoPath)) {
 }
 
 Write-Host "[ops-setup] Repo: $RepoPath"
+
+if (-not (Get-Command schtasks.exe -ErrorAction SilentlyContinue)) {
+  throw "schtasks.exe nao encontrado. Execute em ambiente Windows com Agendador de Tarefas disponivel."
+}
+
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+  throw "npm nao encontrado no PATH. Instale Node.js/NPM antes de registrar as tarefas."
+}
 
 function New-TaskRunCommand {
   param(
