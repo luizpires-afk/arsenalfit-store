@@ -34,6 +34,18 @@ const normalizeMlItem = (value) => {
   return match ? match[0].toUpperCase() : "";
 };
 
+const asPositivePrice = (value) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Number(n.toFixed(2));
+};
+
+const pickMaxPositive = (...values) => {
+  const positives = values.map(asPositivePrice).filter((value) => value > 0);
+  if (!positives.length) return 0;
+  return Math.max(...positives);
+};
+
 const buildFallbackPriceMap = async (client, mlItems) => {
   if (!mlItems.length) return new Map();
   const rows = await client.request(
@@ -56,6 +68,30 @@ const buildFallbackPriceMap = async (client, mlItems) => {
   return map;
 };
 
+const buildDiscoveryFallbackPriceMap = async (client, externalIds) => {
+  const map = new Map();
+  const unique = [...new Set(externalIds.map((value) => String(value || "").trim()).filter(Boolean))];
+  for (const externalId of unique) {
+    try {
+      const rows = await client.request(
+        `/discovery_price_history?select=price,captured_at&external_product_id=eq.${encodeURIComponent(externalId)}&order=captured_at.desc&limit=1`,
+        { method: "GET" },
+      );
+      const row = Array.isArray(rows) ? rows[0] : null;
+      const price = asPositivePrice(row?.price);
+      if (price <= 0) continue;
+      map.set(externalId, {
+        price,
+        updated_at: row?.captured_at || null,
+        source: "discovery_history",
+      });
+    } catch {
+      // Ignore per-id lookup failures to keep the launch flow resilient.
+    }
+  }
+  return map;
+};
+
 const main = async () => {
   const env = readRunnerEnv(envFile);
   if (!env.SUPABASE_URL || !env.SERVICE_ROLE_KEY) {
@@ -68,7 +104,7 @@ const main = async () => {
   });
 
   const products = await client.fetchPagedRows(
-    "/products?select=id,name,ml_item_id,status,is_active,marketplace,affiliate_verified,affiliate_link,affiliate_validation_status,affiliate_validation_error,price,last_price_source,last_price_verified_at,auto_disabled_reason,deactivation_reason,removed_at&marketplace=eq.mercadolivre&removed_at=is.null&order=updated_at.desc",
+    "/products?select=id,name,ml_item_id,external_id,status,is_active,marketplace,affiliate_verified,affiliate_link,affiliate_validation_status,affiliate_validation_error,price,original_price,previous_price,last_price_source,last_price_verified_at,auto_disabled_reason,deactivation_reason,removed_at&marketplace=eq.mercadolivre&removed_at=is.null&order=updated_at.desc",
   );
 
   const validated = products.filter((row) => {
@@ -88,6 +124,18 @@ const main = async () => {
     [...new Set(standbyValidated.map((row) => normalizeMlItem(row?.ml_item_id)).filter(Boolean))],
   );
 
+  const discoveryFallbackMap = await buildDiscoveryFallbackPriceMap(
+    client,
+    standbyValidated.flatMap((row) => {
+      const mlItemId = normalizeMlItem(row?.ml_item_id);
+      const externalId = String(row?.external_id || "").trim();
+      const values = [];
+      if (mlItemId) values.push(mlItemId);
+      if (externalId && externalId !== mlItemId) values.push(externalId);
+      return values;
+    }),
+  );
+
   const nowIso = new Date().toISOString();
   const candidates = [];
   const skipped = [];
@@ -104,12 +152,40 @@ const main = async () => {
       continue;
     }
 
-    const ownPrice = Number(row?.price || 0);
+    const ownPrice = asPositivePrice(row?.price);
+    const previousPrice = asPositivePrice(row?.previous_price);
+    const originalPrice = asPositivePrice(row?.original_price);
     const fallback = fallbackMap.get(mlItemId) || null;
-    const effectivePrice = ownPrice > 0 ? Number(ownPrice.toFixed(2)) : fallback?.price || 0;
+    const discoveryFallback =
+      discoveryFallbackMap.get(mlItemId) ||
+      discoveryFallbackMap.get(String(row?.external_id || "").trim()) ||
+      null;
+    const effectivePrice = pickMaxPositive(
+      ownPrice,
+      previousPrice,
+      originalPrice,
+      fallback?.price,
+      discoveryFallback?.price,
+    );
     if (!(Number.isFinite(effectivePrice) && effectivePrice > 0)) {
       skipped.push({ id: row.id, ml_item_id: mlItemId, reason: "no_positive_price" });
       continue;
+    }
+
+    let priceSource = "manual";
+    let fallbackUpdatedAt = null;
+    if (effectivePrice === ownPrice && ownPrice > 0) {
+      priceSource = "manual";
+    } else if (effectivePrice === previousPrice && previousPrice > 0) {
+      priceSource = "previous_price";
+    } else if (effectivePrice === originalPrice && originalPrice > 0) {
+      priceSource = "original_price";
+    } else if (effectivePrice === asPositivePrice(fallback?.price)) {
+      priceSource = fallback?.source || "catalog_fallback";
+      fallbackUpdatedAt = fallback?.updated_at || null;
+    } else if (effectivePrice === asPositivePrice(discoveryFallback?.price)) {
+      priceSource = discoveryFallback?.source || "discovery_history";
+      fallbackUpdatedAt = discoveryFallback?.updated_at || null;
     }
 
     candidates.push({
@@ -117,10 +193,10 @@ const main = async () => {
       name: row.name,
       ml_item_id: mlItemId,
       old_reason: reason,
-      price_old: ownPrice > 0 ? Number(ownPrice.toFixed(2)) : 0,
+      price_old: ownPrice > 0 ? ownPrice : 0,
       price_new: effectivePrice,
-      price_source_new: ownPrice > 0 ? "manual" : fallback?.source || "manual",
-      fallback_price_updated_at: fallback?.updated_at || null,
+      price_source_new: priceSource,
+      fallback_price_updated_at: fallbackUpdatedAt,
     });
   }
 
