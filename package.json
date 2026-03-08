@@ -51,6 +51,7 @@
     "strict_case_operational_batch": "node scripts/strict-case-batch-and-coherence-runner.cjs --env supabase/functions/.env.scheduler --input docs/strict-case-fallback-report.json --out-prefix docs/strict-case-operational",
     "diagnose_catalog_home_ml": "node scripts/catalog-home-ml-diagnostic-runner.cjs --env supabase/functions/.env.scheduler",
     "reactivation_operational_close": "node scripts/reactivation-operational-close-runner.cjs --env supabase/functions/.env.scheduler",
+    "launch_validated_products": "node scripts/launch-validated-products-runner.cjs --env supabase/functions/.env.scheduler --out-prefix logs/launch-validated-products --max-reactivate 120",
     "robo_agora_cauteloso": "node scripts/robo-agora-cauteloso-runner.cjs --env supabase/functions/.env.scheduler",
     "robo_15_estrito": "node scripts/robo-15-estrito-runner.cjs --env supabase/functions/.env.scheduler",
     "export_daily_strict_sources": "node scripts/export-daily-strict-sources-runner.cjs --env supabase/functions/.env.scheduler --limit 15 --out-prefix docs/daily-strict-sources",

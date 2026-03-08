@@ -27,6 +27,7 @@ const PROFILES = {
   ],
   daily: [
     "npm run robo_agora_cauteloso",
+    "npm run launch_validated_products",
     "npm run affiliate_reliability_monitor",
     "npm run operational_health_snapshot",
     "npm run home_rules_audit",
