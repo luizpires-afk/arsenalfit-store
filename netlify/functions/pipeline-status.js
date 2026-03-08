@@ -71,7 +71,9 @@ export const handler = async () => {
     const logPath = path.resolve(cwd, "logs/ml-30m-sync-cycle.log");
     if (!fs.existsSync(logPath)) {
       return jsonResponse(200, {
-        pipeline_status: "FAILED",
+        pipeline_status: "NOT_STARTED",
+        status_reason: "log_file_not_found",
+        message: "Nenhum ciclo registrado ainda neste ambiente.",
         last_pipeline_run_time: null,
         duration_seconds: 0,
         steps_ok: [],
@@ -84,7 +86,9 @@ export const handler = async () => {
     const lastCycle = cycles.length ? cycles[cycles.length - 1] : null;
     if (!lastCycle) {
       return jsonResponse(200, {
-        pipeline_status: "FAILED",
+        pipeline_status: "NOT_STARTED",
+        status_reason: "log_file_empty_or_unrecognized",
+        message: "Log encontrado, mas sem ciclos reconhecidos.",
         last_pipeline_run_time: null,
         duration_seconds: 0,
         steps_ok: [],
