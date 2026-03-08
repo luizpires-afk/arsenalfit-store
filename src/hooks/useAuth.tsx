@@ -92,9 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (mounted) setLoading(false);
     };
 
-    supabase.auth.getSession().then(({ data }) => {
-      applySession(data.session ?? null);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        applySession(data.session ?? null);
+      })
+      .catch((error) => {
+        console.warn("auth_get_session_failed", error);
+        applySession(null);
+      });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       applySession(newSession ?? null);

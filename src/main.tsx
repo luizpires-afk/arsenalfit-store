@@ -7,6 +7,7 @@ declare global {
 }
 
 const rootElement = document.getElementById("root")
+let appBootstrapped = false
 
 if (typeof globalThis.toNumber !== "function") {
   globalThis.toNumber = (value: unknown) => {
@@ -32,13 +33,19 @@ const renderFatalFallback = (title: string, message: string) => {
 }
 
 window.addEventListener("error", (event) => {
+  if (appBootstrapped) return
   const errorMessage = event?.error?.message || event.message || "Erro inesperado na inicialização do app."
   renderFatalFallback("Falha ao carregar o site", errorMessage)
 })
 
 window.addEventListener("unhandledrejection", (event) => {
+  if (appBootstrapped) return
   const reason = event.reason
   const reasonMessage = typeof reason === "string" ? reason : reason?.message || "Promise rejeitada sem tratamento."
+  const isLikelyBootstrapFailure = /chunk|dynamic import|loading css chunk|failed to fetch dynamically imported module|importing a module script failed/i.test(
+    reasonMessage,
+  )
+  if (!isLikelyBootstrapFailure) return
   renderFatalFallback("Falha ao carregar o site", reasonMessage)
 })
 
@@ -55,6 +62,7 @@ const bootstrap = async () => {
       <App />
     </React.StrictMode>,
   )
+  appBootstrapped = true
 }
 
 bootstrap().catch((error: any) => {

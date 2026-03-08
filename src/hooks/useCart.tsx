@@ -46,11 +46,19 @@ export const useCart = () => {
       setAuthReady(true);
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUserId(session?.user?.id ?? null);
-      setUser(session?.user ? { id: session.user.id, email: session.user.email } : null);
-      setAuthReady(true);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        setUserId(session?.user?.id ?? null);
+        setUser(session?.user ? { id: session.user.id, email: session.user.email } : null);
+        setAuthReady(true);
+      })
+      .catch((error) => {
+        console.warn("cart_get_session_failed", error);
+        setUserId(null);
+        setUser(null);
+        setAuthReady(true);
+      });
 
     return () => subscription.unsubscribe();
   }, []);
