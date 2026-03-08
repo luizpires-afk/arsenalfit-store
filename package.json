@@ -190,7 +190,13 @@
     "generate_sitemap": "node scripts/generate-sitemap.js --env supabase/functions/.env.scheduler --base-url https://arsenalfit.store --out-file public/sitemap.xml",
     "generate_sitemap_daily": "npm run generate_sitemap",
     "affiliate_catalog_cycle_auto": "npm run fitness_trend_discovery && npm run catalog_ingest_auto && npm run product_validator_auto && npm run recalculate_product_scores_auto && npm run ai_profit_predictor && npm run deal_detector_auto && npm run catalog_supervisor_auto",
-    "local_preview": "node scripts/serve-dist-runner.cjs"
+    "local_preview": "node scripts/serve-dist-runner.cjs",
+    "ops_production": "node scripts/ops-production-runner.cjs",
+    "ops_production_post_deploy": "node scripts/ops-production-runner.cjs --mode post-deploy",
+    "ops_production_daily": "node scripts/ops-production-runner.cjs --mode daily",
+    "ops_production_weekly": "node scripts/ops-production-runner.cjs --mode weekly",
+    "ops_production_full": "node scripts/ops-production-runner.cjs --mode full",
+    "ops_production_dry_run": "node scripts/ops-production-runner.cjs --mode full --dry-run"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.18",
