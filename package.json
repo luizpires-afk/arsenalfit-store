@@ -196,7 +196,8 @@
     "ops_production_daily": "node scripts/ops-production-runner.cjs --mode daily",
     "ops_production_weekly": "node scripts/ops-production-runner.cjs --mode weekly",
     "ops_production_full": "node scripts/ops-production-runner.cjs --mode full",
-    "ops_production_dry_run": "node scripts/ops-production-runner.cjs --mode full --dry-run"
+    "ops_production_dry_run": "node scripts/ops-production-runner.cjs --mode full --dry-run",
+    "ops_setup_windows_tasks": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-ops-automation-tasks.ps1"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.18",

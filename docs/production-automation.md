@@ -46,6 +46,14 @@ Campos principais:
 
 ## Agenda recomendada (Windows)
 
+Setup automatico (um comando):
+
+```bash
+npm run ops_setup_windows_tasks
+```
+
+Isso cria/atualiza as tarefas abaixo e roda smoke test das principais.
+
 Exemplo de agendamento diario as 06:30:
 
 ```powershell
