@@ -40,6 +40,7 @@ import Verify from "@/Pages/Verify";
 import ResetPassword from "@/Pages/ResetPassword";
 import OutProduct from "@/Pages/OutProduct";
 import ComoMonitorar from "@/Pages/ComoMonitorar";
+import ComoLancarProdutos from "@/Pages/ComoLancarProdutos";
 import { AdminRoute } from "@/Components/auth/AdminRoute";
 
 const loadAdminDashboard = () => import("@/admin/dashboard/AdminDashboard");
@@ -225,6 +226,7 @@ const AppRoutes = () => {
         <Route path="/verificar" element={<Verify />} />
         <Route path="/redefinir-senha" element={<ResetPassword />} />
         <Route path="/como-monitorar" element={<ComoMonitorar />} />
+        <Route path="/como-lancar-produtos" element={<ComoLancarProdutos />} />
         <Route path="/out/product/:id" element={<OutProduct />} />
         <Route path="/ofertas" element={<Navigate to="/" replace />} />
         <Route path="/melhores-ofertas" element={<MelhoresOfertas />} />

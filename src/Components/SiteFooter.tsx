@@ -48,6 +48,15 @@ export function SiteFooter({ className }: SiteFooterProps) {
             >
               Afiliados
             </Link>
+            <span aria-hidden="true" className="px-1 text-zinc-400">
+              ·
+            </span>
+            <Link
+              to="/como-lancar-produtos"
+              className="inline-flex min-h-[44px] items-center rounded-md px-3 py-2 hover:text-[#ff7a00] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff7a00]/40"
+            >
+              Lancar Produtos
+            </Link>
           </nav>
         </div>
 
